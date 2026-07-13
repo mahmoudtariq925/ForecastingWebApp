@@ -6,9 +6,6 @@ interactive frontend backed by browser `localStorage`. See
 [`PROJECT.md`](./PROJECT.md) for the phased roadmap (Azure backend + SSO come
 later).
 
-The UI is a faithful build of the original single-file prototype
-(`cashflow-app (5).html`) — same colours, fonts (Fraunces / Inter Tight /
-JetBrains Mono), spacing and layout, now componentised.
 
 ## Screens
 
