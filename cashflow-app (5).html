@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treasury — Cash Flow Forecasting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #f4f3ee;
+  --border: #e7e4dc;
+  --border-strong: #d3cfc4;
+  --text: #1a1d24;
+  --text-dim: #5c6170;
+  --text-muted: #8e92a3;
+  --accent: #8a6d3b;
+  --accent-soft: rgba(138,109,59,0.10);
+  --green: #2f8a5c;
+  --green-soft: rgba(47,138,92,0.10);
+  --red: #b8484a;
+  --red-soft: rgba(184,72,74,0.10);
+  --amber: #b27a1f;
+  --amber-soft: rgba(178,122,31,0.12);
+  --blue: #3d6da3;
+  --blue-soft: rgba(61,109,163,0.10);
+  --sidebar-bg: #f4f3ee;
+  --serif: 'Fraunces', Georgia, serif;
+  --sans: 'Inter Tight', -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+  overflow: hidden;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, select, textarea { font-family: inherit; }
+
+/* === LAYOUT === */
+.app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
+
+/* === SIDEBAR === */
+.sidebar {
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+}
+.brand {
+  padding: 0 24px 28px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.brand-mark {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  font-style: italic;
+}
+.brand-mark span { color: var(--accent); }
+.brand-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+.nav-section {
+  padding: 0 16px;
+  margin-bottom: 24px;
+}
+.nav-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 0 8px 10px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--bg-elev); color: var(--text); }
+.nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.nav-item .icon { width: 16px; height: 16px; stroke-width: 1.6; }
+
+.user-card {
+  margin-top: auto;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.avatar {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a88652, #6b5028);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 12px;
+  color: #fff;
+}
+.user-info { font-size: 12px; }
+.user-name { font-weight: 600; color: var(--text); }
+.user-role {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* === MAIN === */
+.main { overflow: hidden; display: flex; flex-direction: column; }
+
+/* === TOP BAR === */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.page-title-wrap h1 {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.page-title-wrap .crumb {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+
+.cycle-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-size: 12px;
+}
+.cycle-pill .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+.cycle-pill .label { color: var(--text-muted); font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;}
+.cycle-pill .val { font-weight: 500; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: #6f5630; }
+.btn-ghost {
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+.btn-ghost:hover { background: var(--bg-elev); color: var(--text); border-color: var(--border-strong); }
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover { background: #25754b; }
+.btn-danger { color: var(--red); border-color: rgba(224,122,122,0.3); }
+.btn-danger:hover { background: var(--red-soft); }
+
+/* === CONTENT === */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px 60px;
+}
+.view { display: none; }
+.view.active { display: block; }
+
+/* === DASHBOARD === */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.kpi-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
+}
+.kpi-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.kpi-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kpi-sub .delta { font-family: var(--mono); font-weight: 500; }
+.delta.up { color: var(--green); }
+.delta.down { color: var(--red); }
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+  margin-top: 8px;
+}
+.section-header h2 {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.section-header .tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* === PANEL === */
+.panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.panel-header h3 {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+}
+.panel-body { padding: 20px; }
+.panel-body.no-pad { padding: 0; }
+
+/* === TABLE === */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  background: var(--bg-elev-2);
+}
+thead th.num { text-align: right; }
+tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(0,0,0,0.015); }
+td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* === STATUS PILLS === */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.status.draft { background: rgba(0,0,0,0.05); color: var(--text-dim); }
+.status.submitted { background: var(--amber-soft); color: var(--amber); }
+.status.approved { background: var(--green-soft); color: var(--green); }
+.status.rejected { background: var(--red-soft); color: var(--red); }
+.status.pending { background: var(--red-soft); color: var(--red); }
+.status.consolidated { background: var(--accent-soft); color: var(--accent); }
+.status .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+/* === FORECAST GRID === */
+.grid-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+}
+.grid-toolbar-left { display: flex; align-items: center; gap: 16px; }
+.grid-info { font-size: 12px; color: var(--text-dim); }
+.grid-info strong { color: var(--text); font-weight: 500; }
+.paste-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 4px 10px;
+  background: var(--bg-elev);
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+}
+
+.forecast-grid-wrap {
+  overflow-x: auto;
+  max-height: 580px;
+  position: relative;
+}
+.forecast-grid {
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.forecast-grid th, .forecast-grid td {
+  border: 1px solid var(--border);
+  padding: 0;
+  min-width: 88px;
+  text-align: right;
+  background: var(--bg-elev);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.forecast-grid thead th {
+  position: sticky; top: 0; z-index: 3;
+  padding: 10px 10px;
+  background: var(--bg-elev-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  font-weight: 500;
+}
+.forecast-grid thead th.day-h { min-width: 78px; }
+.forecast-grid thead th.day-h .dow { display: block; font-size: 9px; color: var(--text-muted); margin-top: 2px; opacity: 0.7; }
+.forecast-grid thead th.day-h.weekend { background: #ecebe4; }
+
+.forecast-grid th.row-label-h,
+.forecast-grid td.row-label {
+  position: sticky; left: 0; z-index: 2;
+  text-align: left;
+  min-width: 220px;
+  background: var(--bg-elev-2);
+  padding: 10px 14px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.forecast-grid th.row-label-h { z-index: 4; }
+
+.forecast-grid td.row-label.indent { padding-left: 28px; font-weight: 400; color: var(--text-dim); }
+.forecast-grid td.row-label.subtotal { color: var(--accent); font-weight: 600; }
+.forecast-grid td.row-label.total { color: var(--text); font-weight: 700; background: #ebe9e0; }
+
+.forecast-grid td.cell { padding: 0; position: relative; }
+.forecast-grid td.cell input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 9px 8px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.forecast-grid td.cell input:focus {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.forecast-grid td.cell.weekend { background: #ecebe4; }
+.forecast-grid td.cell.weekend input { color: var(--text-muted); }
+.forecast-grid td.cell.variance-flag { background: rgba(178,122,31,0.08); }
+.forecast-grid td.cell.variance-flag::after {
+  content: '';
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 5px; height: 5px;
+  background: var(--amber);
+  border-radius: 50%;
+}
+.forecast-grid td.cell.subtotal-cell {
+  color: var(--accent);
+  font-weight: 600;
+  padding: 9px 8px;
+  text-align: right;
+}
+.forecast-grid td.cell.total-cell {
+  color: var(--text);
+  font-weight: 700;
+  background: #ebe9e0;
+  padding: 9px 8px;
+  text-align: right;
+}
+.forecast-grid tr.section-row td { background: #f4f3ee; padding-top: 12px; }
+.forecast-grid tr.section-row td.row-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding-top: 12px;
+}
+
+/* === FORM === */
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
+.form-textarea { min-height: 80px; resize: vertical; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+/* === MODAL === */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(20,22,28,0.45);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-header h3 {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+}
+.modal-body { padding: 22px 24px; }
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.close-btn { color: var(--text-muted); font-size: 22px; line-height: 1; }
+.close-btn:hover { color: var(--text); }
+
+/* === VARIANCE PANEL === */
+.variance-panel {
+  background: rgba(178,122,31,0.06);
+  border-left: 2px solid var(--amber);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  border-radius: 4px;
+}
+.variance-panel h4 {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.variance-panel .row {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+/* === USER MGMT === */
+.role-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.role-tag.admin { background: var(--accent-soft); color: var(--accent); }
+.role-tag.treasury { background: var(--blue-soft); color: var(--blue); }
+.role-tag.approver { background: var(--green-soft); color: var(--green); }
+.role-tag.submitter { background: rgba(0,0,0,0.05); color: var(--text-dim); }
+
+/* === COMPARISON === */
+.comparison-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  background: var(--bg-elev-2);
+}
+.tab {
+  padding: 14px 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* === CHART (minimal) === */
+.chart-container {
+  height: 240px;
+  position: relative;
+  padding: 20px;
+}
+.chart-svg { width: 100%; height: 100%; }
+
+/* === EMPTY STATES === */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.empty-state .ic { font-size: 32px; opacity: 0.4; margin-bottom: 12px; }
+.empty-state p { font-size: 13px; }
+
+/* utility */
+.row-flex { display: flex; gap: 10px; align-items: center; }
+.text-dim { color: var(--text-dim); }
+.text-muted { color: var(--text-muted); }
+.mt-16 { margin-top: 16px; }
+.mb-20 { margin-bottom: 20px; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">Liquid<span>·</span></div>
+      <div class="brand-sub">Cash Flow Forecasting</div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Workspace</div>
+      <div class="nav-item active" data-view="dashboard">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" data-view="cycles">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+        Forecast Cycles
+      </div>
+      <div class="nav-item" data-view="submission">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        My Submissions
+      </div>
+      <div class="nav-item" data-view="approvals">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Approvals
+      </div>
+      <div class="nav-item" data-view="consolidated">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3v18h18"/><path d="M18 9l-6 6-4-4-3 3"/></svg>
+        Consolidated
+      </div>
+      <div class="nav-item" data-view="comparison">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Comparisons
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Admin</div>
+      <div class="nav-item" data-view="users">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        User Management
+      </div>
+      <div class="nav-item" data-view="settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+    </div>
+
+    <div class="user-card">
+      <div class="avatar">MK</div>
+      <div class="user-info">
+        <div class="user-name">Maja Kowalska</div>
+        <div class="user-role">Treasury · Admin</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ===== Dashboard ===== -->
+    <div class="view active" id="view-dashboard">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Overview</div>
+          <h1>Treasury Dashboard</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="cycle-pill">
+            <span class="dot"></span>
+            <span class="label">Active Cycle</span>
+            <span class="val">CW-2026-21</span>
+          </div>
+          <button class="btn btn-ghost" onclick="openModal('exportModal')">Export</button>
+          <button class="btn btn-primary" onclick="openModal('newCycleModal')">+ New Cycle</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Total Forecast · 30d</div>
+            <div class="kpi-value">€ 184.2M</div>
+            <div class="kpi-sub"><span class="delta up">↑ 3.2%</span> vs prior cycle</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Net Cash Position</div>
+            <div class="kpi-value">€ 42.7M</div>
+            <div class="kpi-sub"><span class="delta down">↓ 1.8%</span> from CW-20</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Submissions Received</div>
+            <div class="kpi-value">3 / 5</div>
+            <div class="kpi-sub text-dim">2 pending approval</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Variance Flags</div>
+            <div class="kpi-value">7</div>
+            <div class="kpi-sub text-dim">3 require commentary</div>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <h2>Cycle Progress</h2>
+          <span class="tag">CW-2026-21 · Closes Fri 18:00 CET</span>
+        </div>
+
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table>
+              <thead>
+                <tr>
+                  <th>Entity / Team</th>
+                  <th>Submitter</th>
+                  <th>Approver</th>
+                  <th>Status</th>
+                  <th class="num">Total (€)</th>
+                  <th class="num">Δ vs Prior</th>
+                  <th>Updated</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="submissions-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <h2>30-Day Outlook</h2>
+          <span class="tag">Consolidated · €M</span>
+        </div>
+        <div class="panel">
+          <div class="chart-container" id="chart-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Cycles ===== -->
+    <div class="view" id="view-cycles">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Treasury</div>
+          <h1>Forecast Cycles</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="openModal('newCycleModal')">+ New Cycle</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cycle ID</th>
+                  <th>Period</th>
+                  <th>Opened</th>
+                  <th>Closes</th>
+                  <th>Status</th>
+                  <th>Submissions</th>
+                  <th class="num">Total (€M)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="cycles-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Submission ===== -->
+    <div class="view" id="view-submission">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Submission · CW-2026-21 · NL Operations</div>
+          <h1>30-Day Forecast Entry</h1>
+        </div>
+        <div class="topbar-actions">
+          <span class="status submitted"><span class="dot"></span>Draft</span>
+          <button class="btn btn-ghost">Save Draft</button>
+          <button class="btn btn-ghost btn-danger" onclick="alert('Submission cancelled.')">Cancel</button>
+          <button class="btn btn-primary" onclick="submitForecast()">Submit for Approval</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="variance-panel" id="variancePanel" style="display:none;">
+          <h4>⚠ Variance Flags Detected</h4>
+          <div class="row"><span>Cells exceeding ±15% vs prior cycle require commentary before submission.</span><span id="varianceCount">0 flagged</span></div>
+        </div>
+
+        <div class="panel">
+          <div class="grid-toolbar">
+            <div class="grid-toolbar-left">
+              <div class="grid-info"><strong>NL Operations</strong> · <span class="text-muted">EUR · Daily values in thousands</span></div>
+              <span class="paste-hint">⌘V · Paste from Excel supported</span>
+            </div>
+            <div class="row-flex">
+              <button class="btn btn-ghost" onclick="resetGrid()">Reset</button>
+              <button class="btn btn-ghost" onclick="loadPriorValues()">Copy Prior Forecast</button>
+            </div>
+          </div>
+          <div class="forecast-grid-wrap" id="grid-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Approvals ===== -->
+    <div class="view" id="view-approvals">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Workflow</div>
+          <h1>Pending Approvals</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="cycle-pill"><span class="dot"></span><span class="label">Active</span><span class="val">CW-2026-21</span></div>
+        </div>
+      </header>
+      <div class="content">
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table>
+              <thead>
+                <tr>
+                  <th>Entity / Team</th>
+                  <th>Submitted by</th>
+                  <th>Variance Flags</th>
+                  <th class="num">Total (€)</th>
+                  <th class="num">Δ vs Prior</th>
+                  <th>Status</th>
+                  <th>Submitted</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="approvals-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Consolidated ===== -->
+    <div class="view" id="view-consolidated">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Treasury · CW-2026-21</div>
+          <h1>Consolidated Forecast</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-ghost">Export XLSX</button>
+          <button class="btn btn-success" onclick="closeCycle()">Close Cycle</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Inflows · 30d</div>
+            <div class="kpi-value">€ 312.8M</div>
+            <div class="kpi-sub"><span class="delta up">↑ 2.1%</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Outflows · 30d</div>
+            <div class="kpi-value">€ 270.1M</div>
+            <div class="kpi-sub"><span class="delta up">↑ 4.4%</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Net · 30d</div>
+            <div class="kpi-value">€ 42.7M</div>
+            <div class="kpi-sub"><span class="delta down">↓ 1.8%</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Min Daily Balance</div>
+            <div class="kpi-value">€ 18.2M</div>
+            <div class="kpi-sub text-dim">on day 23</div>
+          </div>
+        </div>
+        <div class="section-header"><h2>Consolidated Grid</h2><span class="tag">All entities · approved only</span></div>
+        <div class="panel">
+          <div class="grid-toolbar">
+            <div class="grid-info"><strong>14 entities consolidated</strong> · <span class="text-muted">read-only</span></div>
+          </div>
+          <div class="forecast-grid-wrap" id="consolidated-grid-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Comparison ===== -->
+    <div class="view" id="view-comparison">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Analysis</div>
+          <h1>Forecast vs Forecast</h1>
+        </div>
+        <div class="topbar-actions">
+          <select class="form-select" style="width:auto;">
+            <option>CW-2026-21 vs CW-2026-20</option>
+            <option>CW-2026-21 vs CW-2026-19</option>
+            <option>CW-2026-20 vs CW-2026-19</option>
+          </select>
+        </div>
+      </header>
+      <div class="content">
+        <div class="panel">
+          <div class="comparison-tabs">
+            <div class="tab active">Daily Variance</div>
+            <div class="tab">By Entity</div>
+            <div class="tab">By Category</div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-container" id="compare-chart"></div>
+          </div>
+        </div>
+        <div class="section-header"><h2>Largest Variances</h2><span class="tag">±15% threshold</span></div>
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table>
+              <thead>
+                <tr><th>Entity</th><th>Category</th><th>Day</th><th class="num">Prior (€k)</th><th class="num">Current (€k)</th><th class="num">Δ %</th><th>Comment</th></tr>
+              </thead>
+              <tbody id="variances-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Users ===== -->
+    <div class="view" id="view-users">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Administration</div>
+          <h1>User Management</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="openModal('newUserModal')">+ Add User</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="panel">
+          <div class="panel-body no-pad">
+            <table>
+              <thead>
+                <tr><th>Name</th><th>Email</th><th>Entity / Team</th><th>Role</th><th>Approval For</th><th>Last Active</th><th></th></tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Settings ===== -->
+    <div class="view" id="view-settings">
+      <header class="topbar">
+        <div class="page-title-wrap">
+          <div class="crumb">Administration</div>
+          <h1>Settings</h1>
+        </div>
+      </header>
+      <div class="content">
+        <div class="panel">
+          <div class="panel-header"><h3>Cycle Configuration</h3></div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Forecast Horizon</label>
+                <select class="form-select"><option>30 days</option><option>13 weeks</option><option>90 days</option></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cycle Frequency</label>
+                <select class="form-select"><option>Weekly (Mon → Fri close)</option><option>Bi-weekly</option><option>Monthly</option></select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Variance Rules</h3></div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Variance Threshold</label>
+                <input class="form-input" value="15" />
+                <div class="text-muted" style="font-size:11px;margin-top:6px;">Cells exceeding ±X% vs prior cycle require commentary</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Minimum Value to Trigger</label>
+                <input class="form-input" value="50,000" />
+                <div class="text-muted" style="font-size:11px;margin-top:6px;">Variances on cells below this absolute value are ignored</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Exempt New Periods</label>
+              <select class="form-select"><option>Yes — never flag days outside prior cycle's horizon</option><option>No — always flag</option></select>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Authentication</h3></div>
+          <div class="panel-body">
+            <div class="form-group">
+              <label class="form-label">SSO Provider</label>
+              <input class="form-input" value="Azure Active Directory · Tenant: contoso.onmicrosoft.com" disabled />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Allowed Domains</label>
+              <input class="form-input" value="@contoso.com" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ============ MODALS ============ -->
+<div class="modal-overlay" id="newCycleModal">
+  <div class="modal">
+    <div class="modal-header"><h3>Open New Forecast Cycle</h3><button class="close-btn" onclick="closeModal('newCycleModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Cycle ID</label><input class="form-input" value="CW-2026-22" /></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Start Date</label><input class="form-input" type="date" value="2026-05-25" /></div>
+        <div class="form-group"><label class="form-label">Submission Deadline</label><input class="form-input" type="datetime-local" value="2026-05-29T18:00" /></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notify</label>
+        <select class="form-select" multiple style="height:80px;">
+          <option selected>All submitters</option><option selected>All approvers</option><option>Treasury team only</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('newCycleModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="openCycle()">Open Cycle</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="exportModal">
+  <div class="modal">
+    <div class="modal-header"><h3>Export Data</h3><button class="close-btn" onclick="closeModal('exportModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Format</label><select class="form-select"><option>Excel (.xlsx)</option><option>CSV</option><option>JSON</option></select></div>
+      <div class="form-group"><label class="form-label">Scope</label><select class="form-select"><option>Current cycle — consolidated</option><option>Current cycle — all submissions</option><option>Last 4 cycles</option><option>Year-to-date</option></select></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('exportModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal('exportModal');alert('Export started — file will be emailed.')">Export</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="varianceModal">
+  <div class="modal">
+    <div class="modal-header"><h3>Explain Variance</h3><button class="close-btn" onclick="closeModal('varianceModal')">×</button></div>
+    <div class="modal-body">
+      <div class="variance-panel" style="margin-bottom:18px;">
+        <h4>Flagged Cell</h4>
+        <div class="row"><span id="vm-cat">Customer Receipts · Day 14</span><span id="vm-delta">+34.1%</span></div>
+        <div class="row"><span>Prior: <span id="vm-prior">€2,150k</span></span><span>Current: <span id="vm-current">€2,883k</span></span></div>
+      </div>
+      <div class="form-group"><label class="form-label">Commentary (required)</label><textarea class="form-textarea" placeholder="Explain the driver behind this variance..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('varianceModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal('varianceModal');alert('Commentary saved.')">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newUserModal">
+  <div class="modal">
+    <div class="modal-header"><h3>Add User</h3><button class="close-btn" onclick="closeModal('newUserModal')">×</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Full Name</label><input class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Email</label><input class="form-input" placeholder="user@contoso.com" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Entity / Team</label><select class="form-select"><option>NL Operations</option><option>DE Sales</option><option>FR Manufacturing</option><option>UK Services</option><option>US Corporate</option></select></div>
+        <div class="form-group"><label class="form-label">Role</label><select class="form-select"><option>Submitter</option><option>Approver</option><option>Treasury</option><option>Admin</option></select></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('newUserModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal('newUserModal');alert('User invited via Azure AD.')">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============ NAVIGATION ============
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('view-' + item.dataset.view).classList.add('active');
+  });
+});
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ============ DUMMY DATA ============
+const entities = [
+  { name: 'Netherlands', submitter: 'Jan de Vries', approver: 'Pieter Bakker', total: 24350, delta: 2.1, status: 'approved' },
+  { name: 'Germany', submitter: 'Anna Müller', approver: 'Klaus Weber', total: 31200, delta: -1.4, status: 'submitted' },
+  { name: 'France', submitter: 'Marie Dubois', approver: 'Pierre Martin', total: 18900, delta: 4.7, status: 'pending' },
+  { name: 'United Kingdom', submitter: 'James Patel', approver: 'Sarah O\'Brien', total: 22100, delta: 0.3, status: 'approved' },
+  { name: 'Spain', submitter: 'Carlos Ruiz', approver: 'Elena García', total: 12400, delta: -2.8, status: 'submitted' },
+  { name: 'Italy', submitter: 'Marco Rossi', approver: 'Giulia Conti', total: 9200, delta: 1.1, status: 'approved' },
+  { name: 'Poland', submitter: 'Tomasz Nowak', approver: 'Anna Wójcik', total: 7600, delta: -0.9, status: 'pending' },
+  { name: 'Belgium', submitter: 'Sophie Janssens', approver: 'Luc De Smet', total: 6450, delta: 3.2, status: 'approved' },
+  { name: 'Switzerland', submitter: 'Hans Müller', approver: 'Beat Wyss', total: 4200, delta: 0.0, status: 'submitted' },
+  { name: 'Austria', submitter: 'Lukas Huber', approver: 'Maria Gruber', total: 2800, delta: 1.8, status: 'approved' },
+  { name: 'Portugal', submitter: 'João Silva', approver: 'Ana Costa', total: 1900, delta: -3.4, status: 'pending' },
+];
+
+const rows = document.getElementById('submissions-tbody');
+entities.slice(0, 5).forEach(e => {
+  const tr = document.createElement('tr');
+  const deltaClass = e.delta > 0 ? 'up' : (e.delta < 0 ? 'down' : '');
+  const deltaSign = e.delta > 0 ? '↑' : (e.delta < 0 ? '↓' : '—');
+  const actionBtn = e.status === 'approved'
+    ? '<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">View</button>'
+    : '<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="sendChaser(\'' + e.name + '\')">Send Chaser</button>';
+  tr.innerHTML = `
+    <td><strong>${e.name}</strong></td>
+    <td class="text-dim">${e.submitter}</td>
+    <td class="text-dim">${e.approver}</td>
+    <td><span class="status ${e.status}"><span class="dot"></span>${e.status}</span></td>
+    <td class="num">€${(e.total).toLocaleString()}k</td>
+    <td class="num"><span class="delta ${deltaClass}">${deltaSign} ${Math.abs(e.delta).toFixed(1)}%</span></td>
+    <td class="text-muted" style="font-size:12px;">${Math.floor(Math.random()*48)}h ago</td>
+    <td>${actionBtn}</td>
+  `;
+  rows.appendChild(tr);
+});
+
+// === Approvals ===
+const approvalsTbody = document.getElementById('approvals-tbody');
+entities.filter(e => e.status === 'submitted' || e.status === 'pending').forEach(e => {
+  const tr = document.createElement('tr');
+  const flags = Math.floor(Math.random()*4);
+  const deltaClass = e.delta > 0 ? 'up' : 'down';
+  const deltaSign = e.delta > 0 ? '↑' : '↓';
+  tr.innerHTML = `
+    <td><strong>${e.name}</strong></td>
+    <td class="text-dim">${e.submitter}</td>
+    <td>${flags ? `<span class="status pending"><span class="dot"></span>${flags} flag${flags>1?'s':''}</span>` : '<span class="text-muted" style="font-size:11px;">—</span>'}</td>
+    <td class="num">€${(e.total).toLocaleString()}k</td>
+    <td class="num"><span class="delta ${deltaClass}">${deltaSign} ${Math.abs(e.delta).toFixed(1)}%</span></td>
+    <td><span class="status ${e.status}"><span class="dot"></span>${e.status}</span></td>
+    <td class="text-muted" style="font-size:12px;">${Math.floor(Math.random()*24)}h ago</td>
+    <td><div class="row-flex">
+      <button class="btn btn-success" style="padding:4px 10px;font-size:11px;" onclick="this.closest('tr').querySelector('.status').className='status approved';this.closest('tr').querySelector('.status').innerHTML='<span class=dot></span>approved'">Approve</button>
+      <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;">Reject</button>
+    </div></td>
+  `;
+  approvalsTbody.appendChild(tr);
+});
+
+// === Cycles ===
+const cyclesTbody = document.getElementById('cycles-tbody');
+const cycles = [
+  { id: 'CW-2026-21', start: 'May 18', closes: 'May 22 · 18:00', status: 'submitted', subs: '14 / 18', total: 184.2 },
+  { id: 'CW-2026-20', start: 'May 11', closes: 'May 15 · 18:00', status: 'consolidated', subs: '18 / 18', total: 178.4 },
+  { id: 'CW-2026-19', start: 'May 04', closes: 'May 08 · 18:00', status: 'consolidated', subs: '18 / 18', total: 181.0 },
+  { id: 'CW-2026-18', start: 'Apr 27', closes: 'May 01 · 18:00', status: 'consolidated', subs: '17 / 17', total: 175.8 },
+  { id: 'CW-2026-17', start: 'Apr 20', closes: 'Apr 24 · 18:00', status: 'consolidated', subs: '17 / 17', total: 172.1 },
+];
+cycles.forEach((c, i) => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><strong>${c.id}</strong></td>
+    <td class="text-dim">${c.start} → +30d</td>
+    <td class="text-dim">${i === 0 ? '8h ago' : (i + 1) + 'w ago'}</td>
+    <td class="text-dim">${c.closes}</td>
+    <td><span class="status ${c.status}"><span class="dot"></span>${c.status === 'submitted' ? 'open' : c.status}</span></td>
+    <td class="text-dim">${c.subs}</td>
+    <td class="num">€${c.total.toFixed(1)}M</td>
+    <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">Open</button></td>
+  `;
+  cyclesTbody.appendChild(tr);
+});
+
+// === Users ===
+const usersTbody = document.getElementById('users-tbody');
+const users = [
+  { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'admin', scope: 'All entities', last: 'Now' },
+  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', scope: '—', last: '2h ago' },
+  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', scope: 'NL Operations', last: '1h ago' },
+  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', scope: '—', last: '4h ago' },
+  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', scope: 'DE Sales, DE Manufacturing', last: '3h ago' },
+  { name: 'Sarah O\'Brien', email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', scope: 'UK Services, UK Support', last: 'Yesterday' },
+  { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', scope: 'All entities', last: '20m ago' },
+];
+users.forEach(u => {
+  const tr = document.createElement('tr');
+  const initials = u.name.split(' ').map(s => s[0]).slice(0,2).join('');
+  tr.innerHTML = `
+    <td><div class="row-flex"><div class="avatar" style="width:28px;height:28px;font-size:11px;">${initials}</div><strong>${u.name}</strong></div></td>
+    <td class="text-dim">${u.email}</td>
+    <td class="text-dim">${u.team}</td>
+    <td><span class="role-tag ${u.role}">${u.role}</span></td>
+    <td class="text-dim" style="font-size:12px;">${u.scope}</td>
+    <td class="text-muted" style="font-size:12px;">${u.last}</td>
+    <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">Edit</button></td>
+  `;
+  usersTbody.appendChild(tr);
+});
+
+// === Variances ===
+const varTbody = document.getElementById('variances-tbody');
+const variances = [
+  { ent: 'NL Operations', cat: 'Customer Receipts', day: 'Day 14', prior: 2150, current: 2883, comment: 'Large invoice — Acme Corp paid early' },
+  { ent: 'DE Sales', cat: 'Supplier Payments', day: 'Day 8', prior: -1820, current: -2540, comment: 'New equipment delivery moved forward' },
+  { ent: 'US Corporate', cat: 'Tax Payments', day: 'Day 21', prior: 0, current: -3200, comment: '' },
+  { ent: 'FR Manufacturing', cat: 'Payroll', day: 'Day 15', prior: -890, current: -1340, comment: 'Bonus accruals included' },
+  { ent: 'UK Services', cat: 'Customer Receipts', day: 'Day 5', prior: 1450, current: 1820, comment: 'Pipeline tightening — confirmed deals' },
+];
+variances.forEach(v => {
+  const pct = ((v.current - v.prior) / Math.max(Math.abs(v.prior), 1)) * 100;
+  const tr = document.createElement('tr');
+  const cls = pct > 0 ? 'up' : 'down';
+  const sign = pct > 0 ? '+' : '';
+  tr.innerHTML = `
+    <td><strong>${v.ent}</strong></td>
+    <td class="text-dim">${v.cat}</td>
+    <td class="text-dim">${v.day}</td>
+    <td class="num">${v.prior.toLocaleString()}</td>
+    <td class="num">${v.current.toLocaleString()}</td>
+    <td class="num"><span class="delta ${cls}">${sign}${pct.toFixed(1)}%</span></td>
+    <td class="text-dim" style="font-size:12px;max-width:280px;">${v.comment || '<span class="status pending"><span class=dot></span>commentary needed</span>'}</td>
+  `;
+  varTbody.appendChild(tr);
+});
+
+// ============ FORECAST GRID ============
+const lineItems = [
+  { section: 'INFLOWS' },
+  { label: 'Customer Receipts', baseMin: 1800, baseMax: 2400 },
+  { label: 'Intercompany Receipts', baseMin: 200, baseMax: 600 },
+  { label: 'Other Inflows', baseMin: 0, baseMax: 150 },
+  { label: 'Total Inflows', isSubtotal: true },
+  { section: 'OUTFLOWS' },
+  { label: 'Supplier Payments', baseMin: -1900, baseMax: -1200, negative: true },
+  { label: 'Payroll', baseMin: -800, baseMax: -200, negative: true, payday: true },
+  { label: 'Tax Payments', baseMin: -600, baseMax: 0, negative: true, taxday: true },
+  { label: 'Intercompany Payments', baseMin: -400, baseMax: 0, negative: true },
+  { label: 'Capex', baseMin: -300, baseMax: 0, negative: true },
+  { label: 'Other Outflows', baseMin: -200, baseMax: 0, negative: true },
+  { label: 'Total Outflows', isSubtotal: true },
+  { label: 'Net Cash Flow', isTotal: true },
+];
+
+function getDates() {
+  const dates = [];
+  const start = new Date(2026, 4, 25);
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    dates.push(d);
+  }
+  return dates;
+}
+const dates = getDates();
+const dayLabels = dates.map(d => {
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const dm = `${d.getDate()}/${d.getMonth()+1}`;
+  return { dm, dow, weekend: d.getDay() === 0 || d.getDay() === 6 };
+});
+
+function genValue(item, dayIdx) {
+  const d = dates[dayIdx];
+  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+  if (item.payday && d.getDate() !== 28 && d.getDate() !== 15) return 0;
+  if (item.taxday && d.getDate() !== 22) return 0;
+  if (isWeekend && !item.negative) return 0;
+  const range = item.baseMax - item.baseMin;
+  return Math.round((item.baseMin + Math.random() * range) * (isWeekend ? 0.3 : 1));
+}
+
+function buildGrid(containerId, editable, flagSome) {
+  const container = document.getElementById(containerId);
+  let html = '<table class="forecast-grid"><thead><tr><th class="row-label-h">Cash Flow Category</th>';
+  dayLabels.forEach((dl, i) => {
+    html += `<th class="day-h ${dl.weekend ? 'weekend' : ''}">D${i+1}<span class="dow">${dl.dow} ${dl.dm}</span></th>`;
+  });
+  html += '<th class="day-h" style="background:#e7e4dc;">Total</th></tr></thead><tbody>';
+
+  const values = {};
+  lineItems.forEach((item, rowIdx) => {
+    if (item.section) {
+      html += `<tr class="section-row"><td class="row-label">${item.section}</td>`;
+      for (let i = 0; i < 31; i++) html += '<td></td>';
+      html += '</tr>';
+      return;
+    }
+    const labelClass = item.isSubtotal ? 'subtotal' : (item.isTotal ? 'total' : 'indent');
+    html += `<tr><td class="row-label ${labelClass}">${item.label}</td>`;
+    let rowTotal = 0;
+    dayLabels.forEach((dl, i) => {
+      let val = 0;
+      if (!item.isSubtotal && !item.isTotal) {
+        val = genValue(item, i);
+        values[`${rowIdx}-${i}`] = val;
+      } else if (item.isSubtotal) {
+        if (item.label === 'Total Inflows') {
+          for (let r = 1; r <= 3; r++) val += values[`${r}-${i}`] || 0;
+        } else {
+          for (let r = 6; r <= 11; r++) val += values[`${r}-${i}`] || 0;
+        }
+        values[`${rowIdx}-${i}`] = val;
+      } else if (item.isTotal) {
+        val = (values[`4-${i}`] || 0) + (values[`12-${i}`] || 0);
+      }
+      rowTotal += val;
+      const flag = flagSome && !item.isSubtotal && !item.isTotal && Math.random() < 0.04;
+      const display = val === 0 ? '—' : val.toLocaleString();
+      const cellClass = `cell ${dl.weekend ? 'weekend' : ''} ${flag ? 'variance-flag' : ''} ${item.isSubtotal ? 'subtotal-cell' : ''} ${item.isTotal ? 'total-cell' : ''}`;
+      if (editable && !item.isSubtotal && !item.isTotal) {
+        html += `<td class="${cellClass}"><input value="${val === 0 ? '' : val}" data-row="${rowIdx}" data-day="${i}" /></td>`;
+      } else if (item.isSubtotal) {
+        html += `<td class="${cellClass}">${display}</td>`;
+      } else if (item.isTotal) {
+        html += `<td class="${cellClass}">${display}</td>`;
+      } else {
+        html += `<td class="${cellClass}">${display}</td>`;
+      }
+    });
+    const totalClass = item.isSubtotal ? 'subtotal-cell' : (item.isTotal ? 'total-cell' : '');
+    html += `<td class="cell ${totalClass}" style="background:#ebe9e0;font-weight:600;">${rowTotal.toLocaleString()}</td>`;
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Excel paste support
+  if (editable) {
+    container.querySelectorAll('input').forEach(input => {
+      input.addEventListener('paste', handlePaste);
+      input.addEventListener('focus', () => {
+        // simulate variance check
+        if (Math.random() < 0.15) {
+          input.parentElement.classList.add('variance-flag');
+          const cnt = document.querySelectorAll('.variance-flag').length;
+          document.getElementById('variancePanel').style.display = cnt > 0 ? 'block' : 'none';
+          document.getElementById('varianceCount').textContent = cnt + ' flagged';
+        }
+      });
+    });
+    // initial flag count
+    const initialFlags = document.querySelectorAll('#' + containerId + ' .variance-flag').length;
+    if (initialFlags > 0) {
+      document.getElementById('variancePanel').style.display = 'block';
+      document.getElementById('varianceCount').textContent = initialFlags + ' flagged';
+    }
+  }
+}
+
+function handlePaste(e) {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  const rows = text.trim().split(/\r?\n/).map(r => r.split(/\t/));
+  const startInput = e.target;
+  const startRow = parseInt(startInput.dataset.row);
+  const startDay = parseInt(startInput.dataset.day);
+  rows.forEach((cols, ri) => {
+    cols.forEach((val, ci) => {
+      const targetRow = startRow + ri;
+      const targetDay = startDay + ci;
+      const target = document.querySelector(`input[data-row="${targetRow}"][data-day="${targetDay}"]`);
+      if (target) {
+        const cleaned = val.replace(/[€$,\s]/g, '').replace(',', '.');
+        target.value = cleaned;
+        if (Math.random() < 0.12) target.parentElement.classList.add('variance-flag');
+      }
+    });
+  });
+  const cnt = document.querySelectorAll('.variance-flag').length;
+  document.getElementById('variancePanel').style.display = cnt > 0 ? 'block' : 'none';
+  document.getElementById('varianceCount').textContent = cnt + ' flagged';
+}
+
+buildGrid('grid-wrap', true, true);
+buildGrid('consolidated-grid-wrap', false, false);
+
+function resetGrid() { if (confirm('Reset all values?')) buildGrid('grid-wrap', true, true); }
+function sendChaser(country) {
+  alert('Chaser sent to ' + country + ' submitter and approver via email & Teams.');
+}
+function loadPriorValues() { buildGrid('grid-wrap', true, false); alert('Prior cycle values loaded. Edit as needed.'); }
+function submitForecast() {
+  const flagged = document.querySelectorAll('.variance-flag').length;
+  if (flagged > 0) {
+    if (confirm(`${flagged} cells flagged for variance. Add commentary now?`)) {
+      openModal('varianceModal');
+      return;
+    }
+  }
+  alert('Forecast submitted for approval.');
+}
+function openCycle() { closeModal('newCycleModal'); alert('Cycle CW-2026-22 opened. Notifications sent to 14 submitters and 8 approvers via Azure AD.'); }
+function closeCycle() {
+  if (confirm('Close cycle CW-2026-21? This will lock all submissions.')) {
+    alert('Cycle closed. Final consolidated forecast archived.');
+  }
+}
+
+// ============ CHARTS ============
+function drawChart(containerId, type) {
+  const container = document.getElementById(containerId);
+  const w = container.clientWidth - 40;
+  const h = 200;
+  const days = 30;
+  const inflows = Array.from({ length: days }, () => 8 + Math.random() * 4);
+  const outflows = Array.from({ length: days }, () => -(6 + Math.random() * 4));
+  const net = inflows.map((v, i) => v + outflows[i]);
+
+  const maxAbs = Math.max(...inflows, ...outflows.map(Math.abs)) * 1.1;
+  const dx = w / (days - 1);
+  const midY = h / 2;
+
+  let svg = `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  // grid
+  svg += `<line x1="0" y1="${midY}" x2="${w}" y2="${midY}" stroke="#d3cfc4" stroke-width="1"/>`;
+  for (let i = 1; i < 4; i++) {
+    const y1 = midY - (i * midY / 4);
+    const y2 = midY + (i * midY / 4);
+    svg += `<line x1="0" y1="${y1}" x2="${w}" y2="${y1}" stroke="#ebe9e0" stroke-width="1"/>`;
+    svg += `<line x1="0" y1="${y2}" x2="${w}" y2="${y2}" stroke="#ebe9e0" stroke-width="1"/>`;
+  }
+  // inflows bars
+  inflows.forEach((v, i) => {
+    const x = i * dx;
+    const barH = (v / maxAbs) * midY;
+    svg += `<rect x="${x - dx*0.3}" y="${midY - barH}" width="${dx*0.6}" height="${barH}" fill="#2f8a5c" opacity="0.45"/>`;
+  });
+  // outflows bars
+  outflows.forEach((v, i) => {
+    const x = i * dx;
+    const barH = (Math.abs(v) / maxAbs) * midY;
+    svg += `<rect x="${x - dx*0.3}" y="${midY}" width="${dx*0.6}" height="${barH}" fill="#b8484a" opacity="0.45"/>`;
+  });
+  // net line
+  let path = '';
+  net.forEach((v, i) => {
+    const x = i * dx;
+    const y = midY - (v / maxAbs) * midY;
+    path += (i === 0 ? 'M' : 'L') + `${x},${y} `;
+  });
+  svg += `<path d="${path}" fill="none" stroke="#8a6d3b" stroke-width="2"/>`;
+  net.forEach((v, i) => {
+    const x = i * dx;
+    const y = midY - (v / maxAbs) * midY;
+    svg += `<circle cx="${x}" cy="${y}" r="2.5" fill="#8a6d3b"/>`;
+  });
+
+  // labels
+  svg += `<text x="6" y="14" font-family="JetBrains Mono" font-size="9" fill="#8e92a3" letter-spacing="1">INFLOWS / OUTFLOWS · €M</text>`;
+  svg += `<text x="${w-130}" y="14" font-family="JetBrains Mono" font-size="9" fill="#8a6d3b" letter-spacing="1">— NET CASH FLOW</text>`;
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+drawChart('chart-container', 'mixed');
+
+function drawCompareChart() {
+  const container = document.getElementById('compare-chart');
+  if (!container) return;
+  const w = container.clientWidth - 40;
+  const h = 200;
+  const days = 30;
+  const prior = Array.from({ length: days }, () => 2 + Math.random() * 2);
+  const current = prior.map(v => v + (Math.random() - 0.5) * 1.2);
+
+  const maxV = Math.max(...prior, ...current) * 1.2;
+  const dx = w / (days - 1);
+
+  let svg = `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  for (let i = 1; i < 5; i++) {
+    const y = i * h / 5;
+    svg += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="#ebe9e0" stroke-width="1"/>`;
+  }
+  // prior
+  let p1 = '';
+  prior.forEach((v, i) => { p1 += (i === 0 ? 'M' : 'L') + `${i*dx},${h - (v/maxV)*h} `; });
+  svg += `<path d="${p1}" fill="none" stroke="#8e92a3" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+  // current
+  let p2 = '';
+  current.forEach((v, i) => { p2 += (i === 0 ? 'M' : 'L') + `${i*dx},${h - (v/maxV)*h} `; });
+  svg += `<path d="${p2}" fill="none" stroke="#8a6d3b" stroke-width="2"/>`;
+  current.forEach((v, i) => {
+    svg += `<circle cx="${i*dx}" cy="${h - (v/maxV)*h}" r="2.5" fill="#8a6d3b"/>`;
+  });
+
+  svg += `<text x="6" y="14" font-family="JetBrains Mono" font-size="9" fill="#8e92a3" letter-spacing="1">- - - CW-2026-20  |  ─── CW-2026-21</text>`;
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+setTimeout(drawCompareChart, 100);
+window.addEventListener('resize', () => { drawChart('chart-container'); drawCompareChart(); });
+
+// click cell to show variance modal
+document.addEventListener('click', e => {
+  if (e.target.parentElement && e.target.parentElement.classList.contains('variance-flag')) {
+    setTimeout(() => openModal('varianceModal'), 100);
+  }
+});
+
+</script>
+</body>
+</html>
