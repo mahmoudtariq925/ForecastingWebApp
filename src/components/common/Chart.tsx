@@ -18,8 +18,16 @@ function seededRandoms(seed: number, count: number): number[] {
 
 type Variant = 'mixed' | 'compare';
 
+interface ChartProps {
+  variant: Variant;
+  /** Reseeds the generated series (compare variant) so pairs differ. */
+  seed?: number;
+  /** Legend text override for the compare variant. */
+  legend?: string;
+}
+
 /** Measures its container width and redraws the SVG on resize. */
-export function Chart({ variant }: { variant: Variant }) {
+export function Chart({ variant, seed = 0, legend }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
 
@@ -35,7 +43,11 @@ export function Chart({ variant }: { variant: Variant }) {
 
   return (
     <div className="chart-container" ref={ref}>
-      {variant === 'mixed' ? <MixedChart w={width} /> : <CompareChart w={width} />}
+      {variant === 'mixed' ? (
+        <MixedChart w={width} />
+      ) : (
+        <CompareChart w={width} seed={seed} legend={legend} />
+      )}
     </div>
   );
 }
@@ -90,11 +102,11 @@ function MixedChart({ w }: { w: number }) {
 }
 
 /** Comparison "Daily Variance": prior (dashed) vs current (solid) line. */
-function CompareChart({ w }: { w: number }) {
+function CompareChart({ w, seed, legend }: { w: number; seed: number; legend?: string }) {
   const h = 200;
   const days = 30;
-  const rp = seededRandoms(303, days);
-  const rc = seededRandoms(404, days);
+  const rp = seededRandoms(303 + seed * 17, days);
+  const rc = seededRandoms(404 + seed * 29, days);
   const prior = rp.map((v) => 2 + v * 2);
   const current = prior.map((v, i) => v + (rc[i] - 0.5) * 1.2);
 
@@ -115,7 +127,7 @@ function CompareChart({ w }: { w: number }) {
         <circle key={i} cx={i * dx} cy={h - (v / maxV) * h} r="2.5" fill="#8a6d3b" />
       ))}
       <text x="6" y="14" fontFamily="JetBrains Mono" fontSize="9" fill="#8e92a3" letterSpacing="1">
-        - - - CW-2026-20 | ─── CW-2026-21
+        {legend ?? '- - - CW-2026-20 | ─── CW-2026-21'}
       </text>
     </svg>
   );

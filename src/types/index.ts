@@ -69,35 +69,64 @@ export interface Variance {
 }
 
 /**
- * A row definition in the 30-day forecast grid. A row is either a section
- * header (`section` set) or a data / computed line item (`label` set).
+ * Demo-data generation config for a known line-item label (paydays, tax days,
+ * value ranges). Only the seeded standard template has these.
  */
-export interface LineItem {
-  section?: string;
-  label?: string;
-  baseMin?: number;
-  baseMax?: number;
+export interface LineItemConfig {
+  label: string;
+  baseMin: number;
+  baseMax: number;
   negative?: boolean;
   payday?: boolean;
   taxday?: boolean;
-  /** True for the Total Inflows / Total Outflows computed rows. */
-  isSubtotal?: boolean;
-  /** True for the Net Cash Flow computed row. */
-  isTotal?: boolean;
+}
+
+/** Row kinds in a forecast template. */
+export type TemplateRowKind = 'section' | 'data' | 'subtotal' | 'total';
+
+/**
+ * One row of a forecast template. `subtotal` rows sum the data rows since the
+ * previous section; `total` rows sum all subtotals (or all data rows when a
+ * template has no subtotals).
+ */
+export interface TemplateRow {
+  label: string;
+  kind: TemplateRowKind;
+}
+
+/** An uploaded (or seeded) forecast template. */
+export interface ForecastTemplate {
+  id: string;
+  name: string;
+  /** Original file name of the uploaded .xlsx, if any. */
+  fileName?: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  /** Entity names this template is assigned to. */
+  assignedEntities: string[];
+  /** Parsed row structure driving the submission grid. */
+  rows: TemplateRow[];
+  /** Base64 of the original .xlsx for download/re-use (small files only). */
+  fileData?: string;
 }
 
 /**
- * A single entity's grid submission for one cycle: the editable numeric values
- * keyed by "rowIndex-dayIndex", plus which cells are variance-flagged.
+ * A single entity's grid submission for one reporting period + template:
+ * the editable numeric values keyed by "rowIndex-dayIndex", variance flags,
+ * and per-cell commentary.
  */
 export interface Submission {
-  cycleId: string;
+  /** Reporting period key, e.g. "2026-05". */
+  period: string;
   entity: string;
+  templateId: string;
   status: SubmissionStatus;
   /** Cell values keyed as `${rowIdx}-${dayIdx}`. */
   values: Record<string, number>;
   /** Variance-flagged cell keys (`${rowIdx}-${dayIdx}`). */
   flags: string[];
+  /** Commentary per flagged cell, keyed like `values`. */
+  comments: Record<string, string>;
   updatedAt: string;
 }
 

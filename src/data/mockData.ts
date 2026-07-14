@@ -3,7 +3,16 @@
 // replacing these constants (and the storage layer) rather than touching the
 // screen components.
 // ============================================================================
-import type { Cycle, Entity, LineItem, User, Variance } from '../types';
+import type {
+  Cycle,
+  Entity,
+  ForecastTemplate,
+  LineItemConfig,
+  TemplateRow,
+  User,
+  Variance,
+} from '../types';
+import { datesForPeriod } from './periods';
 
 export const entities: Entity[] = [
   { name: 'Netherlands', submitter: 'Jan de Vries', approver: 'Pieter Bakker', total: 24350, delta: 2.1, status: 'approved' },
@@ -46,51 +55,56 @@ export const variances: Variance[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Forecast grid definition — the row template shared by the submission and
-// consolidated grids.
+// The seeded "Standard Cash Flow" template — the row structure the original
+// prototype hardcoded, now expressed as a ForecastTemplate that lives in the
+// template store alongside user-uploaded ones.
 // ---------------------------------------------------------------------------
-export const lineItems: LineItem[] = [
-  { section: 'INFLOWS' },
+export const STANDARD_TEMPLATE_ID = 'tpl-standard';
+
+export const standardTemplateRows: TemplateRow[] = [
+  { label: 'INFLOWS', kind: 'section' },
+  { label: 'Customer Receipts', kind: 'data' },
+  { label: 'Intercompany Receipts', kind: 'data' },
+  { label: 'Other Inflows', kind: 'data' },
+  { label: 'Total Inflows', kind: 'subtotal' },
+  { label: 'OUTFLOWS', kind: 'section' },
+  { label: 'Supplier Payments', kind: 'data' },
+  { label: 'Payroll', kind: 'data' },
+  { label: 'Tax Payments', kind: 'data' },
+  { label: 'Intercompany Payments', kind: 'data' },
+  { label: 'Capex', kind: 'data' },
+  { label: 'Other Outflows', kind: 'data' },
+  { label: 'Total Outflows', kind: 'subtotal' },
+  { label: 'Net Cash Flow', kind: 'total' },
+];
+
+export function buildStandardTemplate(): ForecastTemplate {
+  return {
+    id: STANDARD_TEMPLATE_ID,
+    name: 'Standard Cash Flow',
+    uploadedAt: '2026-05-01T09:00:00.000Z',
+    uploadedBy: 'Maja Kowalska',
+    assignedEntities: entities.map((e) => e.name),
+    rows: standardTemplateRows,
+  };
+}
+
+/**
+ * Demo-value generation config per known line-item label (value ranges,
+ * paydays, tax days). Only labels present here get seeded demo values —
+ * rows of uploaded templates start blank.
+ */
+export const lineItemConfigs: LineItemConfig[] = [
   { label: 'Customer Receipts', baseMin: 1800, baseMax: 2400 },
   { label: 'Intercompany Receipts', baseMin: 200, baseMax: 600 },
   { label: 'Other Inflows', baseMin: 0, baseMax: 150 },
-  { label: 'Total Inflows', isSubtotal: true },
-  { section: 'OUTFLOWS' },
   { label: 'Supplier Payments', baseMin: -1900, baseMax: -1200, negative: true },
   { label: 'Payroll', baseMin: -800, baseMax: -200, negative: true, payday: true },
   { label: 'Tax Payments', baseMin: -600, baseMax: 0, negative: true, taxday: true },
   { label: 'Intercompany Payments', baseMin: -400, baseMax: 0, negative: true },
   { label: 'Capex', baseMin: -300, baseMax: 0, negative: true },
   { label: 'Other Outflows', baseMin: -200, baseMax: 0, negative: true },
-  { label: 'Total Outflows', isSubtotal: true },
-  { label: 'Net Cash Flow', isTotal: true },
 ];
-
-/** The 30 days of the current forecast horizon (starts 25 May 2026). */
-export function getDates(): Date[] {
-  const dates: Date[] = [];
-  const start = new Date(2026, 4, 25);
-  for (let i = 0; i < 30; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    dates.push(d);
-  }
-  return dates;
-}
-
-export interface DayLabel {
-  dm: string;
-  dow: string;
-  weekend: boolean;
-}
-
-export const dates: Date[] = getDates();
-
-export const dayLabels: DayLabel[] = dates.map((d) => {
-  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
-  const dm = `${d.getDate()}/${d.getMonth() + 1}`;
-  return { dm, dow, weekend: d.getDay() === 0 || d.getDay() === 6 };
-});
 
 /**
  * Small deterministic PRNG (mulberry32). Using a seed keeps the generated
@@ -107,64 +121,50 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/**
- * Generate the default value for a data cell, mirroring the prototype's
- * genValue rules (paydays, tax days, weekends). `rand` is supplied so callers
- * can seed generation deterministically per entity.
- */
-export function genValue(item: LineItem, dayIdx: number, rand: () => number): number {
-  const d = dates[dayIdx];
-  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-  if (item.payday && d.getDate() !== 28 && d.getDate() !== 15) return 0;
-  if (item.taxday && d.getDate() !== 22) return 0;
-  if (isWeekend && !item.negative) return 0;
-  const range = (item.baseMax ?? 0) - (item.baseMin ?? 0);
-  return Math.round(((item.baseMin ?? 0) + rand() * range) * (isWeekend ? 0.3 : 1));
+/** Demo value for one cell, mirroring the prototype's payday/tax/weekend rules. */
+function genValue(config: LineItemConfig, date: Date, rand: () => number): number {
+  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+  if (config.payday && date.getDate() !== 28 && date.getDate() !== 15) return 0;
+  if (config.taxday && date.getDate() !== 22) return 0;
+  if (isWeekend && !config.negative) return 0;
+  const range = config.baseMax - config.baseMin;
+  return Math.round((config.baseMin + rand() * range) * (isWeekend ? 0.3 : 1));
 }
 
 /**
- * Build the default cell values for an entity's grid. Data rows get generated
- * values; subtotal / total rows are computed. Returns a map keyed
- * `${rowIdx}-${dayIdx}` plus a set of variance-flagged keys.
+ * Generate demo cell values for a template + period. Data rows whose label has
+ * a generation config get seeded values; unknown labels stay 0 (blank).
+ * Returns a map keyed `${rowIdx}-${dayIdx}` plus variance-flagged keys.
  */
 export function generateGridValues(
+  rows: TemplateRow[],
+  period: string,
   seed: number,
   flagSome: boolean,
 ): { values: Record<string, number>; flags: string[] } {
   const rand = mulberry32(seed);
+  const dates = datesForPeriod(period);
   const values: Record<string, number> = {};
   const flags: string[] = [];
 
-  lineItems.forEach((item, rowIdx) => {
-    if (item.section) return;
-    dayLabels.forEach((_dl, i) => {
-      let val = 0;
-      if (!item.isSubtotal && !item.isTotal) {
-        val = genValue(item, i, rand);
-        values[`${rowIdx}-${i}`] = val;
-        if (flagSome && rand() < 0.04) flags.push(`${rowIdx}-${i}`);
-      } else if (item.isSubtotal) {
-        if (item.label === 'Total Inflows') {
-          for (let r = 1; r <= 3; r++) val += values[`${r}-${i}`] || 0;
-        } else {
-          for (let r = 6; r <= 11; r++) val += values[`${r}-${i}`] || 0;
-        }
-        values[`${rowIdx}-${i}`] = val;
-      } else if (item.isTotal) {
-        val = (values[`4-${i}`] || 0) + (values[`12-${i}`] || 0);
-        values[`${rowIdx}-${i}`] = val;
-      }
+  rows.forEach((row, rowIdx) => {
+    if (row.kind !== 'data') return;
+    const config = lineItemConfigs.find((c) => c.label === row.label);
+    dates.forEach((date, i) => {
+      const val = config ? genValue(config, date, rand) : 0;
+      values[`${rowIdx}-${i}`] = val;
+      if (flagSome && config && rand() < 0.04) flags.push(`${rowIdx}-${i}`);
     });
   });
 
   return { values, flags };
 }
 
-/** Stable numeric seed derived from an entity name. */
-export function seedFor(entity: string): number {
+/** Stable numeric seed derived from any string (entity, period, …). */
+export function seedFor(input: string): number {
   let h = 0;
-  for (let i = 0; i < entity.length; i++) {
-    h = (Math.imul(31, h) + entity.charCodeAt(i)) | 0;
+  for (let i = 0; i < input.length; i++) {
+    h = (Math.imul(31, h) + input.charCodeAt(i)) | 0;
   }
   return h >>> 0;
 }

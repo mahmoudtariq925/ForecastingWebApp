@@ -5,12 +5,14 @@ import type { ViewId } from '../../types/nav';
 interface SidebarProps {
   active: ViewId;
   onNavigate: (view: ViewId) => void;
+  /** Mobile drawer state — ignored on desktop widths. */
+  open?: boolean;
 }
 
 /** Left navigation rail with brand, workspace/admin sections and user card. */
-export function Sidebar({ active, onNavigate }: SidebarProps) {
+export function Sidebar({ active, onNavigate, open = false }: SidebarProps) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="brand">
         <div className="brand-mark">
           Liquid<span>·</span>
