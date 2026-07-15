@@ -646,6 +646,17 @@ td.num {
   padding: 9px 8px;
   text-align: right;
 }
+.forecast-grid td.cell.comment-cell {
+  min-width: 160px;
+  text-align: left;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.forecast-grid td.cell input.comment-input {
+  text-align: left;
+  font-family: var(--sans);
+}
 .forecast-grid tr.section-row td {
   background: #f4f3ee;
   padding-top: 12px;

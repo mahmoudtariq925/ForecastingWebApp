@@ -33,7 +33,7 @@ export interface Entity {
 /** A weekly forecast cycle. */
 export interface Cycle {
   id: string;
-  /** Human-readable start of the 30-day horizon, e.g. "May 18". */
+  /** Human-readable start of the horizon, e.g. "May 18". */
   start: string;
   /** Human-readable close deadline, e.g. "May 22 · 18:00". */
   closes: string;
@@ -69,29 +69,29 @@ export interface Variance {
 }
 
 /**
- * Demo-data generation config for a known line-item label (paydays, tax days,
+ * Demo-data generation config for a known category label (paydays, tax days,
  * value ranges). Only the seeded standard template has these.
  */
 export interface LineItemConfig {
   label: string;
   baseMin: number;
   baseMax: number;
-  negative?: boolean;
   payday?: boolean;
   taxday?: boolean;
 }
 
-/** Row kinds in a forecast template. */
-export type TemplateRowKind = 'section' | 'data' | 'subtotal' | 'total';
-
 /**
- * One row of a forecast template. `subtotal` rows sum the data rows since the
- * previous section; `total` rows sum all subtotals (or all data rows when a
- * template has no subtotals).
+ * How a template is rendered / imported / exported:
+ * - `days-across`: line items down the rows, one column per day.
+ * - `grouped`: one row per day, categories across columns under group bands
+ *   (the layout of the standard CF_Forecast_Template workbook).
  */
-export interface TemplateRow {
+export type TemplateLayout = 'days-across' | 'grouped';
+
+/** One forecast line item. `group` is the band it belongs to, if any. */
+export interface TemplateCategory {
   label: string;
-  kind: TemplateRowKind;
+  group?: string;
 }
 
 /** An uploaded (or seeded) forecast template. */
@@ -104,29 +104,36 @@ export interface ForecastTemplate {
   uploadedBy: string;
   /** Entity names this template is assigned to. */
   assignedEntities: string[];
-  /** Parsed row structure driving the submission grid. */
-  rows: TemplateRow[];
+  /** Render / import / export orientation. */
+  layout: TemplateLayout;
+  /** The forecast line items derived from the workbook. */
+  categories: TemplateCategory[];
   /** Base64 of the original .xlsx for download/re-use (small files only). */
   fileData?: string;
 }
 
 /**
- * A single entity's grid submission for one reporting period + template:
- * the editable numeric values keyed by "rowIndex-dayIndex", variance flags,
- * and per-cell commentary.
+ * A single entity's grid submission for one forecast week + template.
+ * Values are keyed "categoryIndex-dayIndex" regardless of layout.
+ * Sign convention (from the standard workbook): inflows positive,
+ * outflows negative.
  */
 export interface Submission {
-  /** Reporting period key, e.g. "2026-05". */
+  /** Forecast week key: ISO date of the Monday, e.g. "2026-07-13". */
   period: string;
   entity: string;
   templateId: string;
   status: SubmissionStatus;
-  /** Cell values keyed as `${rowIdx}-${dayIdx}`. */
+  /** Cell values keyed as `${catIdx}-${dayIdx}`, EUR thousands. */
   values: Record<string, number>;
-  /** Variance-flagged cell keys (`${rowIdx}-${dayIdx}`). */
+  /** Variance-flagged cell keys (`${catIdx}-${dayIdx}`). */
   flags: string[];
   /** Commentary per flagged cell, keyed like `values`. */
   comments: Record<string, string>;
+  /** Free-text comment per day (the Comments column in grouped layout). */
+  dayComments: Record<string, string>;
+  /** Opening cash balance for the horizon, EUR thousands. */
+  startingBalance: number;
   updatedAt: string;
 }
 

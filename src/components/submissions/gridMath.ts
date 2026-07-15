@@ -1,54 +1,73 @@
-import type { TemplateRow } from '../../types';
+import type { TemplateCategory } from '../../types';
 
+/** Cell values keyed `${catIdx}-${dayIdx}`, EUR thousands. */
 export type GridValues = Record<string, number>;
 
-/**
- * Value of a single cell for a given row + day. Data rows read from `values`;
- * `subtotal` rows sum the data rows since the previous section/subtotal
- * boundary; `total` rows sum all subtotals (or, for templates without
- * subtotals, all data rows).
- */
-export function dayValue(
-  rows: TemplateRow[],
-  values: GridValues,
-  rowIdx: number,
-  dayIdx: number,
-): number {
-  const row = rows[rowIdx];
-  if (!row || row.kind === 'section') return 0;
-  if (row.kind === 'data') return values[`${rowIdx}-${dayIdx}`] || 0;
+export const cellKey = (catIdx: number, dayIdx: number) => `${catIdx}-${dayIdx}`;
 
-  if (row.kind === 'subtotal') {
-    let sum = 0;
-    for (let r = rowIdx - 1; r >= 0; r--) {
-      const kind = rows[r].kind;
-      if (kind !== 'data') break;
-      sum += values[`${r}-${dayIdx}`] || 0;
-    }
-    return sum;
-  }
-
-  // total
-  const subtotalIdxs = rows
-    .map((r, i) => (r.kind === 'subtotal' ? i : -1))
-    .filter((i) => i >= 0);
-  if (subtotalIdxs.length > 0) {
-    return subtotalIdxs.reduce((sum, i) => sum + dayValue(rows, values, i, dayIdx), 0);
-  }
-  return rows.reduce(
-    (sum, r, i) => (r.kind === 'data' ? sum + (values[`${i}-${dayIdx}`] || 0) : sum),
-    0,
-  );
+export function catValue(values: GridValues, catIdx: number, dayIdx: number): number {
+  return values[cellKey(catIdx, dayIdx)] || 0;
 }
 
-/** Sum of a row across all days (the trailing Total column). */
-export function rowTotal(
-  rows: TemplateRow[],
+/**
+ * Sign convention (standard workbook): inflows are entered positive and
+ * outflows negative, so per-day inflow/outflow totals are just the positive /
+ * negative parts and the day total is the plain sum.
+ */
+export function dayInflows(numCats: number, values: GridValues, dayIdx: number): number {
+  let s = 0;
+  for (let c = 0; c < numCats; c++) s += Math.max(0, catValue(values, c, dayIdx));
+  return s;
+}
+
+export function dayOutflows(numCats: number, values: GridValues, dayIdx: number): number {
+  let s = 0;
+  for (let c = 0; c < numCats; c++) s += Math.min(0, catValue(values, c, dayIdx));
+  return s;
+}
+
+export function dayNet(numCats: number, values: GridValues, dayIdx: number): number {
+  let s = 0;
+  for (let c = 0; c < numCats; c++) s += catValue(values, c, dayIdx);
+  return s;
+}
+
+/** Closing balance after `dayIdx`: starting balance + cumulative net. */
+export function runningBalance(
+  numCats: number,
   values: GridValues,
-  rowIdx: number,
-  numDays: number,
+  startingBalance: number,
+  dayIdx: number,
 ): number {
-  let total = 0;
-  for (let i = 0; i < numDays; i++) total += dayValue(rows, values, rowIdx, i);
-  return total;
+  let s = startingBalance;
+  for (let d = 0; d <= dayIdx; d++) s += dayNet(numCats, values, d);
+  return s;
+}
+
+/** Sum of one category across the horizon (trailing Total column / row). */
+export function catTotal(values: GridValues, catIdx: number, numDays: number): number {
+  let s = 0;
+  for (let d = 0; d < numDays; d++) s += catValue(values, catIdx, d);
+  return s;
+}
+
+export interface CategoryGroup {
+  /** Band label, or undefined for ungrouped categories. */
+  label?: string;
+  /** Indices into the template's categories array. */
+  idxs: number[];
+}
+
+/**
+ * Consecutive runs of categories sharing the same group band, in template
+ * order — drives section rows (days-across) and header bands (grouped).
+ */
+export function categoryGroups(categories: TemplateCategory[]): CategoryGroup[] {
+  const out: CategoryGroup[] = [];
+  categories.forEach((cat, i) => {
+    const last = out[out.length - 1];
+    if (last && last.label === cat.group) last.idxs.push(i);
+    else out.push({ label: cat.group, idxs: [i] });
+  });
+  return out;
 }

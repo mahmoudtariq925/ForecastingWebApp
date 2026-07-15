@@ -1,40 +1,48 @@
 // ============================================================================
 // Submission lifecycle helpers shared by the Submission screen and the
 // Dashboard KPIs. Sits on top of the storage layer; knows how to seed demo
-// data for the standard template and where prior-period values come from.
+// data for the standard template and how rolling weekly horizons align for
+// variance comparison.
 // ============================================================================
 import type { ForecastTemplate, Settings, Submission } from '../types';
-import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from './mockData';
-import { prevPeriodKey } from './periods';
+import {
+  generateGridValues,
+  seedFor,
+  STANDARD_TEMPLATE_ID,
+  startingBalanceFor,
+} from './mockData';
+import { HORIZON_DAYS, prevWeekKey, WORKDAYS_PER_WEEK } from './periods';
 import { loadSubmission, saveSubmission } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
 
 /**
- * Load the stored submission for (period, entity, template) or create and
+ * Load the stored submission for (week, entity, template) or create and
  * persist a fresh one. The standard template seeds demo values; uploaded
  * templates start blank.
  */
 export function getOrCreateSubmission(
   entity: string,
-  period: string,
+  week: string,
   template: ForecastTemplate,
 ): Submission {
-  const stored = loadSubmission(period, entity, template.id);
+  const stored = loadSubmission(week, entity, template.id);
   if (stored) return stored;
 
   const isStandard = template.id === STANDARD_TEMPLATE_ID;
   const { values, flags } = isStandard
-    ? generateGridValues(template.rows, period, seedFor(`${entity}:${period}`), true)
+    ? generateGridValues(template.categories, week, seedFor(`${entity}:${week}`), true)
     : { values: {}, flags: [] };
 
   const fresh: Submission = {
-    period,
+    period: week,
     entity,
     templateId: template.id,
     status: 'draft',
     values,
     flags,
     comments: {},
+    dayComments: {},
+    startingBalance: startingBalanceFor(entity),
     updatedAt: new Date().toISOString(),
   };
   saveSubmission(fresh);
@@ -42,26 +50,56 @@ export function getOrCreateSubmission(
 }
 
 /**
- * Prior-period values used for variance comparison and "Copy Prior Forecast":
- * the stored previous-period submission if one exists, otherwise (standard
+ * Prior-week values used for variance comparison and "Copy Prior Forecast":
+ * the stored previous-week submission if one exists, otherwise (standard
  * template only) deterministic generated data, otherwise blank.
  */
 export function getPriorValues(
   entity: string,
-  period: string,
+  week: string,
   template: ForecastTemplate,
 ): GridValues {
-  const prevKey = prevPeriodKey(period);
+  const prevKey = prevWeekKey(week);
   const stored = loadSubmission(prevKey, entity, template.id);
   if (stored) return stored.values;
   if (template.id === STANDARD_TEMPLATE_ID) {
-    return generateGridValues(template.rows, period, seedFor(`${entity}:${prevKey}`), false).values;
+    return generateGridValues(
+      template.categories,
+      prevKey,
+      seedFor(`${entity}:${prevKey}`),
+      false,
+    ).values;
   }
   return {};
 }
 
+/**
+ * The prior-week value that corresponds to a current-horizon cell. Horizons
+ * roll by one week, so current day d falls on the same calendar date as
+ * prior day d + 5 working days. Returns null for the final week of the
+ * horizon, which the prior submission did not cover.
+ */
+export function priorValueFor(
+  prior: GridValues,
+  catIdx: number,
+  dayIdx: number,
+): number | null {
+  const shifted = dayIdx + WORKDAYS_PER_WEEK;
+  if (shifted >= HORIZON_DAYS) return null;
+  return prior[`${catIdx}-${shifted}`] || 0;
+}
+
 /** Does an edited cell breach the variance threshold vs its prior value? */
-export function isVariance(current: number, prior: number, settings: Settings): boolean {
+export function isVariance(
+  current: number,
+  prior: number | null,
+  settings: Settings,
+): boolean {
+  if (prior === null) {
+    // Days beyond the prior horizon: flag only if the admin disabled the exemption.
+    if (settings.exemptNewPeriods.startsWith('Yes')) return false;
+    prior = 0;
+  }
   const minAbs = Number(String(settings.minValueToTrigger).replace(/[,\s]/g, '')) / 1000 || 0;
   if (Math.abs(current) < minAbs) return false;
   const pct = (Math.abs(current - prior) / Math.max(Math.abs(prior), 1)) * 100;

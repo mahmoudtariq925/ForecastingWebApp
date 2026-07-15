@@ -102,12 +102,59 @@ export function periodsWithSubmissions(entity: string): Set<string> {
 // Forecast templates — uploaded .xlsx structures + entity assignments.
 // Seeded with the standard template on first load.
 // ---------------------------------------------------------------------------
+
+/** Shape of templates stored before the category/layout model. */
+interface LegacyTemplate {
+  id: string;
+  name: string;
+  fileName?: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  assignedEntities: string[];
+  rows?: { label?: string; kind?: string; section?: string }[];
+  fileData?: string;
+}
+
+/** Convert a pre-layout template (row kinds) into the category model. */
+function migrateTemplate(legacy: LegacyTemplate): ForecastTemplate {
+  const categories: ForecastTemplate['categories'] = [];
+  let group: string | undefined;
+  for (const row of legacy.rows ?? []) {
+    if (row.kind === 'section') group = row.label ?? row.section;
+    else if (row.kind === 'data' && row.label) categories.push({ label: row.label, group });
+  }
+  return {
+    id: legacy.id,
+    name: legacy.name,
+    fileName: legacy.fileName,
+    uploadedAt: legacy.uploadedAt,
+    uploadedBy: legacy.uploadedBy,
+    assignedEntities: legacy.assignedEntities ?? [],
+    layout: 'days-across',
+    categories,
+    fileData: legacy.fileData,
+  };
+}
+
 export function loadTemplates(): ForecastTemplate[] {
-  const stored = loadData<ForecastTemplate[] | null>('templates', null);
-  if (stored) return stored;
-  const seeded = [buildStandardTemplate()];
-  saveData('templates', seeded);
-  return seeded;
+  const stored = loadData<(ForecastTemplate | LegacyTemplate)[] | null>('templates', null);
+  if (!stored) {
+    const seeded = [buildStandardTemplate()];
+    saveData('templates', seeded);
+    return seeded;
+  }
+  // Migrate any templates saved before the layout/category model existed;
+  // the old built-in template is replaced by the new standard workbook one.
+  if (stored.some((t) => !('layout' in t))) {
+    const migrated: ForecastTemplate[] = [buildStandardTemplate()];
+    for (const t of stored) {
+      if ('layout' in t) migrated.push(t);
+      else if (t.id !== 'tpl-standard') migrated.push(migrateTemplate(t));
+    }
+    saveData('templates', migrated);
+    return migrated;
+  }
+  return stored as ForecastTemplate[];
 }
 
 export function saveTemplates(templates: ForecastTemplate[]): void {

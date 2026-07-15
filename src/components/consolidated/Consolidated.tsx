@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { ForecastGrid } from '../submissions/ForecastGrid';
-import { dayValue } from '../submissions/gridMath';
-import type { GridValues } from '../submissions/gridMath';
+import {
+  dayInflows,
+  dayNet,
+  dayOutflows,
+  runningBalance,
+  type GridValues,
+} from '../submissions/gridMath';
 import {
   buildStandardTemplate,
   cycles as seedCycles,
@@ -10,95 +15,77 @@ import {
   generateGridValues,
   seedFor,
 } from '../../data/mockData';
-import { DEFAULT_PERIOD, dayLabelsForPeriod, periodLabel, prevPeriodKey } from '../../data/periods';
+import {
+  currentWeekKey,
+  dayLabelsForWeek,
+  horizonDates,
+  prevWeekKey,
+  weekLabel,
+  weekLabelShort,
+} from '../../data/periods';
 import { loadCycles, saveCycles } from '../../storage/localStorage';
-import { exportGridXlsx } from '../../utils/excel';
+import { exportSubmissionXlsx } from '../../utils/excel';
 
 const EMPTY_FLAGS = new Set<string>();
-
-interface Kpis {
-  inflows: number;
-  outflows: number;
-  net: number;
-  inflowsDelta: number;
-  outflowsDelta: number;
-  netDelta: number;
-  minBalance: number;
-  minDay: number;
-}
-
-function computeKpis(
-  rows: ReturnType<typeof buildStandardTemplate>['rows'],
-  values: GridValues,
-  priorValues: GridValues,
-  numDays: number,
-): Kpis {
-  const subtotalIdxs = rows
-    .map((r, i) => (r.kind === 'subtotal' ? i : -1))
-    .filter((i) => i >= 0);
-  const totalIdx = rows.findIndex((r) => r.kind === 'total');
-
-  const sumRow = (v: GridValues, rowIdx: number) => {
-    let s = 0;
-    for (let i = 0; i < numDays; i++) s += dayValue(rows, v, rowIdx, i);
-    return s;
-  };
-
-  const inflows = sumRow(values, subtotalIdxs[0]);
-  const outflows = sumRow(values, subtotalIdxs[1] ?? subtotalIdxs[0]);
-  const net = sumRow(values, totalIdx);
-  const pInflows = sumRow(priorValues, subtotalIdxs[0]);
-  const pOutflows = sumRow(priorValues, subtotalIdxs[1] ?? subtotalIdxs[0]);
-  const pNet = sumRow(priorValues, totalIdx);
-
-  const pct = (cur: number, prior: number) =>
-    ((cur - prior) / Math.max(Math.abs(prior), 1)) * 100;
-
-  // Minimum cumulative net balance across the horizon.
-  let running = 0;
-  let minBalance = Infinity;
-  let minDay = 1;
-  for (let i = 0; i < numDays; i++) {
-    running += dayValue(rows, values, totalIdx, i);
-    if (running < minBalance) {
-      minBalance = running;
-      minDay = i + 1;
-    }
-  }
-
-  return {
-    inflows,
-    outflows,
-    net,
-    inflowsDelta: pct(inflows, pInflows),
-    outflowsDelta: pct(Math.abs(outflows), Math.abs(pOutflows)),
-    netDelta: pct(net, pNet),
-    minBalance,
-    minDay,
-  };
-}
+const CONSOLIDATED_START_BALANCE = 42000;
 
 /** Treasury read-only consolidated view across all approved entities. */
 export function Consolidated() {
-  const period = DEFAULT_PERIOD;
+  const week = currentWeekKey();
   const template = useMemo(() => buildStandardTemplate(), []);
-  const dayLabels = useMemo(() => dayLabelsForPeriod(period), [period]);
+  const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
+  const numDays = dayLabels.length;
+  const numCats = template.categories.length;
   const [cycles, setCycles] = useState(() => loadCycles(seedCycles));
   const activeCycle = cycles.find((c) => c.status === 'submitted');
 
   const values = useMemo<GridValues>(
-    () => generateGridValues(template.rows, period, seedFor(`Consolidated:${period}`), false).values,
-    [template, period],
+    () =>
+      generateGridValues(template.categories, week, seedFor(`Consolidated:${week}`), false)
+        .values,
+    [template, week],
   );
   const priorValues = useMemo<GridValues>(() => {
-    const prev = prevPeriodKey(period);
-    return generateGridValues(template.rows, period, seedFor(`Consolidated:${prev}`), false).values;
-  }, [template, period]);
+    const prev = prevWeekKey(week);
+    return generateGridValues(template.categories, prev, seedFor(`Consolidated:${prev}`), false)
+      .values;
+  }, [template, week]);
 
-  const kpis = useMemo(
-    () => computeKpis(template.rows, values, priorValues, dayLabels.length),
-    [template, values, priorValues, dayLabels],
-  );
+  const kpis = useMemo(() => {
+    const sum = (fn: (v: GridValues, d: number) => number, v: GridValues) => {
+      let s = 0;
+      for (let d = 0; d < numDays; d++) s += fn(v, d);
+      return s;
+    };
+    const inflows = sum((v, d) => dayInflows(numCats, v, d), values);
+    const outflows = sum((v, d) => dayOutflows(numCats, v, d), values);
+    const net = sum((v, d) => dayNet(numCats, v, d), values);
+    const pInflows = sum((v, d) => dayInflows(numCats, v, d), priorValues);
+    const pOutflows = sum((v, d) => dayOutflows(numCats, v, d), priorValues);
+    const pNet = sum((v, d) => dayNet(numCats, v, d), priorValues);
+    const pct = (cur: number, prior: number) =>
+      ((cur - prior) / Math.max(Math.abs(prior), 1)) * 100;
+
+    let minBalance = Infinity;
+    let minDay = 1;
+    for (let d = 0; d < numDays; d++) {
+      const bal = runningBalance(numCats, values, CONSOLIDATED_START_BALANCE, d);
+      if (bal < minBalance) {
+        minBalance = bal;
+        minDay = d + 1;
+      }
+    }
+    return {
+      inflows,
+      outflows,
+      net,
+      inflowsDelta: pct(inflows, pInflows),
+      outflowsDelta: pct(Math.abs(outflows), Math.abs(pOutflows)),
+      netDelta: pct(net, pNet),
+      minBalance,
+      minDay,
+    };
+  }, [values, priorValues, numCats, numDays]);
 
   const fmtM = (v: number) => `€ ${(v / 1000).toFixed(1)}M`;
   const deltaPill = (v: number) => (
@@ -122,19 +109,23 @@ export function Consolidated() {
   };
 
   const exportXlsx = () => {
-    exportGridXlsx(
-      template.rows,
+    exportSubmissionXlsx({
+      template,
+      layout: 'days-across',
+      entity: 'Consolidated (all entities)',
+      weekLabel: weekLabelShort(week),
+      dates: horizonDates(week),
       dayLabels,
       values,
-      `consolidated-${period}.xlsx`,
-      'Consolidated',
-    ).catch((err) => alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`));
+      startingBalance: CONSOLIDATED_START_BALANCE,
+      filename: `consolidated-${week}.xlsx`,
+    }).catch((err) => alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`));
   };
 
   return (
     <div className="view active">
       <TopBar
-        crumb={`Treasury · ${activeCycle?.id ?? periodLabel(period)}`}
+        crumb={`Treasury · ${activeCycle?.id ?? weekLabel(week)}`}
         title="Consolidated Forecast"
         actions={
           <>
@@ -150,22 +141,22 @@ export function Consolidated() {
       <div className="content">
         <div className="kpi-grid">
           <div className="kpi-card">
-            <div className="kpi-label">Inflows · 30d</div>
+            <div className="kpi-label">Inflows · 4wk</div>
             <div className="kpi-value">{fmtM(kpis.inflows)}</div>
             <div className="kpi-sub">{deltaPill(kpis.inflowsDelta)}</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Outflows · 30d</div>
+            <div className="kpi-label">Outflows · 4wk</div>
             <div className="kpi-value">{fmtM(Math.abs(kpis.outflows))}</div>
             <div className="kpi-sub">{deltaPill(kpis.outflowsDelta)}</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Net · 30d</div>
+            <div className="kpi-label">Net · 4wk</div>
             <div className="kpi-value">{fmtM(kpis.net)}</div>
             <div className="kpi-sub">{deltaPill(kpis.netDelta)}</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Min Daily Balance</div>
+            <div className="kpi-label">Min Balance</div>
             <div className="kpi-value">{fmtM(kpis.minBalance)}</div>
             <div className="kpi-sub text-dim">on day {kpis.minDay}</div>
           </div>
@@ -173,23 +164,23 @@ export function Consolidated() {
 
         <div className="section-header">
           <h2>Consolidated Grid</h2>
-          <span className="tag">All entities · approved only</span>
+          <span className="tag">All entities · approved only · {weekLabel(week)}</span>
         </div>
         <div className="panel">
           <div className="grid-toolbar">
             <div className="grid-info">
               <strong>{entities.length} entities consolidated</strong> ·{' '}
-              <span className="text-muted">
-                {periodLabel(period)} · read-only
-              </span>
+              <span className="text-muted">read-only</span>
             </div>
           </div>
           <div className="forecast-grid-wrap">
             <ForecastGrid
-              rows={template.rows}
+              categories={template.categories}
+              layout="days-across"
               dayLabels={dayLabels}
               values={values}
               flags={EMPTY_FLAGS}
+              startingBalance={CONSOLIDATED_START_BALANCE}
               editable={false}
             />
           </div>

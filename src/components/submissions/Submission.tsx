@@ -3,19 +3,27 @@ import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
 import { ForecastGrid } from './ForecastGrid';
-import type { GridValues } from './gridMath';
+import { cellKey, type GridValues } from './gridMath';
 import { entities, generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import {
-  dayLabelsForPeriod,
-  DEFAULT_PERIOD,
-  listPeriods,
-  periodLabel,
-  prevPeriodKey,
+  currentWeekKey,
+  dayLabelsForWeek,
+  horizonDates,
+  HORIZON_DAYS,
+  HORIZON_WEEKS,
+  listYears,
+  monthName,
+  prevWeekKey,
+  weekLabel,
+  weekLabelShort,
+  weeksInMonth,
+  weekYearMonth,
 } from '../../data/periods';
 import {
   getOrCreateSubmission,
   getPriorValues,
   isVariance,
+  priorValueFor,
   templatesForEntity,
 } from '../../data/submissionService';
 import {
@@ -25,27 +33,34 @@ import {
   periodsWithSubmissions,
   saveSubmission,
 } from '../../storage/localStorage';
-import { exportGridXlsx, parseValuesFile } from '../../utils/excel';
+import { exportSubmissionXlsx, parseValuesFile } from '../../utils/excel';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { ForecastTemplate, SubmissionStatus } from '../../types';
 
 export function Submission() {
   const templates = useMemo(() => loadTemplates(), []);
   const [entity, setEntity] = useState(entities[0]?.name ?? 'Netherlands');
-  const [period, setPeriod] = useState(DEFAULT_PERIOD);
+  const [week, setWeek] = useState(currentWeekKey());
 
   const available = templatesForEntity(templates, entity);
   const [templateId, setTemplateId] = useState(available[0]?.id ?? '');
-  const template =
-    available.find((t) => t.id === templateId) ?? available[0] ?? null;
+  const template = available.find((t) => t.id === templateId) ?? available[0] ?? null;
 
-  // Periods that already hold a saved submission for this entity (history).
-  const savedPeriods = useMemo(() => periodsWithSubmissions(entity), [entity]);
+  // Weeks that already hold a saved submission for this entity (history).
+  const savedWeeks = useMemo(() => periodsWithSubmissions(entity), [entity]);
+
+  const { year, month } = weekYearMonth(week);
+  const weekOptions = weeksInMonth(year, month);
+
+  const setYearMonth = (y: number, m: number) => {
+    const weeks = weeksInMonth(y, m);
+    if (weeks.length > 0) setWeek(weeks[0]);
+  };
 
   if (!template) {
     return (
       <div className="view active">
-        <TopBar crumb="Submission" title="30-Day Forecast Entry" />
+        <TopBar crumb="Submission" title="Forecast Entry" />
         <div className="content">
           <div className="panel">
             <div className="empty-state">
@@ -60,11 +75,11 @@ export function Submission() {
 
   return (
     <div className="view active">
-      {/* Remount the grid whenever the selection changes so state reloads. */}
+      {/* Remount the editor whenever the selection changes so state reloads. */}
       <SubmissionEditor
-        key={`${entity}:${period}:${template.id}`}
+        key={`${entity}:${week}:${template.id}`}
         entity={entity}
-        period={period}
+        week={week}
         template={template}
         selectors={
           <>
@@ -84,14 +99,40 @@ export function Submission() {
             <select
               className="form-select"
               style={{ width: 'auto' }}
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              aria-label="Reporting period"
+              value={year}
+              onChange={(e) => setYearMonth(Number(e.target.value), month)}
+              aria-label="Year"
             >
-              {listPeriods().map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.label}
-                  {savedPeriods.has(p.key) ? ' ●' : ''}
+              {listYears().map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+            <select
+              className="form-select"
+              style={{ width: 'auto' }}
+              value={month}
+              onChange={(e) => setYearMonth(year, Number(e.target.value))}
+              aria-label="Month"
+            >
+              {Array.from({ length: 12 }, (_v, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {monthName(m)}
+                </option>
+              ))}
+            </select>
+            <select
+              className="form-select"
+              style={{ width: 'auto' }}
+              value={week}
+              onChange={(e) => setWeek(e.target.value)}
+              aria-label="Week"
+            >
+              {weekOptions.map((w) => (
+                <option key={w} value={w}>
+                  {weekLabel(w)}
+                  {savedWeeks.has(w) ? ' ●' : ''}
                 </option>
               ))}
             </select>
@@ -119,53 +160,60 @@ interface VarianceCell {
   key: string;
   label: string;
   day: number;
-  prior: number;
+  prior: number | null;
   current: number;
 }
 
 interface EditorProps {
   entity: string;
-  period: string;
+  week: string;
   template: ForecastTemplate;
   selectors: React.ReactNode;
 }
 
-function SubmissionEditor({ entity, period, template, selectors }: EditorProps) {
+function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
-  const dayLabels = useMemo(() => dayLabelsForPeriod(period), [period]);
-  const numDays = dayLabels.length;
+  const dates = useMemo(() => horizonDates(week), [week]);
+  const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
+  const numCats = template.categories.length;
 
-  const prior = useMemo(
-    () => getPriorValues(entity, period, template),
-    [entity, period, template],
-  );
+  const prior = useMemo(() => getPriorValues(entity, week, template), [entity, week, template]);
   const initial = useMemo(
-    () => getOrCreateSubmission(entity, period, template),
-    [entity, period, template],
+    () => getOrCreateSubmission(entity, week, template),
+    [entity, week, template],
   );
 
   const [values, setValues] = useState<GridValues>(initial.values);
   const [flags, setFlags] = useState<Set<string>>(new Set(initial.flags));
   const [comments, setComments] = useState<Record<string, string>>(initial.comments ?? {});
+  const [dayComments, setDayComments] = useState<Record<string, string>>(
+    initial.dayComments ?? {},
+  );
+  const [startingBalance, setStartingBalance] = useState<number>(initial.startingBalance ?? 0);
   const [status, setStatus] = useState<SubmissionStatus>(initial.status);
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const importInput = useRef<HTMLInputElement>(null);
 
-  const persist = (
-    v: GridValues = values,
-    f: Set<string> = flags,
-    c: Record<string, string> = comments,
-    s: SubmissionStatus = status,
-  ) => {
+  interface Snapshot {
+    values?: GridValues;
+    flags?: Set<string>;
+    comments?: Record<string, string>;
+    dayComments?: Record<string, string>;
+    startingBalance?: number;
+    status?: SubmissionStatus;
+  }
+  const persist = (snap: Snapshot = {}) => {
     saveSubmission({
-      period,
+      period: week,
       entity,
       templateId: template.id,
-      status: s,
-      values: v,
-      flags: [...f],
-      comments: c,
+      status: snap.status ?? status,
+      values: snap.values ?? values,
+      flags: [...(snap.flags ?? flags)],
+      comments: snap.comments ?? comments,
+      dayComments: snap.dayComments ?? dayComments,
+      startingBalance: snap.startingBalance ?? startingBalance,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -173,23 +221,24 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
   const reflag = (v: GridValues, keys: Iterable<string>, base: Set<string>): Set<string> => {
     const next = new Set(base);
     for (const key of keys) {
-      if (isVariance(v[key] || 0, prior[key] || 0, settings)) next.add(key);
+      const [c, d] = key.split('-').map(Number);
+      if (isVariance(v[key] || 0, priorValueFor(prior, c, d), settings)) next.add(key);
       else next.delete(key);
     }
     return next;
   };
 
-  const setCell = (rowIdx: number, dayIdx: number, value: number) => {
-    const key = `${rowIdx}-${dayIdx}`;
+  const setCell = (catIdx: number, dayIdx: number, value: number) => {
+    const key = cellKey(catIdx, dayIdx);
     const nextValues = { ...values, [key]: value };
     const nextFlags = reflag(nextValues, [key], flags);
     setValues(nextValues);
     setFlags(nextFlags);
-    persist(nextValues, nextFlags);
+    persist({ values: nextValues, flags: nextFlags });
   };
 
   const handlePaste = (
-    startRow: number,
+    startCat: number,
     startDay: number,
     e: ClipboardEvent<HTMLInputElement>,
   ) => {
@@ -200,13 +249,13 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
     const touched: string[] = [];
     grid.forEach((cols, ri) => {
       cols.forEach((raw, ci) => {
-        const rowIdx = startRow + ri;
-        const dayIdx = startDay + ci;
-        if (dayIdx >= numDays) return;
-        if (template.rows[rowIdx]?.kind !== 'data') return;
+        // Pasted rows/cols follow the on-screen orientation.
+        const catIdx = template.layout === 'grouped' ? startCat + ci : startCat + ri;
+        const dayIdx = template.layout === 'grouped' ? startDay + ri : startDay + ci;
+        if (catIdx >= numCats || dayIdx >= HORIZON_DAYS) return;
         const n = Number(raw.replace(/[€$,\s]/g, ''));
         if (!Number.isFinite(n)) return;
-        const key = `${rowIdx}-${dayIdx}`;
+        const key = cellKey(catIdx, dayIdx);
         nextValues[key] = n;
         touched.push(key);
       });
@@ -214,61 +263,87 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
     const nextFlags = reflag(nextValues, touched, flags);
     setValues(nextValues);
     setFlags(nextFlags);
-    persist(nextValues, nextFlags);
+    persist({ values: nextValues, flags: nextFlags });
   };
 
-  const applyValues = (v: GridValues, f: Set<string>) => {
-    setValues(v);
-    setFlags(f);
-    persist(v, f);
+  const setDayComment = (dayIdx: number, comment: string) => {
+    const next = { ...dayComments, [String(dayIdx)]: comment };
+    if (!comment) delete next[String(dayIdx)];
+    setDayComments(next);
+    persist({ dayComments: next });
+  };
+
+  const setBalance = (v: number) => {
+    setStartingBalance(v);
+    persist({ startingBalance: v });
   };
 
   const reset = () => {
     if (!confirm('Reset all values?')) return;
     if (template.id === STANDARD_TEMPLATE_ID) {
       const { values: v, flags: f } = generateGridValues(
-        template.rows,
-        period,
-        seedFor(`${entity}:${period}`),
+        template.categories,
+        week,
+        seedFor(`${entity}:${week}`),
         true,
       );
-      applyValues(v, new Set(f));
+      setValues(v);
+      setFlags(new Set(f));
+      persist({ values: v, flags: new Set(f) });
     } else {
-      applyValues({}, new Set());
+      setValues({});
+      setFlags(new Set());
+      persist({ values: {}, flags: new Set() });
     }
   };
 
   const copyPrior = () => {
-    const prevKey = prevPeriodKey(period);
+    const prevKey = prevWeekKey(week);
     const hasStored = loadSubmission(prevKey, entity, template.id) !== null;
-    applyValues({ ...prior }, new Set());
+    setValues({ ...prior });
+    setFlags(new Set());
+    persist({ values: { ...prior }, flags: new Set() });
     alert(
       hasStored
-        ? `Copied your saved ${periodLabel(prevKey)} submission. Edit as needed.`
-        : `Loaded prior-period values for ${periodLabel(prevKey)}. Edit as needed.`,
+        ? `Copied your saved ${weekLabel(prevKey)} submission. Edit as needed.`
+        : `Loaded prior-week values for ${weekLabel(prevKey)}. Edit as needed.`,
     );
   };
 
   const handleImport = async (file: File) => {
     try {
-      const { values: imported, matched } = await parseValuesFile(file, template.rows, numDays);
-      const nextValues = { ...values, ...imported };
-      const nextFlags = reflag(nextValues, Object.keys(imported), flags);
-      applyValues(nextValues, nextFlags);
-      alert(`Imported ${matched} line item${matched === 1 ? '' : 's'} from ${file.name}.`);
+      const imported = await parseValuesFile(file, template, dates);
+      const nextValues = { ...values, ...imported.values };
+      const nextFlags = reflag(nextValues, Object.keys(imported.values), flags);
+      const nextDayComments = { ...dayComments, ...imported.dayComments };
+      const nextBalance = imported.startingBalance ?? startingBalance;
+      setValues(nextValues);
+      setFlags(nextFlags);
+      setDayComments(nextDayComments);
+      setStartingBalance(nextBalance);
+      persist({
+        values: nextValues,
+        flags: nextFlags,
+        dayComments: nextDayComments,
+        startingBalance: nextBalance,
+      });
+      alert(
+        `Imported ${imported.matched} line item${imported.matched === 1 ? '' : 's'} from ${file.name}` +
+          (imported.startingBalance !== undefined ? ' (incl. starting balance).' : '.'),
+      );
     } catch (err) {
       alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  const openVariance = (rowIdx: number, dayIdx: number) => {
-    const key = `${rowIdx}-${dayIdx}`;
+  const openVariance = (catIdx: number, dayIdx: number) => {
+    const key = cellKey(catIdx, dayIdx);
     setCommentDraft(comments[key] ?? '');
     setVarianceCell({
       key,
-      label: template.rows[rowIdx]?.label ?? '',
+      label: template.categories[catIdx]?.label ?? '',
       day: dayIdx + 1,
-      prior: prior[key] || 0,
+      prior: priorValueFor(prior, catIdx, dayIdx),
       current: values[key] || 0,
     });
   };
@@ -278,7 +353,7 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
     const nextComments = { ...comments, [varianceCell.key]: commentDraft.trim() };
     if (!commentDraft.trim()) delete nextComments[varianceCell.key];
     setComments(nextComments);
-    persist(values, flags, nextComments);
+    persist({ comments: nextComments });
     setVarianceCell(null);
   };
 
@@ -291,36 +366,43 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
           `${uncommented.length} flagged cell${uncommented.length === 1 ? '' : 's'} still need commentary. Add it now?`,
         )
       ) {
-        const [rowIdx, dayIdx] = uncommented[0].split('-').map(Number);
-        openVariance(rowIdx, dayIdx);
+        const [c, d] = uncommented[0].split('-').map(Number);
+        openVariance(c, d);
         return;
       }
     }
     setStatus('submitted');
-    persist(values, flags, comments, 'submitted');
+    persist({ status: 'submitted' });
     alert('Forecast submitted for approval.');
   };
 
   const exportGrid = () => {
-    exportGridXlsx(
-      template.rows,
+    exportSubmissionXlsx({
+      template,
+      entity,
+      weekLabel: weekLabelShort(week),
+      dates,
       dayLabels,
       values,
-      `${entity.replace(/\s+/g, '-')}-${period}-forecast.xlsx`,
-      periodLabel(period),
-    ).catch((err) => alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`));
+      startingBalance,
+      dayComments,
+      filename: `${entity.replace(/\s+/g, '-')}-${week}-forecast.xlsx`,
+    }).catch((err) =>
+      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   };
 
-  const varianceDelta = varianceCell
-    ? ((varianceCell.current - varianceCell.prior) /
-        Math.max(Math.abs(varianceCell.prior), 1)) *
-      100
-    : 0;
+  const varianceDelta =
+    varianceCell && varianceCell.prior !== null
+      ? ((varianceCell.current - varianceCell.prior) /
+          Math.max(Math.abs(varianceCell.prior), 1)) *
+        100
+      : null;
 
   return (
     <>
       <TopBar
-        crumb={`Submission · ${periodLabel(period)} · ${entity}`}
+        crumb={`Submission · ${weekLabelShort(week)} · ${entity}`}
         title="Forecast Entry"
         actions={
           <>
@@ -340,8 +422,8 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
             <h4>⚠ Variance Flags Detected</h4>
             <div className="row">
               <span>
-                Cells exceeding ±{settings.varianceThreshold}% vs prior period require commentary
-                before submission. Click a flagged cell to explain it.
+                Cells exceeding ±{settings.varianceThreshold}% vs the prior week require
+                commentary before submission. Click a flagged cell to explain it.
               </span>
               <span>
                 {flags.size} flagged · {uncommented.length} need commentary
@@ -352,10 +434,7 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
 
         <div className="panel">
           <div className="grid-toolbar">
-            <div className="grid-toolbar-left">
-              {selectors}
-              <span className="paste-hint">⌘V · Paste from Excel supported</span>
-            </div>
+            <div className="grid-toolbar-left">{selectors}</div>
             <div className="row-flex">
               <button className="btn btn-ghost" onClick={() => importInput.current?.click()}>
                 Import Excel
@@ -383,23 +462,46 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
             </div>
           </div>
           <div className="grid-toolbar" style={{ borderTop: 'none' }}>
-            <div className="grid-info">
-              <strong>{template.name}</strong> ·{' '}
-              <span className="text-muted">
-                EUR · Daily values in thousands · {numDays} days
-              </span>
+            <div className="grid-toolbar-left">
+              <div className="grid-info">
+                <strong>{template.name}</strong> ·{' '}
+                <span className="text-muted">
+                  EUR thousands · {HORIZON_WEEKS}-week horizon · {HORIZON_DAYS} working days ·
+                  inflows +, outflows −
+                </span>
+              </div>
+              <span className="paste-hint">⌘V · Paste from Excel supported</span>
+            </div>
+            <div className="row-flex">
+              <label className="form-label" style={{ margin: 0 }}>
+                Starting Balance
+              </label>
+              <input
+                className="form-input"
+                style={{ width: 120, textAlign: 'right', fontFamily: 'var(--mono)' }}
+                value={startingBalance}
+                onChange={(e) => {
+                  const n = Number(e.target.value.replace(/[€$,\s]/g, ''));
+                  setBalance(Number.isFinite(n) ? n : 0);
+                }}
+                aria-label="Starting balance"
+              />
             </div>
           </div>
           <div className="forecast-grid-wrap">
             <ForecastGrid
-              rows={template.rows}
+              categories={template.categories}
+              layout={template.layout}
               dayLabels={dayLabels}
               values={values}
               flags={flags}
+              startingBalance={startingBalance}
+              dayComments={dayComments}
               editable
               onChangeCell={setCell}
               onPaste={handlePaste}
               onCellClick={openVariance}
+              onChangeDayComment={setDayComment}
             />
           </div>
         </div>
@@ -429,12 +531,18 @@ function SubmissionEditor({ entity, period, template, selectors }: EditorProps) 
                   {varianceCell.label} · Day {varianceCell.day}
                 </span>
                 <span>
-                  {varianceDelta > 0 ? '+' : ''}
-                  {varianceDelta.toFixed(1)}%
+                  {varianceDelta === null
+                    ? 'new period'
+                    : `${varianceDelta > 0 ? '+' : ''}${varianceDelta.toFixed(1)}%`}
                 </span>
               </div>
               <div className="row">
-                <span>Prior: €{varianceCell.prior.toLocaleString()}k</span>
+                <span>
+                  Prior:{' '}
+                  {varianceCell.prior === null
+                    ? '—'
+                    : `€${varianceCell.prior.toLocaleString()}k`}
+                </span>
                 <span>Current: €{varianceCell.current.toLocaleString()}k</span>
               </div>
             </div>
