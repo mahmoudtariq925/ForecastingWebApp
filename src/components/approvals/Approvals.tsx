@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { entities } from '../../data/mockData';
-import { loadApprovals, saveApprovals, type ApprovalMap } from '../../storage/localStorage';
+import { cycles as seedCycles, entities } from '../../data/mockData';
+import {
+  loadApprovals,
+  loadCycles,
+  saveApprovals,
+  type ApprovalMap,
+} from '../../storage/localStorage';
 import type { SubmissionStatus } from '../../types';
-
-const CYCLE_ID = 'CW-2026-21';
 
 // Deterministic variance-flag counts per pending entity (prototype used random).
 const flagCounts: Record<string, number> = {
@@ -27,13 +30,17 @@ const submittedHours: Record<string, number> = {
 
 /** Approval queue for the active cycle; approve/reject persists per entity. */
 export function Approvals() {
+  const activeCycleId = useMemo(() => {
+    const cycles = loadCycles(seedCycles);
+    return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
+  }, []);
   const queue = entities.filter((e) => e.status === 'submitted' || e.status === 'pending');
-  const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(CYCLE_ID));
+  const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(activeCycleId));
 
   const decide = (entity: string, status: SubmissionStatus) => {
     const next = { ...overrides, [entity]: status };
     setOverrides(next);
-    saveApprovals(CYCLE_ID, next);
+    saveApprovals(activeCycleId, next);
   };
 
   return (
@@ -41,7 +48,7 @@ export function Approvals() {
       <TopBar
         crumb="Workflow"
         title="Pending Approvals"
-        actions={<CyclePill label="Active" value={CYCLE_ID} />}
+        actions={<CyclePill label="Active" value={activeCycleId} />}
       />
       <div className="content">
         <div className="panel">

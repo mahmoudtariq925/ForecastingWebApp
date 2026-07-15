@@ -11,14 +11,33 @@ later).
 
 | Screen | What it does |
 | --- | --- |
-| **Dashboard** | KPIs, cycle-progress table (Send Chaser), 30-day outlook chart |
-| **Forecast Cycles** | Weekly cycles with status and open/close actions |
-| **My Submissions** | 30-day entry grid with paste-from-Excel, variance flags, commentary modal |
-| **Approvals** | Approve/reject queue with variance-flag counts |
-| **Consolidated** | Treasury read-only view across all entities |
-| **Comparisons** | Forecast-vs-forecast with variance drill-down |
-| **User Management** | Assign roles (Treasury / Approver / Submitter / Admin) per entity |
-| **Settings** | Variance threshold and cycle rules |
+| **Dashboard** | Computed KPIs, live cycle-progress table, 30-day outlook chart, real data export (xlsx/csv/json) |
+| **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
+| **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid, paste-from-Excel, .xlsx import/export, variance flags with per-cell commentary, per-period history |
+| **Approvals** | Approve/reject queue persisted against the active cycle |
+| **Consolidated** | Treasury read-only view with computed KPIs and real XLSX export |
+| **Comparisons** | Forecast-vs-forecast: chart, by-entity and by-category tabs, cycle pairs from the store |
+| **Templates** | Upload .xlsx forecast templates, assign them to countries, edit / replace / download / remove |
+| **User Management** | Add users, assign roles (Treasury / Approver / Submitter / Admin), remove — all persisted |
+| **Settings** | Variance threshold and cycle rules (drive the submission variance flags) |
+
+### Forecast templates
+
+Templates are ordinary .xlsx files parsed in the browser ([exceljs](https://github.com/exceljs/exceljs)):
+
+- Row labels go in **column A** of the first sheet.
+- **ALL-CAPS** labels become section headers (e.g. `INFLOWS`).
+- Labels starting **"Total …"** become computed subtotal rows.
+- Labels starting **"Net …"** become the computed grand-total row.
+- Everything else is an editable data row.
+
+Admins assign each template to one or more countries in the Templates screen;
+submitters then pick from their assigned templates in My Submissions. Each
+(entity, period, template) combination is stored separately, so previous
+periods stay editable without affecting current ones.
+
+The app is responsive: below ~900px the sidebar becomes a drawer and wide
+tables scroll inside their panels.
 
 ## Run locally
 
@@ -63,30 +82,37 @@ src/
     layout/        Sidebar, TopBar
     dashboard/     Dashboard screen
     cycles/        Forecast Cycles screen
-    submissions/   Submission grid (30-day, paste-from-Excel) + ForecastGrid
+    submissions/   Submission editor + ForecastGrid + gridMath
     approvals/     Approvals screen
     consolidated/  Treasury consolidated (read-only) view
     comparisons/   Forecast vs forecast
+    templates/     Forecast template upload / assignment management
     users/         User management
-    settings/      Settings screen
+    settings/      Settings screen (+ defaults)
     common/        Modal, StatusPill, Chart, icons, AppModals
   data/
-    mockData.ts    All dummy data + grid generation helpers in one place
+    mockData.ts    Seed data, the standard template, demo-value generation
+    periods.ts     Reporting periods (month/year) and day labels
+    submissionService.ts  Get-or-create submissions, prior values, variance rule
   storage/
     localStorage.ts  saveData()/loadData() + named helpers (saveSubmission, ...)
   types/
-    index.ts       Domain types (Cycle, Submission, User, Entity, ...)
+    index.ts       Domain types (Cycle, Submission, ForecastTemplate, User, ...)
     nav.ts         View / modal identifiers and nav config
-  App.tsx          Shell: navigation + active screen + modals
+  utils/
+    excel.ts       .xlsx parse/import/export (exceljs, lazily loaded)
+    download.ts    Blob download + base64 file helpers
+  App.tsx          Shell: navigation + active screen + shared modals
   main.tsx         Entry point
-  index.css        Design system (ported verbatim from the prototype)
+  index.css        Design system (ported verbatim from the prototype) + responsive rules
 ```
 
 ## Persistence
 
 All reads and writes go through `src/storage/localStorage.ts`. It persists:
 
-- submissions per cycle/entity (`saveSubmission` / `loadSubmission`)
+- submissions per period/entity/template (`saveSubmission` / `loadSubmission` / `listSubmissions`)
+- forecast templates incl. the uploaded .xlsx (`saveTemplates` / `loadTemplates`)
 - approval statuses (`saveApprovals` / `loadApprovals`)
 - cycle statuses (`saveCycles` / `saveCycle`)
 - user roles (`saveUsers` / `loadUsers`)

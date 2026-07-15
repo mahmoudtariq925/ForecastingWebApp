@@ -9,17 +9,29 @@ low-risk step.
 **Status: built.**
 
 - React + TypeScript + Vite + Tailwind CSS single-page app.
-- All eight screens from the prototype, componentised, with the original
-  visual design preserved exactly.
-- Fully interactive with **mock data** defined in `src/data/mockData.ts`.
-- **Persistence via browser `localStorage`**, wrapped entirely in
-  `src/storage/localStorage.ts` (`saveData`/`loadData` plus named helpers such
-  as `saveSubmission`, `loadSubmission`, `saveCycle`, `saveApprovals`,
+- All screens from the prototype plus a **Forecast Templates** section,
+  componentised, with the original visual design preserved exactly.
+- **Forecast templates**: upload real .xlsx files (parsed in-browser with
+  exceljs), assign them per country/region, edit / replace / download / remove.
+- **Dynamic submissions**: entity + reporting period (month/year) + template
+  selectors; the grid layout is driven by the selected template. Each
+  (entity, period, template) submission is stored separately, so historical
+  periods remain viewable and editable without affecting current ones.
+- **Real file features**: Excel import populates the grid, exports generate
+  valid .xlsx/.csv/.json downloads, paste-from-Excel fills cells, variance
+  flags carry per-cell commentary.
+- **Responsive**: the sidebar collapses to a drawer below ~900px and wide
+  tables scroll within their panels.
+- Seed data in `src/data/mockData.ts`; **persistence via browser
+  `localStorage`**, wrapped entirely in `src/storage/localStorage.ts`
+  (`saveData`/`loadData` plus named helpers such as `saveSubmission`,
+  `loadSubmission`, `saveCycle`, `saveTemplates`, `saveApprovals`,
   `saveUsers`, `saveSettings`).
 - Deployed to GitHub Pages for instant browser preview.
 
 There is **no backend yet** — everything lives in the browser. Data is
-per-browser and not shared between users.
+per-browser and not shared between users; uploaded template files are stored
+as base64 in localStorage (capped at 1 MB per file until Phase 2).
 
 ## Phase 2 — Azure Blob Storage via Azure Functions API
 

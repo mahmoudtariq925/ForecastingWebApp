@@ -893,3 +893,114 @@ td.num {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
 }
+
+/* ==========================================================================
+   Responsive layout. The desktop design is untouched; below these widths the
+   sidebar becomes a drawer, toolbars wrap, and wide tables scroll inside
+   their panels instead of overflowing the page.
+   ========================================================================== */
+.menu-btn {
+  display: none;
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 46; /* above the backdrop (45), below the open drawer (50) */
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  align-items: center;
+  justify-content: center;
+}
+.menu-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.sidebar-backdrop {
+  display: none;
+}
+
+.grid-toolbar {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.grid-toolbar .row-flex {
+  flex-wrap: wrap;
+}
+.grid-toolbar-left {
+  flex-wrap: wrap;
+}
+.topbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.topbar-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1200px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 250px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    overflow-y: auto;
+  }
+  .sidebar.open {
+    transform: none;
+    box-shadow: 8px 0 24px rgba(20, 22, 28, 0.12);
+  }
+  .sidebar-backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 22, 28, 0.35);
+    z-index: 45;
+  }
+  .menu-btn {
+    display: inline-flex;
+  }
+  .topbar {
+    padding: 16px 16px 16px 64px;
+  }
+  .content {
+    padding: 20px 16px 60px;
+  }
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  /* Wide data tables scroll inside their panel instead of squashing. */
+  .panel-body.no-pad {
+    overflow-x: auto;
+  }
+  .panel-body.no-pad table {
+    min-width: 680px;
+  }
+  .comparison-tabs {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .page-title-wrap h1 {
+    font-size: 22px;
+  }
+}

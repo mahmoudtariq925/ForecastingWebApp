@@ -1,13 +1,9 @@
 import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
-import { users as seedUsers } from '../../data/mockData';
+import { Modal } from '../common/Modal';
+import { entities, users as seedUsers } from '../../data/mockData';
 import { loadUsers, saveUsers } from '../../storage/localStorage';
 import type { Role, User } from '../../types';
-import type { ModalId } from '../../types/nav';
-
-interface UsersProps {
-  onOpenModal: (id: ModalId) => void;
-}
 
 const ROLES: Role[] = ['submitter', 'approver', 'treasury', 'admin'];
 
@@ -18,15 +14,54 @@ const initials = (name: string) =>
     .slice(0, 2)
     .join('');
 
-/** User management with per-user role assignment persisted to storage. */
-export function Users({ onOpenModal }: UsersProps) {
+const EMPTY_FORM = { name: '', email: '', team: entities[0]?.name ?? '', role: 'submitter' as Role };
+
+/** User management: add users, assign roles per entity, remove — all persisted. */
+export function Users() {
   const [users, setUsers] = useState<User[]>(() => loadUsers(seedUsers));
   const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
 
-  const setRole = (email: string, role: Role) => {
-    const next = users.map((u) => (u.email === email ? { ...u, role } : u));
+  const commit = (next: User[]) => {
     setUsers(next);
     saveUsers(next);
+  };
+
+  const setRole = (email: string, role: Role) => {
+    commit(users.map((u) => (u.email === email ? { ...u, role } : u)));
+  };
+
+  const removeUser = (u: User) => {
+    if (!confirm(`Remove ${u.name} (${u.email})?`)) return;
+    commit(users.filter((x) => x.email !== u.email));
+    setEditing(null);
+  };
+
+  const addUser = () => {
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+    if (!name || !email) {
+      alert('Name and email are required.');
+      return;
+    }
+    if (users.some((u) => u.email.toLowerCase() === email)) {
+      alert('A user with this email already exists.');
+      return;
+    }
+    commit([
+      ...users,
+      {
+        name,
+        email,
+        team: form.team,
+        role: form.role,
+        scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
+        last: 'Invited',
+      },
+    ]);
+    setForm(EMPTY_FORM);
+    setAdding(false);
   };
 
   return (
@@ -35,7 +70,7 @@ export function Users({ onOpenModal }: UsersProps) {
         crumb="Administration"
         title="User Management"
         actions={
-          <button className="btn btn-primary" onClick={() => onOpenModal('newUser')}>
+          <button className="btn btn-primary" onClick={() => setAdding(true)}>
             + Add User
           </button>
         }
@@ -95,13 +130,24 @@ export function Users({ onOpenModal }: UsersProps) {
                         {u.last}
                       </td>
                       <td>
-                        <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
-                          onClick={() => setEditing(isEditing ? null : u.email)}
-                        >
-                          {isEditing ? 'Done' : 'Edit'}
-                        </button>
+                        <div className="row-flex">
+                          <button
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => setEditing(isEditing ? null : u.email)}
+                          >
+                            {isEditing ? 'Done' : 'Edit'}
+                          </button>
+                          {isEditing && (
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => removeUser(u)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -111,6 +157,73 @@ export function Users({ onOpenModal }: UsersProps) {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={adding}
+        title="Add User"
+        onClose={() => setAdding(false)}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={addUser}>
+              Send Invite
+            </button>
+          </>
+        }
+      >
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Full Name</label>
+            <input
+              className="form-input"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              className="form-input"
+              placeholder="user@contoso.com"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Entity / Team</label>
+            <select
+              className="form-select"
+              value={form.team}
+              onChange={(e) => setForm({ ...form, team: e.target.value })}
+            >
+              {entities.map((en) => (
+                <option key={en.name} value={en.name}>
+                  {en.name}
+                </option>
+              ))}
+              <option>Treasury HQ</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Role</label>
+            <select
+              className="form-select"
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

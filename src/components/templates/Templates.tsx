@@ -1,0 +1,330 @@
+import { useRef, useState } from 'react';
+import { TopBar } from '../layout/TopBar';
+import { Modal } from '../common/Modal';
+import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { loadTemplates, saveTemplates } from '../../storage/localStorage';
+import { exportTemplateXlsx, parseTemplateFile } from '../../utils/excel';
+import { base64ToBlob, downloadBlob, fileToBase64, XLSX_MIME } from '../../utils/download';
+import type { ForecastTemplate } from '../../types';
+
+// localStorage-backed phase: keep stored template files small.
+const MAX_FILE_BYTES = 1_000_000;
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/**
+ * Admin screen for forecast templates: upload .xlsx files, assign them to
+ * entities, and view / update / replace / remove existing ones.
+ */
+export function Templates() {
+  const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
+  const [editing, setEditing] = useState<ForecastTemplate | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEntities, setEditEntities] = useState<Set<string>>(new Set());
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
+  const replaceTarget = useRef<string | null>(null);
+
+  const commit = (next: ForecastTemplate[]) => {
+    setTemplates(next);
+    saveTemplates(next);
+  };
+
+  const handleUpload = async (file: File) => {
+    if (file.size > MAX_FILE_BYTES) {
+      alert('File is too large for browser storage (max 1 MB in Phase 1).');
+      return;
+    }
+    try {
+      const rows = await parseTemplateFile(file);
+      const fileData = await fileToBase64(file);
+      const template: ForecastTemplate = {
+        id: `tpl-${Date.now()}`,
+        name: file.name.replace(/\.xlsx$/i, ''),
+        fileName: file.name,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: 'Maja Kowalska',
+        assignedEntities: [],
+        rows,
+        fileData,
+      };
+      commit([...templates, template]);
+      openEdit(template);
+    } catch (err) {
+      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleReplace = async (file: File) => {
+    const id = replaceTarget.current;
+    replaceTarget.current = null;
+    if (!id) return;
+    if (file.size > MAX_FILE_BYTES) {
+      alert('File is too large for browser storage (max 1 MB in Phase 1).');
+      return;
+    }
+    try {
+      const rows = await parseTemplateFile(file);
+      const fileData = await fileToBase64(file);
+      commit(
+        templates.map((t) =>
+          t.id === id
+            ? { ...t, rows, fileData, fileName: file.name, uploadedAt: new Date().toISOString() }
+            : t,
+        ),
+      );
+      alert(`Template structure replaced from ${file.name} (${rows.length} rows).`);
+    } catch (err) {
+      alert(`Replace failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const download = (t: ForecastTemplate) => {
+    if (t.fileData) {
+      downloadBlob(base64ToBlob(t.fileData, XLSX_MIME), t.fileName ?? `${t.name}.xlsx`, XLSX_MIME);
+    } else {
+      // Seeded template has no original file — generate one from its rows.
+      exportTemplateXlsx(t).catch((err) =>
+        alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
+    }
+  };
+
+  const remove = (t: ForecastTemplate) => {
+    const warning =
+      t.id === STANDARD_TEMPLATE_ID
+        ? `Remove the built-in "${t.name}" template? Entities without another assigned template will lose their default.`
+        : `Remove template "${t.name}"? Existing submissions made with it remain stored.`;
+    if (!confirm(warning)) return;
+    commit(templates.filter((x) => x.id !== t.id));
+  };
+
+  const openEdit = (t: ForecastTemplate) => {
+    setEditing(t);
+    setEditName(t.name);
+    setEditEntities(new Set(t.assignedEntities));
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    commit(
+      templates.map((t) =>
+        t.id === editing.id
+          ? { ...t, name: editName.trim() || t.name, assignedEntities: [...editEntities] }
+          : t,
+      ),
+    );
+    setEditing(null);
+  };
+
+  const toggleEntity = (name: string) => {
+    const next = new Set(editEntities);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setEditEntities(next);
+  };
+
+  return (
+    <div className="view active">
+      <TopBar
+        crumb="Administration"
+        title="Forecast Templates"
+        actions={
+          <button className="btn btn-primary" onClick={() => uploadInput.current?.click()}>
+            + Upload Template
+          </button>
+        }
+      />
+      <div className="content">
+        <div className="panel">
+          <div className="grid-toolbar">
+            <div className="grid-info">
+              <strong>{templates.length} template{templates.length === 1 ? '' : 's'}</strong> ·{' '}
+              <span className="text-muted">
+                .xlsx · labels in column A · ALL-CAPS rows = sections · “Total …” = subtotals ·
+                “Net …” = grand total
+              </span>
+            </div>
+          </div>
+          <div className="panel-body no-pad">
+            {templates.length === 0 ? (
+              <div className="empty-state">
+                <div className="ic">▦</div>
+                <p>No templates yet. Upload an .xlsx file to get started.</p>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Template</th>
+                    <th>Source File</th>
+                    <th>Line Items</th>
+                    <th>Assigned To</th>
+                    <th>Updated</th>
+                    <th>Uploaded By</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templates.map((t) => {
+                    const dataRows = t.rows.filter((r) => r.kind === 'data').length;
+                    return (
+                      <tr key={t.id}>
+                        <td>
+                          <strong>{t.name}</strong>
+                          {t.id === STANDARD_TEMPLATE_ID && (
+                            <span
+                              className="role-tag treasury"
+                              style={{ marginLeft: 8 }}
+                            >
+                              built-in
+                            </span>
+                          )}
+                        </td>
+                        <td className="text-dim">{t.fileName ?? '—'}</td>
+                        <td className="text-dim">{dataRows} rows</td>
+                        <td className="text-dim" style={{ fontSize: 12, maxWidth: 260 }}>
+                          {t.assignedEntities.length === 0
+                            ? '—'
+                            : t.assignedEntities.length === entities.length
+                              ? 'All entities'
+                              : t.assignedEntities.join(', ')}
+                        </td>
+                        <td className="text-muted" style={{ fontSize: 12 }}>
+                          {formatDate(t.uploadedAt)}
+                        </td>
+                        <td className="text-dim">{t.uploadedBy}</td>
+                        <td>
+                          <div className="row-flex">
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => openEdit(t)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => {
+                                replaceTarget.current = t.id;
+                                replaceInput.current?.click();
+                              }}
+                            >
+                              Replace
+                            </button>
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => download(t)}
+                            >
+                              Download
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => remove(t)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        <input
+          ref={uploadInput}
+          type="file"
+          accept=".xlsx"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleUpload(file);
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={replaceInput}
+          type="file"
+          accept=".xlsx"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleReplace(file);
+            e.target.value = '';
+          }}
+        />
+      </div>
+
+      <Modal
+        open={editing !== null}
+        title="Edit Template"
+        onClose={() => setEditing(null)}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={saveEdit}>
+              Save
+            </button>
+          </>
+        }
+      >
+        <div className="form-group">
+          <label className="form-label">Template Name</label>
+          <input
+            className="form-input"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Assigned Countries / Regions</label>
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '10px 12px',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 6,
+              maxHeight: 220,
+              overflowY: 'auto',
+            }}
+          >
+            {entities.map((en) => (
+              <label
+                key={en.name}
+                className="row-flex"
+                style={{ fontSize: 13, cursor: 'pointer' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={editEntities.has(en.name)}
+                  onChange={() => toggleEntity(en.name)}
+                />
+                {en.name}
+              </label>
+            ))}
+          </div>
+          <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Submitters in these countries can pick this template in My Submissions.
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

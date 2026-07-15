@@ -1,14 +1,88 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Chart } from '../common/Chart';
-import { variances } from '../../data/mockData';
+import {
+  buildStandardTemplate,
+  cycles as seedCycles,
+  entities,
+  generateGridValues,
+  seedFor,
+  variances,
+} from '../../data/mockData';
+import { DEFAULT_PERIOD, datesForPeriod, prevPeriodKey } from '../../data/periods';
+import { loadCycles, loadSettings } from '../../storage/localStorage';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
 
-const TABS = ['Daily Variance', 'By Entity', 'By Category'];
+const TABS = ['Daily Variance', 'By Entity', 'By Category'] as const;
 
-/** Forecast-vs-forecast comparison with variance drill-down table. */
+function DeltaCell({ pct }: { pct: number }) {
+  const cls = pct > 0 ? 'up' : 'down';
+  const sign = pct > 0 ? '+' : '';
+  return (
+    <span className={`delta ${cls}`}>
+      {sign}
+      {pct.toFixed(1)}%
+    </span>
+  );
+}
+
+/** Category totals (current vs prior period) from the consolidated demo data. */
+function useCategoryComparison() {
+  return useMemo(() => {
+    const tpl = buildStandardTemplate();
+    const days = datesForPeriod(DEFAULT_PERIOD).length;
+    const current = generateGridValues(
+      tpl.rows,
+      DEFAULT_PERIOD,
+      seedFor(`Consolidated:${DEFAULT_PERIOD}`),
+      false,
+    ).values;
+    const prior = generateGridValues(
+      tpl.rows,
+      DEFAULT_PERIOD,
+      seedFor(`Consolidated:${prevPeriodKey(DEFAULT_PERIOD)}`),
+      false,
+    ).values;
+
+    return tpl.rows
+      .map((row, rowIdx) => ({ row, rowIdx }))
+      .filter(({ row }) => row.kind === 'data')
+      .map(({ row, rowIdx }) => {
+        let cur = 0;
+        let pri = 0;
+        for (let i = 0; i < days; i++) {
+          cur += current[`${rowIdx}-${i}`] || 0;
+          pri += prior[`${rowIdx}-${i}`] || 0;
+        }
+        const pct = ((cur - pri) / Math.max(Math.abs(pri), 1)) * 100;
+        return { label: row.label, current: cur, prior: pri, pct };
+      });
+  }, []);
+}
+
+/** Forecast-vs-forecast comparison with variance drill-down. */
 export function Comparison() {
   const [tab, setTab] = useState(0);
+  const cycles = loadCycles(seedCycles);
+  const settings = loadSettings(DEFAULT_SETTINGS);
+
+  // Consecutive cycle pairs from the store drive the selector.
+  const pairs = useMemo(() => {
+    const out: { label: string; current: string; prior: string }[] = [];
+    for (let i = 0; i < cycles.length - 1; i++) {
+      out.push({
+        label: `${cycles[i].id} vs ${cycles[i + 1].id}`,
+        current: cycles[i].id,
+        prior: cycles[i + 1].id,
+      });
+    }
+    return out;
+  }, [cycles]);
+  const [pairIdx, setPairIdx] = useState(0);
+  const pair = pairs[Math.min(pairIdx, pairs.length - 1)];
+
+  const categories = useCategoryComparison();
 
   return (
     <div className="view active">
@@ -16,10 +90,17 @@ export function Comparison() {
         crumb="Analysis"
         title="Forecast vs Forecast"
         actions={
-          <select className="form-select" style={{ width: 'auto' }}>
-            <option>CW-2026-21 vs CW-2026-20</option>
-            <option>CW-2026-21 vs CW-2026-19</option>
-            <option>CW-2026-20 vs CW-2026-19</option>
+          <select
+            className="form-select"
+            style={{ width: 'auto' }}
+            value={pairIdx}
+            onChange={(e) => setPairIdx(Number(e.target.value))}
+          >
+            {pairs.map((p, i) => (
+              <option key={p.label} value={i}>
+                {p.label}
+              </option>
+            ))}
           </select>
         }
       />
@@ -36,14 +117,86 @@ export function Comparison() {
               </div>
             ))}
           </div>
-          <div className="panel-body">
-            <Chart variant="compare" />
-          </div>
+
+          {tab === 0 && (
+            <div className="panel-body">
+              <Chart
+                variant="compare"
+                seed={pairIdx}
+                legend={pair ? `- - - ${pair.prior} | ─── ${pair.current}` : undefined}
+              />
+            </div>
+          )}
+
+          {tab === 1 && (
+            <div className="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Entity</th>
+                    <th className="num">Prior (€k)</th>
+                    <th className="num">Current (€k)</th>
+                    <th className="num">Δ %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entities.map((e) => {
+                    const prior = Math.round(e.total / (1 + e.delta / 100));
+                    return (
+                      <tr key={e.name}>
+                        <td>
+                          <strong>{e.name}</strong>
+                        </td>
+                        <td className="num">{prior.toLocaleString()}</td>
+                        <td className="num">{e.total.toLocaleString()}</td>
+                        <td className="num">
+                          <DeltaCell pct={e.delta} />
+                        </td>
+                        <td>
+                          <StatusPill status={e.status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 2 && (
+            <div className="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th className="num">Prior (€k)</th>
+                    <th className="num">Current (€k)</th>
+                    <th className="num">Δ %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map((c) => (
+                    <tr key={c.label}>
+                      <td>
+                        <strong>{c.label}</strong>
+                      </td>
+                      <td className="num">{c.prior.toLocaleString()}</td>
+                      <td className="num">{c.current.toLocaleString()}</td>
+                      <td className="num">
+                        <DeltaCell pct={c.pct} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="section-header">
           <h2>Largest Variances</h2>
-          <span className="tag">±15% threshold</span>
+          <span className="tag">±{settings.varianceThreshold}% threshold</span>
         </div>
         <div className="panel">
           <div className="panel-body no-pad">
@@ -62,8 +215,6 @@ export function Comparison() {
               <tbody>
                 {variances.map((v, i) => {
                   const pct = ((v.current - v.prior) / Math.max(Math.abs(v.prior), 1)) * 100;
-                  const cls = pct > 0 ? 'up' : 'down';
-                  const sign = pct > 0 ? '+' : '';
                   return (
                     <tr key={i}>
                       <td>
@@ -74,10 +225,7 @@ export function Comparison() {
                       <td className="num">{v.prior.toLocaleString()}</td>
                       <td className="num">{v.current.toLocaleString()}</td>
                       <td className="num">
-                        <span className={`delta ${cls}`}>
-                          {sign}
-                          {pct.toFixed(1)}%
-                        </span>
+                        <DeltaCell pct={pct} />
                       </td>
                       <td className="text-dim" style={{ fontSize: 12, maxWidth: 280 }}>
                         {v.comment || <StatusPill status="pending" label="commentary needed" />}

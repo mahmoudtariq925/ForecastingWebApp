@@ -8,15 +8,11 @@ export type ViewId =
   | 'approvals'
   | 'consolidated'
   | 'comparison'
+  | 'templates'
   | 'users'
   | 'settings';
 
-export type ModalId =
-  | 'newCycle'
-  | 'export'
-  | 'variance'
-  | 'newUser'
-  | null;
+export type ModalId = 'newCycle' | 'export' | null;
 
 export interface NavEntry {
   view: ViewId;
@@ -33,6 +29,7 @@ export const workspaceNav: NavEntry[] = [
 ];
 
 export const adminNav: NavEntry[] = [
+  { view: 'templates', label: 'Templates' },
   { view: 'users', label: 'User Management' },
   { view: 'settings', label: 'Settings' },
 ];

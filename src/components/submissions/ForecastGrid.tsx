@@ -1,8 +1,11 @@
-import { useMemo, type ClipboardEvent } from 'react';
-import { dayLabels, lineItems } from '../../data/mockData';
-import { dayValue, rowTotal, NUM_DAYS, type GridValues } from './gridMath';
+import type { ClipboardEvent } from 'react';
+import type { TemplateRow } from '../../types';
+import type { DayLabel } from '../../data/periods';
+import { dayValue, rowTotal, type GridValues } from './gridMath';
 
 interface ForecastGridProps {
+  rows: TemplateRow[];
+  dayLabels: DayLabel[];
   values: GridValues;
   flags: Set<string>;
   editable: boolean;
@@ -12,11 +15,14 @@ interface ForecastGridProps {
 }
 
 /**
- * The 30-day forecast grid. Data rows are editable inputs when `editable`;
- * subtotal / total rows and the trailing column are computed live from
- * `values`. Variance-flagged cells (keys in `flags`) get the amber marker.
+ * The daily forecast grid, driven entirely by a template's row structure and
+ * the selected period's day labels. Data rows are editable inputs when
+ * `editable`; subtotal / total rows and the trailing column are computed live
+ * from `values`. Variance-flagged cells (keys in `flags`) get the amber marker.
  */
 export function ForecastGrid({
+  rows,
+  dayLabels,
   values,
   flags,
   editable,
@@ -24,9 +30,8 @@ export function ForecastGrid({
   onPaste,
   onCellClick,
 }: ForecastGridProps) {
+  const numDays = dayLabels.length;
   const fmt = (v: number) => (v === 0 ? '—' : v.toLocaleString());
-
-  const rows = useMemo(() => lineItems.map((item, rowIdx) => ({ item, rowIdx })), []);
 
   return (
     <table className="forecast-grid">
@@ -47,31 +52,34 @@ export function ForecastGrid({
         </tr>
       </thead>
       <tbody>
-        {rows.map(({ item, rowIdx }) => {
-          if (item.section) {
+        {rows.map((row, rowIdx) => {
+          if (row.kind === 'section') {
             return (
               <tr key={rowIdx} className="section-row">
-                <td className="row-label">{item.section}</td>
-                {Array.from({ length: NUM_DAYS + 1 }).map((_, i) => (
+                <td className="row-label">{row.label}</td>
+                {Array.from({ length: numDays + 1 }).map((_, i) => (
                   <td key={i} />
                 ))}
               </tr>
             );
           }
 
-          const labelClass = item.isSubtotal ? 'subtotal' : item.isTotal ? 'total' : 'indent';
-          const isData = !item.isSubtotal && !item.isTotal;
+          const labelClass =
+            row.kind === 'subtotal' ? 'subtotal' : row.kind === 'total' ? 'total' : 'indent';
+          const isData = row.kind === 'data';
 
           return (
             <tr key={rowIdx}>
-              <td className={`row-label ${labelClass}`}>{item.label}</td>
+              <td className={`row-label ${labelClass}`}>{row.label}</td>
               {dayLabels.map((dl, i) => {
                 const key = `${rowIdx}-${i}`;
-                const val = dayValue(values, rowIdx, i);
+                const val = dayValue(rows, values, rowIdx, i);
                 const flagged = flags.has(key);
                 const cellClass = `cell ${dl.weekend ? 'weekend' : ''} ${
                   flagged ? 'variance-flag' : ''
-                } ${item.isSubtotal ? 'subtotal-cell' : ''} ${item.isTotal ? 'total-cell' : ''}`.trim();
+                } ${row.kind === 'subtotal' ? 'subtotal-cell' : ''} ${
+                  row.kind === 'total' ? 'total-cell' : ''
+                }`.trim();
 
                 if (editable && isData) {
                   return (
@@ -100,10 +108,12 @@ export function ForecastGrid({
                 );
               })}
               <td
-                className={`cell ${item.isSubtotal ? 'subtotal-cell' : item.isTotal ? 'total-cell' : ''}`}
+                className={`cell ${
+                  row.kind === 'subtotal' ? 'subtotal-cell' : row.kind === 'total' ? 'total-cell' : ''
+                }`}
                 style={{ background: '#ebe9e0', fontWeight: 600 }}
               >
-                {rowTotal(values, rowIdx).toLocaleString()}
+                {rowTotal(rows, values, rowIdx, numDays).toLocaleString()}
               </td>
             </tr>
           );

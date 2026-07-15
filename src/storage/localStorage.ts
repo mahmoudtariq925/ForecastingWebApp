@@ -8,7 +8,8 @@
 //
 // The generic saveData/loadData underpin the named, typed helpers below.
 // ============================================================================
-import type { Cycle, Settings, Submission, User } from '../types';
+import type { Cycle, ForecastTemplate, Settings, Submission, User } from '../types';
+import { buildStandardTemplate } from '../data/mockData';
 
 const PREFIX = 'liquid:';
 
@@ -44,16 +45,73 @@ export function removeData(key: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Submissions — one grid submission per cycle + entity.
+// Submissions — one grid submission per reporting period + entity + template.
+// Historical periods stay stored under their own keys, so editing one period
+// never affects another.
 // ---------------------------------------------------------------------------
-const submissionKey = (cycleId: string, entity: string) => `submission:${cycleId}:${entity}`;
+const SUBMISSION_PREFIX = 'submission:';
+const submissionKey = (period: string, entity: string, templateId: string) =>
+  `${SUBMISSION_PREFIX}${period}:${entity}:${templateId}`;
 
 export function saveSubmission(submission: Submission): void {
-  saveData(submissionKey(submission.cycleId, submission.entity), submission);
+  saveData(submissionKey(submission.period, submission.entity, submission.templateId), submission);
 }
 
-export function loadSubmission(cycleId: string, entity: string): Submission | null {
-  return loadData<Submission | null>(submissionKey(cycleId, entity), null);
+export function loadSubmission(
+  period: string,
+  entity: string,
+  templateId: string,
+): Submission | null {
+  return loadData<Submission | null>(submissionKey(period, entity, templateId), null);
+}
+
+export function removeSubmission(period: string, entity: string, templateId: string): void {
+  removeData(submissionKey(period, entity, templateId));
+}
+
+/** All stored submissions, optionally filtered to one period. */
+export function listSubmissions(period?: string): Submission[] {
+  const out: Submission[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(PREFIX + SUBMISSION_PREFIX)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const sub = JSON.parse(raw) as Submission;
+      if (!sub || typeof sub !== 'object' || !sub.period) continue;
+      if (period && sub.period !== period) continue;
+      out.push(sub);
+    }
+  } catch (err) {
+    console.warn('[storage] failed to list submissions', err);
+  }
+  return out;
+}
+
+/** Periods that have at least one stored submission for the given entity. */
+export function periodsWithSubmissions(entity: string): Set<string> {
+  return new Set(
+    listSubmissions()
+      .filter((s) => s.entity === entity)
+      .map((s) => s.period),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forecast templates — uploaded .xlsx structures + entity assignments.
+// Seeded with the standard template on first load.
+// ---------------------------------------------------------------------------
+export function loadTemplates(): ForecastTemplate[] {
+  const stored = loadData<ForecastTemplate[] | null>('templates', null);
+  if (stored) return stored;
+  const seeded = [buildStandardTemplate()];
+  saveData('templates', seeded);
+  return seeded;
+}
+
+export function saveTemplates(templates: ForecastTemplate[]): void {
+  saveData('templates', templates);
 }
 
 // ---------------------------------------------------------------------------
