@@ -26,18 +26,48 @@ JetBrains Mono), spacing and layout, now componentised.
 
 ### Forecast templates
 
-Templates are ordinary .xlsx files parsed in the browser ([exceljs](https://github.com/exceljs/exceljs)):
+Templates are ordinary .xlsx files parsed in the browser ([exceljs](https://github.com/exceljs/exceljs)).
+**The structure is derived from the workbook itself** — there are no naming
+conventions to follow. Two layouts are supported (auto-detected on upload, or
+chosen explicitly; a template's layout can be switched later in Edit):
 
-- Row labels go in **column A** of the first sheet.
-- **ALL-CAPS** labels become section headers (e.g. `INFLOWS`).
-- Labels starting **"Total …"** become computed subtotal rows.
-- Labels starting **"Net …"** become the computed grand-total row.
-- Everything else is an editable data row.
+- **Grouped** (the default `samples/CF_Forecast_Template.xlsx` standard): one
+  row per working day, a `Date` header column followed by category columns,
+  group bands (e.g. *Trade AR & AP*, *Taxes*, *Payroll*, *IC Settlements*) on
+  the row above the headers, plus Comments / Total / Running total columns and
+  a Starting balance cell.
+- **Days across columns**: line items down the first column, one column per
+  day. Rows containing formulas are treated as computed totals and recreated
+  by the app; label-only rows become group headers.
+
+The built-in default template mirrors the standard treasury workbook
+(Receivables, Payables, Corporate Income, Other Taxes, Salaries, Social
+Securities, CAPEX, IC Settlements, Other) with a per-submission **starting
+balance** and running-balance calculation. Sign convention: inflows positive,
+outflows negative.
+
+### Forecast periods
+
+Forecasts are maintained on a **rolling weekly basis**. The period filter is
+Year → Month → Week; each submission covers a 4-week horizon of 20 working
+days starting on the selected week's Monday (weekends are skipped, like the
+standard workbook's `WORKDAY()` sequence). Variance flags compare each cell
+against the same calendar date in the prior week's stored submission.
+
+### Excel import/export
+
+- **Export** produces a real Excel *table* matching the UI layout, with live
+  formulas: per-day `Total` and `Running total`, `Total Inflows` / `Total
+  Outflows` (`SUMIF`), `Net Cash Flow` and `Closing Balance`, plus a native
+  totals row.
+- **Import** auto-detects the file's orientation, matches categories by
+  label, aligns grouped files by date, and picks up per-day comments and the
+  starting balance.
 
 Admins assign each template to one or more countries in the Templates screen;
 submitters then pick from their assigned templates in My Submissions. Each
-(entity, period, template) combination is stored separately, so previous
-periods stay editable without affecting current ones.
+(entity, week, template) combination is stored separately, so previous
+weeks stay editable without affecting current ones.
 
 The app is responsive: below ~900px the sidebar becomes a drawer and wide
 tables scroll inside their panels.

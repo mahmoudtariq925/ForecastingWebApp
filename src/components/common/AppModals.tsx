@@ -7,11 +7,16 @@ import {
   generateGridValues,
   seedFor,
 } from '../../data/mockData';
-import { DEFAULT_PERIOD, dayLabelsForPeriod } from '../../data/periods';
+import {
+  currentWeekKey,
+  dayLabelsForWeek,
+  horizonDates,
+  weekLabelShort,
+} from '../../data/periods';
 import { listSubmissions, loadCycles } from '../../storage/localStorage';
 import {
   cyclesTable,
-  exportGridXlsx,
+  exportSubmissionXlsx,
   exportTable,
   submissionsTable,
 } from '../../utils/excel';
@@ -70,35 +75,35 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
     try {
       if (scope === 'consolidated') {
         const tpl = buildStandardTemplate();
+        const week = currentWeekKey();
         const values = generateGridValues(
-          tpl.rows,
-          DEFAULT_PERIOD,
-          seedFor(`Consolidated:${DEFAULT_PERIOD}`),
+          tpl.categories,
+          week,
+          seedFor(`Consolidated:${week}`),
           false,
         ).values;
+        const dayLabels = dayLabelsForWeek(week);
         if (format === 'xlsx') {
-          await exportGridXlsx(
-            tpl.rows,
-            dayLabelsForPeriod(DEFAULT_PERIOD),
+          await exportSubmissionXlsx({
+            template: tpl,
+            layout: 'days-across',
+            entity: 'Consolidated (all entities)',
+            weekLabel: weekLabelShort(week),
+            dates: horizonDates(week),
+            dayLabels,
             values,
-            'consolidated-forecast.xlsx',
-            'Consolidated',
-          );
+            startingBalance: 42000,
+            filename: 'consolidated-forecast.xlsx',
+          });
         } else {
           // Tabular fallback for csv/json: one row per line item.
-          const dayLabels = dayLabelsForPeriod(DEFAULT_PERIOD);
           const table = {
             name: 'Consolidated',
             header: ['Category', ...dayLabels.map((_d, i) => `D${i + 1}`)],
-            rows: tpl.rows
-              .filter((r) => r.kind === 'data')
-              .map((r) => {
-                const rowIdx = tpl.rows.indexOf(r);
-                return [
-                  r.label,
-                  ...dayLabels.map((_d, i) => values[`${rowIdx}-${i}`] || 0),
-                ];
-              }),
+            rows: tpl.categories.map((cat, catIdx) => [
+              cat.label,
+              ...dayLabels.map((_d, i) => values[`${catIdx}-${i}`] || 0),
+            ]),
           };
           await exportTable(table, format, 'consolidated-forecast');
         }

@@ -13,10 +13,16 @@ low-risk step.
   componentised, with the original visual design preserved exactly.
 - **Forecast templates**: upload real .xlsx files (parsed in-browser with
   exceljs), assign them per country/region, edit / replace / download / remove.
-- **Dynamic submissions**: entity + reporting period (month/year) + template
-  selectors; the grid layout is driven by the selected template. Each
-  (entity, period, template) submission is stored separately, so historical
-  periods remain viewable and editable without affecting current ones.
+  Structure is derived from the workbook (no naming conventions); two layouts
+  are supported — grouped (one row per day, the standard
+  `samples/CF_Forecast_Template.xlsx` workbook) and days-across-columns. The
+  built-in default mirrors the standard treasury workbook incl. starting
+  balance and running total.
+- **Dynamic submissions**: entity + Year/Month/Week selectors (rolling weekly
+  forecasts, 4-week working-day horizon); the grid layout is driven by the
+  selected template. Each (entity, week, template) submission is stored
+  separately, so historical weeks remain viewable and editable without
+  affecting current ones. Exports are formula-based Excel tables.
 - **Real file features**: Excel import populates the grid, exports generate
   valid .xlsx/.csv/.json downloads, paste-from-Excel fills cells, variance
   flags carry per-cell commentary.

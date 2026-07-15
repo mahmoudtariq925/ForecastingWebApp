@@ -2,165 +2,708 @@
 // Real .xlsx read/write built on exceljs (dynamically imported so the library
 // is only downloaded when an import/export actually happens).
 //
-// Template file convention (documented in the Templates screen):
-//   - First worksheet, row labels in column A.
-//   - ALL-CAPS labels           → section headers      (e.g. "INFLOWS")
-//   - Labels starting "Total"   → computed subtotal rows
-//   - Labels starting "Net"     → computed grand-total row
-//   - Everything else           → editable data rows
+// Template structure is DERIVED FROM THE WORKBOOK rather than naming
+// conventions. Two layouts are supported (auto-detected on upload/import,
+// user-selectable per template):
+//
+//   grouped      — the standard CF_Forecast_Template layout: one row per
+//                  working day, a "Date" header column, category columns
+//                  under merged group bands, Comments / Total / Running
+//                  total columns and a Starting balance cell.
+//   days-across  — line items down column A, one column per day. Group
+//                  headers are rows with no numbers (bold or ALL-CAPS);
+//                  rows containing formulas are treated as computed and
+//                  recreated by the app.
+//
+// Exports produce a real Excel *table* that matches the UI layout, with
+// live formulas for the Total / Running total / Total Inflows / Total
+// Outflows / Net rows rather than static values.
 // ============================================================================
-import type { Cycle, ForecastTemplate, Submission, TemplateRow } from '../types';
+import type {
+  Cycle,
+  ForecastTemplate,
+  Submission,
+  TemplateCategory,
+  TemplateLayout,
+} from '../types';
 import type { DayLabel } from '../data/periods';
 import type { GridValues } from '../components/submissions/gridMath';
-import { dayValue, rowTotal } from '../components/submissions/gridMath';
+import { catValue, categoryGroups } from '../components/submissions/gridMath';
 import { downloadBlob, XLSX_MIME } from './download';
+
+// exceljs' Worksheet/Cell types are only needed structurally here.
+type Worksheet = {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  getRow(r: number): {
+    getCell(c: number): XCell;
+  };
+  getCell(r: number, c: number): XCell;
+  getColumn(c: number): { width?: number; numFmt?: string };
+  addTable(t: unknown): unknown;
+  mergeCells(range: string): void;
+  model: { merges?: string[] };
+};
+type XCell = {
+  value: unknown;
+  text?: string;
+  font?: { bold?: boolean };
+  numFmt?: string;
+  formula?: string;
+  alignment?: unknown;
+  fill?: unknown;
+};
 
 async function getExcelJS() {
   const mod = await import('exceljs');
   return mod.default ?? mod;
 }
 
-function classifyLabel(label: string): TemplateRow['kind'] {
-  if (/^total\b/i.test(label)) return 'subtotal';
-  if (/^net\b/i.test(label)) return 'total';
-  const hasLetters = /[a-zA-Z]/.test(label);
-  if (hasLetters && label === label.toUpperCase()) return 'section';
-  return 'data';
+const norm = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** 1-based column index → Excel letters. */
+function colLetter(n: number): string {
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
 
-/** Parse an uploaded .xlsx template file into a row structure. */
-export async function parseTemplateFile(file: File): Promise<TemplateRow[]> {
-  const ExcelJS = await getExcelJS();
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await file.arrayBuffer());
-  const ws = wb.worksheets[0];
-  if (!ws) throw new Error('The workbook has no worksheets.');
+function cellText(cell: XCell): string {
+  // cell.text throws on merged cells whose master value is null (exceljs
+  // MergeValue.toString on null), so guard the accessor.
+  try {
+    const t = cell.text;
+    if (t !== undefined && t !== null) return String(t).trim();
+  } catch {
+    /* fall through to raw value */
+  }
+  const v = cell.value;
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    const res = (v as { result?: unknown }).result;
+    if (res !== undefined && res !== null) return String(res).trim();
+    return '';
+  }
+  return String(v).trim();
+}
 
-  const rows: TemplateRow[] = [];
-  ws.eachRow((row) => {
-    const label = String(row.getCell(1).text ?? '').trim();
-    if (!label) return;
-    // Skip an obvious header row like "Cash Flow Category".
-    if (rows.length === 0 && /categor|line item/i.test(label)) return;
-    rows.push({ label, kind: classifyLabel(label) });
-  });
+function cellNumber(cell: XCell): number | null {
+  const v = cell.value as unknown;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/[€$,\s]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (v && typeof v === 'object') {
+    const res = (v as { result?: unknown }).result;
+    if (typeof res === 'number') return res;
+  }
+  return null;
+}
 
-  if (!rows.some((r) => r.kind === 'data')) {
+function cellDate(cell: XCell): Date | null {
+  const v = cell.value as unknown;
+  if (v instanceof Date) return v;
+  if (v && typeof v === 'object') {
+    const res = (v as { result?: unknown }).result;
+    if (res instanceof Date) return res;
+  }
+  if (typeof v === 'string') {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+function hasFormula(cell: XCell): boolean {
+  const v = cell.value as unknown;
+  return Boolean(
+    cell.formula ||
+      (v &&
+        typeof v === 'object' &&
+        (('formula' in (v as object)) || 'sharedFormula' in (v as object))),
+  );
+}
+
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Non-category columns in grouped-layout files.
+const RESERVED_HEADERS = new Set([
+  '',
+  'country',
+  'currency',
+  'weekday',
+  'date',
+  'comments',
+  'comment',
+  'total',
+  'running total',
+  'running balance',
+  'dropdown',
+]);
+
+// ---------------------------------------------------------------------------
+// Structure detection + parsing
+// ---------------------------------------------------------------------------
+
+interface GroupedHeader {
+  headerRow: number;
+  dateCol: number;
+  categoryCols: { col: number; label: string }[];
+  commentsCol?: number;
+}
+
+function findGroupedHeader(ws: Worksheet): GroupedHeader | null {
+  for (let r = 1; r <= Math.min(ws.rowCount, 25); r++) {
+    const row = ws.getRow(r);
+    let dateCol = 0;
+    for (let c = 1; c <= Math.min(ws.columnCount, 60); c++) {
+      if (norm(cellText(row.getCell(c))) === 'date') {
+        dateCol = c;
+        break;
+      }
+    }
+    if (!dateCol) continue;
+    const categoryCols: { col: number; label: string }[] = [];
+    let commentsCol: number | undefined;
+    for (let c = dateCol + 1; c <= Math.min(ws.columnCount, 80); c++) {
+      const label = cellText(row.getCell(c));
+      const n = norm(label);
+      if (n === 'comments' || n === 'comment') {
+        commentsCol = c;
+        continue;
+      }
+      if (RESERVED_HEADERS.has(n)) continue;
+      if (label) categoryCols.push({ col: c, label });
+    }
+    if (categoryCols.length >= 2) return { headerRow: r, dateCol, categoryCols, commentsCol };
+  }
+  return null;
+}
+
+/** Resolve group bands from the row above the header (merges + 1-col carry). */
+function groupBands(ws: Worksheet, header: GroupedHeader): Map<number, string> {
+  const bandRow = header.headerRow - 1;
+  const bands = new Map<number, string>();
+  if (bandRow < 1) return bands;
+
+  // Merged ranges on the band row: master value spans the whole range.
+  const merged = new Map<number, string>();
+  for (const range of ws.model.merges ?? []) {
+    const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range);
+    if (!m || Number(m[2]) !== bandRow || Number(m[4]) !== bandRow) continue;
+    const from = colFromLetter(m[1]);
+    const to = colFromLetter(m[3]);
+    const label = cellText(ws.getRow(bandRow).getCell(from));
+    if (!label) continue;
+    for (let c = from; c <= to; c++) merged.set(c, label);
+  }
+
+  let lastLabelCol = -10;
+  let lastLabel = '';
+  for (const { col } of header.categoryCols) {
+    if (merged.has(col)) {
+      bands.set(col, merged.get(col)!);
+      continue;
+    }
+    const label = cellText(ws.getRow(bandRow).getCell(col));
+    if (label && norm(label) !== 'dropdown') {
+      bands.set(col, label);
+      lastLabelCol = col;
+      lastLabel = label;
+    } else if (col === lastLabelCol + 1 && lastLabel) {
+      // Unmerged two-column band (label written once): carry a single column.
+      bands.set(col, lastLabel);
+      lastLabelCol = col;
+    }
+  }
+  return bands;
+}
+
+function colFromLetter(letters: string): number {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+function parseGroupedStructure(ws: Worksheet): TemplateCategory[] {
+  const header = findGroupedHeader(ws);
+  if (!header) {
     throw new Error(
-      'No data rows found. Put row labels in column A of the first sheet — ' +
-        'ALL-CAPS rows become sections, "Total …" rows become subtotals.',
+      'Could not find the header row — grouped templates need a "Date" column followed by category columns.',
     );
   }
-  return rows;
+  const bands = groupBands(ws, header);
+  return header.categoryCols.map(({ col, label }) => ({
+    label,
+    group: bands.get(col),
+  }));
+}
+
+function parseDaysAcrossStructure(ws: Worksheet): TemplateCategory[] {
+  const categories: TemplateCategory[] = [];
+  let group: string | undefined;
+  let sawAnyRow = false;
+
+  for (let r = 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const label = cellText(row.getCell(1)) || cellText(row.getCell(2));
+    if (!label) continue;
+
+    // Inspect the rest of the row.
+    let numeric = 0;
+    let textCells = 0;
+    let formula = false;
+    for (let c = 2; c <= Math.min(ws.columnCount, 60); c++) {
+      const cell = row.getCell(c);
+      if (hasFormula(cell)) formula = true;
+      else if (cellNumber(cell) !== null) numeric++;
+      else if (cellText(cell)) textCells++;
+    }
+
+    // Header row (e.g. "Category | D1 | D2 …"): first row with several text cells.
+    if (!sawAnyRow && textCells >= 3 && numeric === 0) {
+      sawAnyRow = true;
+      continue;
+    }
+    sawAnyRow = true;
+
+    // Rows whose values are formulas are computed rows — the app recreates them.
+    if (formula) continue;
+
+    // A label with no numbers is a group header (bold and ALL-CAPS both count).
+    if (numeric === 0 && textCells === 0) {
+      group = label;
+      continue;
+    }
+    categories.push({ label, group });
+  }
+
+  if (categories.length === 0) {
+    throw new Error('No line items found. Put row labels in the first column of the sheet.');
+  }
+  return categories;
+}
+
+/** Which layout does this worksheet look like? */
+function detectLayoutOf(ws: Worksheet): TemplateLayout {
+  return findGroupedHeader(ws) ? 'grouped' : 'days-across';
+}
+
+export interface ParsedTemplate {
+  layout: TemplateLayout;
+  categories: TemplateCategory[];
 }
 
 /**
- * Import values from an .xlsx into an existing template's grid. Rows are
- * matched by label (case-insensitive) against the template's data rows;
- * numeric cells in columns B… map to day 1….
+ * Parse an uploaded .xlsx into a template structure. `layout` forces a
+ * parser; omit it to auto-detect.
  */
-export async function parseValuesFile(
+export async function parseTemplateFile(
   file: File,
-  templateRows: TemplateRow[],
-  numDays: number,
-): Promise<{ values: GridValues; matched: number }> {
+  layout?: TemplateLayout | 'auto',
+): Promise<ParsedTemplate> {
   const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await file.arrayBuffer());
-  const ws = wb.worksheets[0];
+  const ws = wb.worksheets[0] as unknown as Worksheet;
   if (!ws) throw new Error('The workbook has no worksheets.');
 
-  const rowIdxByLabel = new Map<string, number>();
-  templateRows.forEach((row, i) => {
-    if (row.kind === 'data') rowIdxByLabel.set(row.label.trim().toLowerCase(), i);
-  });
+  const resolved: TemplateLayout =
+    !layout || layout === 'auto' ? detectLayoutOf(ws) : layout;
+  const categories =
+    resolved === 'grouped' ? parseGroupedStructure(ws) : parseDaysAcrossStructure(ws);
+  return { layout: resolved, categories };
+}
+
+// ---------------------------------------------------------------------------
+// Value import
+// ---------------------------------------------------------------------------
+
+export interface ImportedValues {
+  values: GridValues;
+  dayComments: Record<string, string>;
+  startingBalance?: number;
+  matched: number;
+}
+
+function findStartingBalance(ws: Worksheet): number | undefined {
+  for (let r = 1; r <= Math.min(ws.rowCount, 30); r++) {
+    const row = ws.getRow(r);
+    for (let c = 1; c <= Math.min(ws.columnCount, 40); c++) {
+      if (!/starting\s*balance/i.test(cellText(row.getCell(c)))) continue;
+      for (let cc = c + 1; cc <= c + 3; cc++) {
+        const n = cellNumber(row.getCell(cc));
+        if (n !== null) return n;
+      }
+      const below = cellNumber(ws.getRow(r + 1).getCell(c));
+      if (below !== null) return below;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Import values from an .xlsx into an existing template's grid. The file's
+ * own layout is auto-detected, so either orientation can be imported into
+ * any template. Categories are matched by label; grouped files align rows
+ * to horizon dates when the Date column parses, otherwise sequentially.
+ */
+export async function parseValuesFile(
+  file: File,
+  template: ForecastTemplate,
+  dates: Date[],
+): Promise<ImportedValues> {
+  const ExcelJS = await getExcelJS();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await file.arrayBuffer());
+  const ws = wb.worksheets[0] as unknown as Worksheet;
+  if (!ws) throw new Error('The workbook has no worksheets.');
+
+  const catIdxByLabel = new Map<string, number>();
+  template.categories.forEach((cat, i) => catIdxByLabel.set(norm(cat.label), i));
 
   const values: GridValues = {};
+  const dayComments: Record<string, string> = {};
+  const startingBalance = findStartingBalance(ws);
+  const dayByIso = new Map(dates.map((d, i) => [iso(d), i]));
   let matched = 0;
-  ws.eachRow((row) => {
-    const label = String(row.getCell(1).text ?? '').trim().toLowerCase();
-    const rowIdx = rowIdxByLabel.get(label);
-    if (rowIdx === undefined) return;
-    matched++;
-    for (let day = 0; day < numDays; day++) {
-      const cell = row.getCell(day + 2);
-      const raw = cell.value;
-      let n: number | null = null;
-      if (typeof raw === 'number') n = raw;
-      else if (typeof raw === 'string') {
-        const cleaned = Number(raw.replace(/[€$,\s]/g, ''));
-        if (Number.isFinite(cleaned)) n = cleaned;
-      } else if (raw && typeof raw === 'object' && 'result' in raw) {
-        const res = (raw as { result?: unknown }).result;
-        if (typeof res === 'number') n = res;
-      }
-      if (n !== null) values[`${rowIdx}-${day}`] = Math.round(n);
-    }
-  });
 
-  if (matched === 0) {
-    throw new Error(
-      'No rows in the file matched the template line items. ' +
-        'Row labels in column A must match the template (e.g. "Customer Receipts").',
-    );
+  const header = findGroupedHeader(ws);
+  if (header) {
+    // Grouped file: one row per day.
+    const colToCat = new Map<number, number>();
+    for (const { col, label } of header.categoryCols) {
+      const idx = catIdxByLabel.get(norm(label));
+      if (idx !== undefined) {
+        colToCat.set(col, idx);
+        matched++;
+      }
+    }
+    if (matched === 0) {
+      throw new Error(
+        'No columns in the file matched the template line items (e.g. "Receivables").',
+      );
+    }
+    let seq = 0;
+    for (let r = header.headerRow + 1; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const date = cellDate(row.getCell(header.dateCol));
+      // Stop at the TOTAL row (formulas) or after the horizon.
+      if (hasFormula(row.getCell([...colToCat.keys()][0] ?? header.dateCol + 1))) break;
+      let dayIdx: number | undefined;
+      if (date) dayIdx = dayByIso.get(iso(date));
+      if (dayIdx === undefined) {
+        if (!date && seq >= dates.length) break;
+        dayIdx = date ? undefined : seq;
+      }
+      seq++;
+      if (dayIdx === undefined || dayIdx >= dates.length) continue;
+      for (const [col, catIdx] of colToCat) {
+        const n = cellNumber(row.getCell(col));
+        if (n !== null) values[`${catIdx}-${dayIdx}`] = Math.round(n);
+      }
+      if (header.commentsCol) {
+        const comment = cellText(row.getCell(header.commentsCol));
+        if (comment) dayComments[String(dayIdx)] = comment;
+      }
+    }
+  } else {
+    // Days-across file: one row per line item, day values from column B on.
+    for (let r = 1; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const label = cellText(row.getCell(1)) || cellText(row.getCell(2));
+      const catIdx = catIdxByLabel.get(norm(label));
+      if (catIdx === undefined) continue;
+      matched++;
+      for (let d = 0; d < dates.length; d++) {
+        const n = cellNumber(row.getCell(d + 2));
+        if (n !== null) values[`${catIdx}-${d}`] = Math.round(n);
+      }
+    }
+    if (matched === 0) {
+      throw new Error(
+        'No rows in the file matched the template line items (labels in column A).',
+      );
+    }
   }
-  return { values, matched };
+
+  return { values, dayComments, startingBalance, matched };
 }
 
-/** Export a forecast grid (with computed subtotals/totals) as an .xlsx download. */
-export async function exportGridXlsx(
-  templateRows: TemplateRow[],
-  dayLabels: DayLabel[],
-  values: GridValues,
-  filename: string,
-  sheetName = 'Forecast',
-): Promise<void> {
+// ---------------------------------------------------------------------------
+// Submission export — real Excel table with live formulas
+// ---------------------------------------------------------------------------
+
+export interface ExportArgs {
+  template: ForecastTemplate;
+  layout?: TemplateLayout;
+  entity: string;
+  weekLabel: string;
+  dates: Date[];
+  dayLabels: DayLabel[];
+  values: GridValues;
+  startingBalance: number;
+  dayComments?: Record<string, string>;
+  filename: string;
+}
+
+const NUM_FMT = '#,##0';
+
+export async function exportSubmissionXlsx(args: ExportArgs): Promise<void> {
+  const layout = args.layout ?? args.template.layout;
   const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(sheetName);
+  if (layout === 'grouped') buildGroupedSheet(wb, args);
+  else buildDaysAcrossSheet(wb, args);
+  const buf = await wb.xlsx.writeBuffer();
+  downloadBlob(buf, args.filename, XLSX_MIME);
+}
 
-  ws.addRow([
-    'Cash Flow Category',
-    ...dayLabels.map((dl, i) => `D${i + 1} (${dl.dow} ${dl.dm})`),
+/** Ensure table column names are unique (Excel requirement). */
+function uniqueNames(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((n) => {
+    const count = seen.get(n) ?? 0;
+    seen.set(n, count + 1);
+    return count === 0 ? n : `${n} (${count + 1})`;
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildGroupedSheet(wb: any, args: ExportArgs): void {
+  const { template, entity, weekLabel, dates, values, startingBalance, dayComments } = args;
+  const cats = template.categories;
+  const ws = wb.addWorksheet('Forecast');
+
+  // Title + starting balance (referenced by the Running total formulas).
+  ws.getCell('A1').value = `Cash Flow Forecast — ${entity} · ${weekLabel}`;
+  ws.getCell('A1').font = { bold: true, size: 14 };
+  ws.getCell('A2').value = 'Starting balance';
+  ws.getCell('A2').font = { bold: true };
+  ws.getCell('B2').value = startingBalance;
+  ws.getCell('B2').numFmt = NUM_FMT;
+
+  // Columns: A Weekday, B Date, then categories, Comments, Total, Running total.
+  const firstCatCol = 3;
+  const commentsCol = firstCatCol + cats.length;
+  const totalCol = commentsCol + 1;
+  const runningCol = totalCol + 1;
+  const bandRow = 4;
+  const headerRow = 5;
+  const firstDataRow = 6;
+
+  // Group band row with merged cells, mirroring the UI header band.
+  for (const g of categoryGroups(cats)) {
+    if (!g.label) continue;
+    const from = firstCatCol + g.idxs[0];
+    const to = firstCatCol + g.idxs[g.idxs.length - 1];
+    ws.mergeCells(`${colLetter(from)}${bandRow}:${colLetter(to)}${bandRow}`);
+    const cell = ws.getCell(bandRow, from);
+    cell.value = g.label;
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: 'center' };
+  }
+
+  const columnNames = uniqueNames([
+    'Weekday',
+    'Date',
+    ...cats.map((c) => c.label),
+    'Comments',
+    'Total',
+    'Running total',
+  ]);
+
+  const rows = dates.map((d, dayIdx) => [
+    d.toLocaleDateString('en-US', { weekday: 'short' }),
+    d,
+    ...cats.map((_c, catIdx) => catValue(values, catIdx, dayIdx)),
+    dayComments?.[String(dayIdx)] ?? '',
+    0, // placeholder → formula below
+    0, // placeholder → formula below
+  ]);
+
+  ws.addTable({
+    name: 'CashFlowForecast',
+    ref: `A${headerRow}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: 'TableStyleMedium2', showRowStripes: true },
+    columns: columnNames.map((name, i) => ({
+      name,
+      filterButton: false,
+      // Native Excel totals row (SUBTOTAL) per category + Total column.
+      totalsRowFunction:
+        i >= firstCatCol - 1 && i !== commentsCol - 1 && i !== runningCol - 1 ? 'sum' : 'none',
+      totalsRowLabel: i === 1 ? 'TOTAL' : undefined,
+    })),
+    rows,
+  });
+
+  // Replace placeholders with live formulas.
+  const firstCatL = colLetter(firstCatCol);
+  const lastCatL = colLetter(commentsCol - 1);
+  dates.forEach((_d, dayIdx) => {
+    const r = firstDataRow + dayIdx;
+    ws.getCell(r, totalCol).value = { formula: `SUM(${firstCatL}${r}:${lastCatL}${r})` };
+    ws.getCell(r, runningCol).value = {
+      formula:
+        dayIdx === 0
+          ? `$B$2+${colLetter(totalCol)}${r}`
+          : `${colLetter(runningCol)}${r - 1}+${colLetter(totalCol)}${r}`,
+    };
+  });
+
+  // Formats & widths. Date format goes on the day cells only — column-wide
+  // formatting would also hit the numeric Starting balance cell (B2).
+  dates.forEach((_d, dayIdx) => {
+    ws.getCell(firstDataRow + dayIdx, 2).numFmt = 'dd mmm yyyy';
+  });
+  ws.getColumn(2).width = 12;
+  ws.getColumn(1).width = 10;
+  for (let c = firstCatCol; c <= runningCol; c++) {
+    if (c === commentsCol) {
+      ws.getColumn(c).width = 24;
+      continue;
+    }
+    ws.getColumn(c).numFmt = NUM_FMT;
+    ws.getColumn(c).width = Math.max(12, (columnNames[c - 1]?.length ?? 10) + 2);
+  }
+  ws.getCell(bandRow, 1).value = '';
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildDaysAcrossSheet(wb: any, args: ExportArgs): void {
+  const { template, entity, weekLabel, dayLabels, values, startingBalance } = args;
+  const cats = template.categories;
+  const numDays = dayLabels.length;
+  const ws = wb.addWorksheet('Forecast');
+
+  ws.getCell('A1').value = `Cash Flow Forecast — ${entity} · ${weekLabel}`;
+  ws.getCell('A1').font = { bold: true, size: 14 };
+  ws.getCell('A2').value = 'Starting balance';
+  ws.getCell('A2').font = { bold: true };
+  ws.getCell('B2').value = startingBalance;
+  ws.getCell('B2').numFmt = NUM_FMT;
+
+  const headerRow = 4;
+  const firstDataRow = headerRow + 1;
+  const firstDayCol = 2;
+  const totalCol = firstDayCol + numDays;
+
+  const columnNames = uniqueNames([
+    'Category',
+    ...dayLabels.map((dl, i) => `D${i + 1} ${dl.dow} ${dl.dm}`),
     'Total',
   ]);
-  ws.getRow(1).font = { bold: true };
-  ws.getColumn(1).width = 28;
 
-  templateRows.forEach((row, rowIdx) => {
-    if (row.kind === 'section') {
-      const r = ws.addRow([row.label]);
-      r.font = { bold: true };
-      return;
-    }
-    ws.addRow([
-      row.label,
-      ...dayLabels.map((_dl, i) => dayValue(templateRows, values, rowIdx, i)),
-      rowTotal(templateRows, values, rowIdx, dayLabels.length),
-    ]);
+  // Build the row block: group bands, categories, then computed rows.
+  interface RowSpec {
+    label: string;
+    kind: 'band' | 'data' | 'computed';
+    catIdx?: number;
+  }
+  const specs: RowSpec[] = [];
+  for (const g of categoryGroups(cats)) {
+    if (g.label) specs.push({ label: g.label, kind: 'band' });
+    for (const idx of g.idxs) specs.push({ label: cats[idx].label, kind: 'data', catIdx: idx });
+  }
+  const dataRowAt = new Map<number, number>(); // catIdx → sheet row
+  specs.forEach((s, i) => {
+    if (s.kind === 'data') dataRowAt.set(s.catIdx!, firstDataRow + i);
+  });
+  const firstCatRow = Math.min(...dataRowAt.values());
+  const lastCatRow = Math.max(...dataRowAt.values());
+
+  const computed = ['Total Inflows', 'Total Outflows', 'Net Cash Flow', 'Closing Balance'];
+  const rows: (string | number)[][] = specs.map((s) => {
+    if (s.kind === 'band') return [s.label, ...Array(numDays + 1).fill('')];
+    return [
+      s.label,
+      ...dayLabels.map((_dl, d) => catValue(values, s.catIdx!, d)),
+      0, // → SUM formula
+    ];
+  });
+  computed.forEach((label) => rows.push([label, ...Array(numDays + 1).fill(0)]));
+
+  ws.addTable({
+    name: 'CashFlowForecast',
+    ref: `A${headerRow}`,
+    headerRow: true,
+    totalsRow: false,
+    style: { theme: 'TableStyleMedium2', showRowStripes: true },
+    columns: columnNames.map((name) => ({ name, filterButton: false })),
+    rows,
   });
 
-  const buf = await wb.xlsx.writeBuffer();
-  downloadBlob(buf, filename, XLSX_MIME);
+  // Formulas: per-day computed rows + per-row Total column.
+  const inflowRow = firstDataRow + specs.length;
+  const outflowRow = inflowRow + 1;
+  const netRow = inflowRow + 2;
+  const closingRow = inflowRow + 3;
+
+  for (let d = 0; d < numDays; d++) {
+    const L = colLetter(firstDayCol + d);
+    const range = `${L}${firstCatRow}:${L}${lastCatRow}`;
+    ws.getCell(inflowRow, firstDayCol + d).value = { formula: `SUMIF(${range},">0")` };
+    ws.getCell(outflowRow, firstDayCol + d).value = { formula: `SUMIF(${range},"<0")` };
+    ws.getCell(netRow, firstDayCol + d).value = { formula: `SUM(${range})` };
+    ws.getCell(closingRow, firstDayCol + d).value = {
+      formula:
+        d === 0
+          ? `$B$2+${L}${netRow}`
+          : `${colLetter(firstDayCol + d - 1)}${closingRow}+${L}${netRow}`,
+    };
+  }
+  const firstDayL = colLetter(firstDayCol);
+  const lastDayL = colLetter(firstDayCol + numDays - 1);
+  for (const [, r] of dataRowAt) {
+    ws.getCell(r, totalCol).value = { formula: `SUM(${firstDayL}${r}:${lastDayL}${r})` };
+  }
+  for (const r of [inflowRow, outflowRow, netRow]) {
+    ws.getCell(r, totalCol).value = { formula: `SUM(${firstDayL}${r}:${lastDayL}${r})` };
+  }
+  ws.getCell(closingRow, totalCol).value = { formula: `${lastDayL}${closingRow}` };
+
+  // Styling: bold bands + computed rows, number formats, widths.
+  specs.forEach((s, i) => {
+    if (s.kind === 'band') ws.getRow(firstDataRow + i).font = { bold: true };
+  });
+  for (const r of [inflowRow, outflowRow, netRow, closingRow]) {
+    ws.getRow(r).font = { bold: true };
+  }
+  ws.getColumn(1).width = 26;
+  for (let c = firstDayCol; c <= totalCol; c++) {
+    ws.getColumn(c).numFmt = NUM_FMT;
+    ws.getColumn(c).width = 11;
+  }
 }
 
-/** Generate a bare template .xlsx from a row structure (for download). */
+/**
+ * Generate a blank template workbook from a template's structure (used for
+ * downloading the built-in template and as an upload starting point).
+ */
 export async function exportTemplateXlsx(
   template: ForecastTemplate,
-  numDays = 31,
+  dates: Date[],
+  dayLabels: DayLabel[],
 ): Promise<void> {
-  const ExcelJS = await getExcelJS();
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Template');
-  ws.addRow(['Cash Flow Category', ...Array.from({ length: numDays }, (_v, i) => `D${i + 1}`)]);
-  ws.getRow(1).font = { bold: true };
-  ws.getColumn(1).width = 28;
-  template.rows.forEach((row) => {
-    const r = ws.addRow([row.label]);
-    if (row.kind !== 'data') r.font = { bold: true };
+  await exportSubmissionXlsx({
+    template,
+    entity: 'Template',
+    weekLabel: 'blank',
+    dates,
+    dayLabels,
+    values: {},
+    startingBalance: 0,
+    filename: `${template.name.replace(/[^\w-]+/g, '-')}.xlsx`,
   });
-  const buf = await wb.xlsx.writeBuffer();
-  downloadBlob(buf, `${template.name.replace(/\s+/g, '-')}.xlsx`, XLSX_MIME);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,13 +722,14 @@ export function cyclesTable(cycles: Cycle[]): TableExport {
 export function submissionsTable(subs: Submission[]): TableExport {
   return {
     name: 'Submissions',
-    header: ['Period', 'Entity', 'Template', 'Status', 'Flags', 'Updated'],
+    header: ['Week', 'Entity', 'Template', 'Status', 'Flags', 'Starting Balance', 'Updated'],
     rows: subs.map((s) => [
       s.period,
       s.entity,
       s.templateId,
       s.status,
       s.flags.length,
+      s.startingBalance ?? 0,
       s.updatedAt,
     ]),
   };
@@ -216,9 +760,14 @@ export async function exportTable(
   const ExcelJS = await getExcelJS();
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(table.name);
-  ws.addRow(table.header);
-  ws.getRow(1).font = { bold: true };
-  table.rows.forEach((r) => ws.addRow(r));
+  ws.addTable({
+    name: table.name.replace(/[^\w]+/g, ''),
+    ref: 'A1',
+    headerRow: true,
+    style: { theme: 'TableStyleMedium2', showRowStripes: true },
+    columns: uniqueNames(table.header).map((name) => ({ name, filterButton: false })),
+    rows: table.rows,
+  });
   const buf = await wb.xlsx.writeBuffer();
   downloadBlob(buf, `${baseName}.xlsx`, XLSX_MIME);
 }

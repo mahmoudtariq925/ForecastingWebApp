@@ -8,11 +8,11 @@ import type {
   Entity,
   ForecastTemplate,
   LineItemConfig,
-  TemplateRow,
+  TemplateCategory,
   User,
   Variance,
 } from '../types';
-import { datesForPeriod } from './periods';
+import { horizonDates } from './periods';
 
 export const entities: Entity[] = [
   { name: 'Netherlands', submitter: 'Jan de Vries', approver: 'Pieter Bakker', total: 24350, delta: 2.1, status: 'approved' },
@@ -55,55 +55,60 @@ export const variances: Variance[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// The seeded "Standard Cash Flow" template — the row structure the original
-// prototype hardcoded, now expressed as a ForecastTemplate that lives in the
-// template store alongside user-uploaded ones.
+// The seeded default template — derived from the standard treasury workbook
+// (samples/CF_Forecast_Template.xlsx): categories grouped under bands, one
+// row per working day, plus Comments / Total / Running total and a Starting
+// balance. It lives in the template store alongside user-uploaded ones.
 // ---------------------------------------------------------------------------
-export const STANDARD_TEMPLATE_ID = 'tpl-standard';
+export const STANDARD_TEMPLATE_ID = 'tpl-cf-standard';
 
-export const standardTemplateRows: TemplateRow[] = [
-  { label: 'INFLOWS', kind: 'section' },
-  { label: 'Customer Receipts', kind: 'data' },
-  { label: 'Intercompany Receipts', kind: 'data' },
-  { label: 'Other Inflows', kind: 'data' },
-  { label: 'Total Inflows', kind: 'subtotal' },
-  { label: 'OUTFLOWS', kind: 'section' },
-  { label: 'Supplier Payments', kind: 'data' },
-  { label: 'Payroll', kind: 'data' },
-  { label: 'Tax Payments', kind: 'data' },
-  { label: 'Intercompany Payments', kind: 'data' },
-  { label: 'Capex', kind: 'data' },
-  { label: 'Other Outflows', kind: 'data' },
-  { label: 'Total Outflows', kind: 'subtotal' },
-  { label: 'Net Cash Flow', kind: 'total' },
+export const standardCategories: TemplateCategory[] = [
+  { label: 'Receivables', group: 'Trade AR & AP' },
+  { label: 'Payables', group: 'Trade AR & AP' },
+  { label: 'Corporate Income', group: 'Taxes' },
+  { label: 'Other Taxes', group: 'Taxes' },
+  { label: 'Salaries', group: 'Payroll' },
+  { label: 'Social Securities', group: 'Payroll' },
+  { label: 'CAPEX' },
+  { label: 'IC Inflows - NL', group: 'IC Settlements' },
+  { label: 'IC Outflows - NL', group: 'IC Settlements' },
+  { label: 'IC Inflows', group: 'IC Settlements' },
+  { label: 'IC Outflows', group: 'IC Settlements' },
+  { label: 'Other' },
 ];
 
 export function buildStandardTemplate(): ForecastTemplate {
   return {
     id: STANDARD_TEMPLATE_ID,
-    name: 'Standard Cash Flow',
-    uploadedAt: '2026-05-01T09:00:00.000Z',
+    name: 'CF Forecast (Standard)',
+    fileName: 'CF_Forecast_Template.xlsx',
+    uploadedAt: '2026-07-01T09:00:00.000Z',
     uploadedBy: 'Maja Kowalska',
     assignedEntities: entities.map((e) => e.name),
-    rows: standardTemplateRows,
+    layout: 'grouped',
+    categories: standardCategories,
   };
 }
 
 /**
- * Demo-value generation config per known line-item label (value ranges,
+ * Demo-value generation config per known category label (value ranges,
  * paydays, tax days). Only labels present here get seeded demo values —
- * rows of uploaded templates start blank.
+ * categories of uploaded templates start blank. Sign convention: inflows
+ * positive, outflows negative.
  */
 export const lineItemConfigs: LineItemConfig[] = [
-  { label: 'Customer Receipts', baseMin: 1800, baseMax: 2400 },
-  { label: 'Intercompany Receipts', baseMin: 200, baseMax: 600 },
-  { label: 'Other Inflows', baseMin: 0, baseMax: 150 },
-  { label: 'Supplier Payments', baseMin: -1900, baseMax: -1200, negative: true },
-  { label: 'Payroll', baseMin: -800, baseMax: -200, negative: true, payday: true },
-  { label: 'Tax Payments', baseMin: -600, baseMax: 0, negative: true, taxday: true },
-  { label: 'Intercompany Payments', baseMin: -400, baseMax: 0, negative: true },
-  { label: 'Capex', baseMin: -300, baseMax: 0, negative: true },
-  { label: 'Other Outflows', baseMin: -200, baseMax: 0, negative: true },
+  { label: 'Receivables', baseMin: 1800, baseMax: 2400 },
+  { label: 'Payables', baseMin: -1900, baseMax: -1200 },
+  { label: 'Corporate Income', baseMin: -600, baseMax: 0, taxday: true },
+  { label: 'Other Taxes', baseMin: -200, baseMax: 0 },
+  { label: 'Salaries', baseMin: -800, baseMax: -300, payday: true },
+  { label: 'Social Securities', baseMin: -300, baseMax: -80, payday: true },
+  { label: 'CAPEX', baseMin: -300, baseMax: 0 },
+  { label: 'IC Inflows - NL', baseMin: 200, baseMax: 600 },
+  { label: 'IC Outflows - NL', baseMin: -400, baseMax: 0 },
+  { label: 'IC Inflows', baseMin: 100, baseMax: 400 },
+  { label: 'IC Outflows', baseMin: -300, baseMax: 0 },
+  { label: 'Other', baseMin: -100, baseMax: 150 },
 ];
 
 /**
@@ -121,46 +126,48 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** Demo value for one cell, mirroring the prototype's payday/tax/weekend rules. */
+/** Demo value for one cell (payday on the 15th/28th, tax day on the 22nd). */
 function genValue(config: LineItemConfig, date: Date, rand: () => number): number {
-  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
   if (config.payday && date.getDate() !== 28 && date.getDate() !== 15) return 0;
   if (config.taxday && date.getDate() !== 22) return 0;
-  if (isWeekend && !config.negative) return 0;
   const range = config.baseMax - config.baseMin;
-  return Math.round((config.baseMin + rand() * range) * (isWeekend ? 0.3 : 1));
+  return Math.round(config.baseMin + rand() * range);
 }
 
 /**
- * Generate demo cell values for a template + period. Data rows whose label has
- * a generation config get seeded values; unknown labels stay 0 (blank).
- * Returns a map keyed `${rowIdx}-${dayIdx}` plus variance-flagged keys.
+ * Generate demo cell values for a template + forecast week. Categories whose
+ * label has a generation config get seeded values; unknown labels stay 0
+ * (blank). Returns a map keyed `${catIdx}-${dayIdx}` plus flagged keys.
  */
 export function generateGridValues(
-  rows: TemplateRow[],
-  period: string,
+  categories: TemplateCategory[],
+  weekKey: string,
   seed: number,
   flagSome: boolean,
 ): { values: Record<string, number>; flags: string[] } {
   const rand = mulberry32(seed);
-  const dates = datesForPeriod(period);
+  const dates = horizonDates(weekKey);
   const values: Record<string, number> = {};
   const flags: string[] = [];
 
-  rows.forEach((row, rowIdx) => {
-    if (row.kind !== 'data') return;
-    const config = lineItemConfigs.find((c) => c.label === row.label);
+  categories.forEach((cat, catIdx) => {
+    const config = lineItemConfigs.find((c) => c.label === cat.label);
     dates.forEach((date, i) => {
       const val = config ? genValue(config, date, rand) : 0;
-      values[`${rowIdx}-${i}`] = val;
-      if (flagSome && config && rand() < 0.04) flags.push(`${rowIdx}-${i}`);
+      values[`${catIdx}-${i}`] = val;
+      if (flagSome && config && rand() < 0.04) flags.push(`${catIdx}-${i}`);
     });
   });
 
   return { values, flags };
 }
 
-/** Stable numeric seed derived from any string (entity, period, …). */
+/** Deterministic demo opening balance for an entity, EUR thousands. */
+export function startingBalanceFor(entity: string): number {
+  return 5000 + (seedFor(entity) % 15000);
+}
+
+/** Stable numeric seed derived from any string (entity, week, …). */
 export function seedFor(input: string): number {
   let h = 0;
   for (let i = 0; i < input.length; i++) {

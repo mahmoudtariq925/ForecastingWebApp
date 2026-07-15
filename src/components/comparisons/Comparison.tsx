@@ -10,7 +10,7 @@ import {
   seedFor,
   variances,
 } from '../../data/mockData';
-import { DEFAULT_PERIOD, datesForPeriod, prevPeriodKey } from '../../data/periods';
+import { currentWeekKey, HORIZON_DAYS, prevWeekKey } from '../../data/periods';
 import { loadCycles, loadSettings } from '../../storage/localStorage';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 
@@ -27,37 +27,35 @@ function DeltaCell({ pct }: { pct: number }) {
   );
 }
 
-/** Category totals (current vs prior period) from the consolidated demo data. */
+/** Category totals (current vs prior week) from the consolidated demo data. */
 function useCategoryComparison() {
   return useMemo(() => {
     const tpl = buildStandardTemplate();
-    const days = datesForPeriod(DEFAULT_PERIOD).length;
+    const week = currentWeekKey();
+    const prevKey = prevWeekKey(week);
     const current = generateGridValues(
-      tpl.rows,
-      DEFAULT_PERIOD,
-      seedFor(`Consolidated:${DEFAULT_PERIOD}`),
+      tpl.categories,
+      week,
+      seedFor(`Consolidated:${week}`),
       false,
     ).values;
     const prior = generateGridValues(
-      tpl.rows,
-      DEFAULT_PERIOD,
-      seedFor(`Consolidated:${prevPeriodKey(DEFAULT_PERIOD)}`),
+      tpl.categories,
+      prevKey,
+      seedFor(`Consolidated:${prevKey}`),
       false,
     ).values;
 
-    return tpl.rows
-      .map((row, rowIdx) => ({ row, rowIdx }))
-      .filter(({ row }) => row.kind === 'data')
-      .map(({ row, rowIdx }) => {
-        let cur = 0;
-        let pri = 0;
-        for (let i = 0; i < days; i++) {
-          cur += current[`${rowIdx}-${i}`] || 0;
-          pri += prior[`${rowIdx}-${i}`] || 0;
-        }
-        const pct = ((cur - pri) / Math.max(Math.abs(pri), 1)) * 100;
-        return { label: row.label, current: cur, prior: pri, pct };
-      });
+    return tpl.categories.map((cat, catIdx) => {
+      let cur = 0;
+      let pri = 0;
+      for (let i = 0; i < HORIZON_DAYS; i++) {
+        cur += current[`${catIdx}-${i}`] || 0;
+        pri += prior[`${catIdx}-${i}`] || 0;
+      }
+      const pct = ((cur - pri) / Math.max(Math.abs(pri), 1)) * 100;
+      return { label: cat.label, current: cur, prior: pri, pct };
+    });
   }, []);
 }
 

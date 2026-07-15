@@ -9,7 +9,7 @@ import {
   generateGridValues,
   seedFor,
 } from '../../data/mockData';
-import { DEFAULT_PERIOD, datesForPeriod, periodLabel } from '../../data/periods';
+import { currentWeekKey, HORIZON_DAYS, weekLabel } from '../../data/periods';
 import { getOrCreateSubmission } from '../../data/submissionService';
 import {
   loadApprovals,
@@ -17,7 +17,7 @@ import {
   loadTemplates,
   listSubmissions,
 } from '../../storage/localStorage';
-import { dayValue } from '../submissions/gridMath';
+import { dayNet } from '../submissions/gridMath';
 import type { Entity, SubmissionStatus } from '../../types';
 import type { ModalId, ViewId } from '../../types/nav';
 
@@ -52,20 +52,20 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
     entities.reduce((s, e) => s + e.total * e.delta, 0) /
     Math.max(entities.reduce((s, e) => s + e.total, 0), 1);
 
+  const week = currentWeekKey();
+
   const netPosition = useMemo(() => {
     const tpl = buildStandardTemplate();
     const values = generateGridValues(
-      tpl.rows,
-      DEFAULT_PERIOD,
-      seedFor(`Consolidated:${DEFAULT_PERIOD}`),
+      tpl.categories,
+      week,
+      seedFor(`Consolidated:${week}`),
       false,
     ).values;
-    const netIdx = tpl.rows.findIndex((r) => r.kind === 'total');
-    const days = datesForPeriod(DEFAULT_PERIOD).length;
     let net = 0;
-    for (let i = 0; i < days; i++) net += dayValue(tpl.rows, values, netIdx, i);
+    for (let d = 0; d < HORIZON_DAYS; d++) net += dayNet(tpl.categories.length, values, d);
     return net / 1000;
-  }, []);
+  }, [week]);
 
   const received = entities.filter((e) => statusOf(e) !== 'pending').length;
   const pendingApproval = entities.filter((e) => statusOf(e) === 'submitted').length;
@@ -74,16 +74,16 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
     // Ensure at least the first entity has a submission so the KPI is live.
     const templates = loadTemplates();
     if (templates.length > 0) {
-      getOrCreateSubmission(entities[0].name, DEFAULT_PERIOD, templates[0]);
+      getOrCreateSubmission(entities[0].name, week, templates[0]);
     }
-    const subs = listSubmissions(DEFAULT_PERIOD);
+    const subs = listSubmissions(week);
     const flags = subs.reduce((s, sub) => s + sub.flags.length, 0);
     const missing = subs.reduce(
       (s, sub) => s + sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length,
       0,
     );
     return { flagCount: flags, needComment: missing };
-  }, []);
+  }, [week]);
 
   const progress = entities.slice(0, 5);
 
@@ -107,7 +107,7 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
       <div className="content">
         <div className="kpi-grid">
           <div className="kpi-card">
-            <div className="kpi-label">Total Forecast · 30d</div>
+            <div className="kpi-label">Total Forecast · 4wk</div>
             <div className="kpi-value">€ {totalForecast.toFixed(1)}M</div>
             <div className="kpi-sub">
               <Delta delta={weightedDelta} /> vs prior cycle
@@ -116,7 +116,7 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
           <div className="kpi-card">
             <div className="kpi-label">Net Cash Position</div>
             <div className="kpi-value">€ {netPosition.toFixed(1)}M</div>
-            <div className="kpi-sub text-dim">{periodLabel(DEFAULT_PERIOD)} consolidated</div>
+            <div className="kpi-sub text-dim">{weekLabel(week)} consolidated</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Submissions Received</div>

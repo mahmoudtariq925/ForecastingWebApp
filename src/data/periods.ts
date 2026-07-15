@@ -1,63 +1,134 @@
 // ============================================================================
-// Reporting periods (month/year). A period key is "YYYY-MM"; the forecast
-// grid for a period covers every day of that month.
+// Forecast periods. Forecasts are maintained on a rolling weekly basis: a
+// period key is the ISO date of a week's Monday ("2026-07-13"), and each
+// submission covers a four-week horizon of working days (Mon–Fri, 20 days),
+// exactly like the standard CF_Forecast_Template workbook.
 // ============================================================================
 
 export interface DayLabel {
   dm: string;
   dow: string;
   weekend: boolean;
+  /** ISO date of the day, used to align imports/exports. */
+  iso: string;
 }
 
-export interface PeriodOption {
-  key: string;
-  label: string;
-}
+export const HORIZON_WEEKS = 4;
+export const WORKDAYS_PER_WEEK = 5;
+export const HORIZON_DAYS = HORIZON_WEEKS * WORKDAYS_PER_WEEK;
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/** The period the seeded demo data refers to (cycle CW-2026-21). */
-export const DEFAULT_PERIOD = '2026-05';
-
-export function periodLabel(key: string): string {
-  const [y, m] = key.split('-').map(Number);
-  return `${MONTHS[m - 1]} ${y}`;
+function toIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
 }
 
-/** Selectable reporting periods (Jan 2025 → Dec 2026). */
-export function listPeriods(): PeriodOption[] {
-  const out: PeriodOption[] = [];
-  for (let y = 2025; y <= 2026; y++) {
-    for (let m = 1; m <= 12; m++) {
-      const key = `${y}-${String(m).padStart(2, '0')}`;
-      out.push({ key, label: periodLabel(key) });
-    }
+function fromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** The Monday of the week containing `d`. */
+function mondayOf(d: Date): Date {
+  const out = new Date(d);
+  const dow = out.getDay(); // 0 Sun .. 6 Sat
+  out.setDate(out.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return out;
+}
+
+/** Week key for any date = ISO date of its Monday. */
+export function weekKeyFor(d: Date): string {
+  return toIso(mondayOf(d));
+}
+
+/** The current forecast week (Monday of today's week). */
+export function currentWeekKey(): string {
+  return weekKeyFor(new Date());
+}
+
+/** The week immediately before `key` (used for rolling variance comparison). */
+export function prevWeekKey(key: string): string {
+  const d = fromKey(key);
+  d.setDate(d.getDate() - 7);
+  return toIso(d);
+}
+
+/** ISO-8601 week number, for labels like "Wk 29". */
+export function isoWeekNumber(d: Date): number {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/** "Wk 29 · 13 Jul 2026" */
+export function weekLabel(key: string): string {
+  const d = fromKey(key);
+  return `Wk ${isoWeekNumber(d)} · ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+}
+
+/** Short label for crumbs: "Wk 29 2026". */
+export function weekLabelShort(key: string): string {
+  const d = fromKey(key);
+  return `Wk ${isoWeekNumber(d)} ${d.getFullYear()}`;
+}
+
+/** Selectable years for the period filter. */
+export function listYears(): number[] {
+  return [2025, 2026, 2027];
+}
+
+export function monthName(month: number): string {
+  return MONTHS[month - 1];
+}
+
+/**
+ * Week keys (Mondays) that fall inside a given year + month (1-12).
+ */
+export function weeksInMonth(year: number, month: number): string[] {
+  const out: string[] = [];
+  const d = new Date(year, month - 1, 1);
+  // advance to first Monday
+  while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+  while (d.getMonth() === month - 1) {
+    out.push(toIso(d));
+    d.setDate(d.getDate() + 7);
   }
   return out;
 }
 
-/** The period immediately before `key` (used for variance comparison). */
-export function prevPeriodKey(key: string): string {
-  const [y, m] = key.split('-').map(Number);
-  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+/** The year/month a week key belongs to (by its Monday). */
+export function weekYearMonth(key: string): { year: number; month: number } {
+  const d = fromKey(key);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-/** Every calendar day of the period's month. */
-export function datesForPeriod(key: string): Date[] {
-  const [y, m] = key.split('-').map(Number);
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const dates: Date[] = [];
-  for (let d = 1; d <= daysInMonth; d++) dates.push(new Date(y, m - 1, d));
-  return dates;
+/**
+ * The horizon covered by a forecast week: HORIZON_DAYS working days
+ * (Mon–Fri), starting on the week's Monday — weekends are skipped, exactly
+ * like the WORKDAY() sequence in the standard workbook.
+ */
+export function horizonDates(key: string): Date[] {
+  const out: Date[] = [];
+  const d = fromKey(key);
+  while (out.length < HORIZON_DAYS) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) out.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
 }
 
-export function dayLabelsForPeriod(key: string): DayLabel[] {
-  return datesForPeriod(key).map((d) => ({
+export function dayLabelsForWeek(key: string): DayLabel[] {
+  return horizonDates(key).map((d) => ({
     dm: `${d.getDate()}/${d.getMonth() + 1}`,
     dow: d.toLocaleDateString('en-US', { weekday: 'short' }),
-    weekend: d.getDay() === 0 || d.getDay() === 6,
+    weekend: false,
+    iso: toIso(d),
   }));
 }
