@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
+import { ErrorView, LoadingView } from '../common/Async';
 import { ForecastGrid } from '../submissions/ForecastGrid';
 import {
   dayInflows,
@@ -8,13 +9,9 @@ import {
   runningBalance,
   type GridValues,
 } from '../submissions/gridMath';
-import {
-  buildStandardTemplate,
-  cycles as seedCycles,
-  entities,
-  generateGridValues,
-  seedFor,
-} from '../../data/mockData';
+import { useApi } from '../../hooks/useApi';
+import { getCycles, getEntities, getTemplates, updateCycle } from '../../api/resources';
+import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/demoData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -23,8 +20,8 @@ import {
   weekLabel,
   weekLabelShort,
 } from '../../data/periods';
-import { loadCycles, saveCycles } from '../../storage/localStorage';
 import { exportSubmissionXlsx } from '../../utils/excel';
+import type { Cycle, TemplateCategory } from '../../types';
 
 const EMPTY_FLAGS = new Set<string>();
 const CONSOLIDATED_START_BALANCE = 42000;
@@ -32,24 +29,36 @@ const CONSOLIDATED_START_BALANCE = 42000;
 /** Treasury read-only consolidated view across all approved entities. */
 export function Consolidated() {
   const week = currentWeekKey();
-  const template = useMemo(() => buildStandardTemplate(), []);
+  const { data, error, loading, reload } = useApi(() =>
+    Promise.all([getCycles(), getEntities(), getTemplates()]),
+  );
+  const [cycles, setCycles] = useState<Cycle[]>([]);
+  useEffect(() => {
+    if (data) setCycles(data[0]);
+  }, [data]);
+
+  const categories: TemplateCategory[] = useMemo(() => {
+    const templates = data?.[2] ?? [];
+    const std = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
+    return std?.categories ?? [];
+  }, [data]);
+
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
   const numDays = dayLabels.length;
-  const numCats = template.categories.length;
-  const [cycles, setCycles] = useState(() => loadCycles(seedCycles));
-  const activeCycle = cycles.find((c) => c.status === 'submitted');
+  const numCats = categories.length;
 
   const values = useMemo<GridValues>(
     () =>
-      generateGridValues(template.categories, week, seedFor(`Consolidated:${week}`), false)
-        .values,
-    [template, week],
+      numCats === 0
+        ? {}
+        : generateGridValues(categories, week, seedFor(`Consolidated:${week}`), false).values,
+    [categories, numCats, week],
   );
   const priorValues = useMemo<GridValues>(() => {
+    if (numCats === 0) return {};
     const prev = prevWeekKey(week);
-    return generateGridValues(template.categories, prev, seedFor(`Consolidated:${prev}`), false)
-      .values;
-  }, [template, week]);
+    return generateGridValues(categories, prev, seedFor(`Consolidated:${prev}`), false).values;
+  }, [categories, numCats, week]);
 
   const kpis = useMemo(() => {
     const sum = (fn: (v: GridValues, d: number) => number, v: GridValues) => {
@@ -82,10 +91,17 @@ export function Consolidated() {
       inflowsDelta: pct(inflows, pInflows),
       outflowsDelta: pct(Math.abs(outflows), Math.abs(pOutflows)),
       netDelta: pct(net, pNet),
-      minBalance,
+      minBalance: minBalance === Infinity ? 0 : minBalance,
       minDay,
     };
   }, [values, priorValues, numCats, numDays]);
+
+  if (error)
+    return <ErrorView crumb="Treasury" title="Consolidated Forecast" message={error} onRetry={reload} />;
+  if (loading || !data) return <LoadingView crumb="Treasury" title="Consolidated Forecast" />;
+
+  const entities = data[1];
+  const activeCycle = cycles.find((c) => c.status === 'submitted');
 
   const fmtM = (v: number) => `€ ${(v / 1000).toFixed(1)}M`;
   const deltaPill = (v: number) => (
@@ -94,23 +110,26 @@ export function Consolidated() {
     </span>
   );
 
-  const closeCycle = () => {
+  const closeCycle = async () => {
     if (!activeCycle) {
       alert('No open cycle to close.');
       return;
     }
     if (!confirm(`Close cycle ${activeCycle.id}? This will lock all submissions.`)) return;
-    const next = cycles.map((c) =>
-      c.id === activeCycle.id ? { ...c, status: 'consolidated' as const } : c,
-    );
-    setCycles(next);
-    saveCycles(next);
-    alert(`Cycle ${activeCycle.id} closed. Final consolidated forecast archived.`);
+    try {
+      const updated = await updateCycle(activeCycle.id, { status: 'consolidated' });
+      setCycles((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      alert(`Cycle ${updated.id} closed. Final consolidated forecast archived.`);
+    } catch (err) {
+      alert(`Close failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const exportXlsx = () => {
+    const std = data[2].find((t) => t.id === STANDARD_TEMPLATE_ID) ?? data[2][0];
+    if (!std) return;
     exportSubmissionXlsx({
-      template,
+      template: { ...std, categories },
       layout: 'days-across',
       entity: 'Consolidated (all entities)',
       weekLabel: weekLabelShort(week),
@@ -175,7 +194,7 @@ export function Consolidated() {
           </div>
           <div className="forecast-grid-wrap">
             <ForecastGrid
-              categories={template.categories}
+              categories={categories}
               layout="days-across"
               dayLabels={dayLabels}
               values={values}

@@ -1,15 +1,20 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
-import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
-import { loadTemplates, saveTemplates } from '../../storage/localStorage';
-import { exportTemplateXlsx, parseTemplateFile } from '../../utils/excel';
-import { base64ToBlob, downloadBlob, fileToBase64, XLSX_MIME } from '../../utils/download';
+import { ErrorView, LoadingView } from '../common/Async';
+import { useApi } from '../../hooks/useApi';
+import {
+  deleteTemplate,
+  downloadTemplateFile,
+  getEntities,
+  getTemplates,
+  replaceTemplateFile,
+  updateTemplate,
+  uploadTemplate,
+} from '../../api/resources';
+import { STANDARD_TEMPLATE_ID } from '../../data/demoData';
+import { downloadBlob, XLSX_MIME } from '../../utils/download';
 import type { ForecastTemplate, TemplateLayout } from '../../types';
-
-// localStorage-backed phase: keep stored template files small.
-const MAX_FILE_BYTES = 1_000_000;
 
 const LAYOUT_LABELS: Record<TemplateLayout, string> = {
   'days-across': 'Days across columns',
@@ -25,51 +30,48 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Admin screen for forecast templates: upload .xlsx files (structure is
- * derived from the workbook itself), choose the layout, assign templates to
- * entities, and view / update / replace / remove existing ones.
+ * Admin screen for forecast templates. Uploads send the .xlsx to the API,
+ * which stores the physical file and parses the structure server-side;
+ * assignment, rename, layout, replace and remove are all API operations.
  */
 export function Templates() {
-  const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
+  const { data, error, loading, reload } = useApi(() =>
+    Promise.all([getTemplates(), getEntities()]),
+  );
+  const [templates, setTemplates] = useState<ForecastTemplate[]>([]);
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);
   const [editName, setEditName] = useState('');
   const [editLayout, setEditLayout] = useState<TemplateLayout>('grouped');
   const [editEntities, setEditEntities] = useState<Set<string>>(new Set());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadLayout, setUploadLayout] = useState<TemplateLayout | 'auto'>('auto');
+  const [busy, setBusy] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<string | null>(null);
 
-  const commit = (next: ForecastTemplate[]) => {
-    setTemplates(next);
-    saveTemplates(next);
-  };
+  useEffect(() => {
+    if (data) setTemplates(data[0]);
+  }, [data]);
+
+  if (error) return <ErrorView crumb="Administration" title="Forecast Templates" message={error} onRetry={reload} />;
+  if (loading && templates.length === 0) return <LoadingView crumb="Administration" title="Forecast Templates" />;
+  const entities = data?.[1] ?? [];
+
+  const fail = (verb: string) => (err: unknown) =>
+    alert(`${verb} failed: ${err instanceof Error ? err.message : String(err)}`);
 
   const handleUpload = async (file: File) => {
     setUploadOpen(false);
-    if (file.size > MAX_FILE_BYTES) {
-      alert('File is too large for browser storage (max 1 MB in Phase 1).');
-      return;
-    }
+    setBusy(true);
     try {
-      const parsed = await parseTemplateFile(file, uploadLayout);
-      const fileData = await fileToBase64(file);
-      const template: ForecastTemplate = {
-        id: `tpl-${Date.now()}`,
-        name: file.name.replace(/\.xlsx$/i, ''),
-        fileName: file.name,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: 'Maja Kowalska',
-        assignedEntities: [],
-        layout: parsed.layout,
-        categories: parsed.categories,
-        fileData,
-      };
-      commit([...templates, template]);
-      openEdit(template);
+      const created = await uploadTemplate(file, uploadLayout, 'Maja Kowalska');
+      setTemplates((prev) => [...prev, created]);
+      openEdit(created);
     } catch (err) {
-      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      fail('Upload')(err);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -77,56 +79,39 @@ export function Templates() {
     const id = replaceTarget.current;
     replaceTarget.current = null;
     if (!id) return;
-    if (file.size > MAX_FILE_BYTES) {
-      alert('File is too large for browser storage (max 1 MB in Phase 1).');
-      return;
-    }
+    setBusy(true);
     try {
-      const target = templates.find((t) => t.id === id);
-      const parsed = await parseTemplateFile(file, target?.layout ?? 'auto');
-      const fileData = await fileToBase64(file);
-      commit(
-        templates.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                layout: parsed.layout,
-                categories: parsed.categories,
-                fileData,
-                fileName: file.name,
-                uploadedAt: new Date().toISOString(),
-              }
-            : t,
-        ),
-      );
-      alert(
-        `Template structure replaced from ${file.name} (${parsed.categories.length} line items).`,
-      );
+      const updated = await replaceTemplateFile(id, file);
+      setTemplates((prev) => prev.map((t) => (t.id === id ? updated : t)));
+      alert(`Template structure replaced from ${file.name} (${updated.categories.length} line items).`);
     } catch (err) {
-      alert(`Replace failed: ${err instanceof Error ? err.message : String(err)}`);
+      fail('Replace')(err);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const download = (t: ForecastTemplate) => {
-    if (t.fileData) {
-      downloadBlob(base64ToBlob(t.fileData, XLSX_MIME), t.fileName ?? `${t.name}.xlsx`, XLSX_MIME);
-    } else {
-      // Seeded template has no stored file — generate a blank workbook from
-      // its structure for the current forecast week.
-      const week = currentWeekKey();
-      exportTemplateXlsx(t, horizonDates(week), dayLabelsForWeek(week)).catch((err) =>
-        alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`),
-      );
+  const download = async (t: ForecastTemplate) => {
+    try {
+      const blob = await downloadTemplateFile(t.id);
+      downloadBlob(blob, t.fileName ?? `${t.name}.xlsx`, XLSX_MIME);
+    } catch (err) {
+      fail('Download')(err);
     }
   };
 
-  const remove = (t: ForecastTemplate) => {
+  const remove = async (t: ForecastTemplate) => {
     const warning =
       t.id === STANDARD_TEMPLATE_ID
         ? `Remove the built-in "${t.name}" template? Entities without another assigned template will lose their default.`
         : `Remove template "${t.name}"? Existing submissions made with it remain stored.`;
     if (!confirm(warning)) return;
-    commit(templates.filter((x) => x.id !== t.id));
+    try {
+      await deleteTemplate(t.id);
+      setTemplates((prev) => prev.filter((x) => x.id !== t.id));
+    } catch (err) {
+      fail('Remove')(err);
+    }
   };
 
   const openEdit = (t: ForecastTemplate) => {
@@ -136,21 +121,19 @@ export function Templates() {
     setEditEntities(new Set(t.assignedEntities));
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editing) return;
-    commit(
-      templates.map((t) =>
-        t.id === editing.id
-          ? {
-              ...t,
-              name: editName.trim() || t.name,
-              layout: editLayout,
-              assignedEntities: [...editEntities],
-            }
-          : t,
-      ),
-    );
-    setEditing(null);
+    try {
+      const updated = await updateTemplate(editing.id, {
+        name: editName.trim() || editing.name,
+        layout: editLayout,
+        assignedEntities: [...editEntities],
+      });
+      setTemplates((prev) => prev.map((t) => (t.id === editing.id ? updated : t)));
+      setEditing(null);
+    } catch (err) {
+      fail('Save')(err);
+    }
   };
 
   const toggleEntity = (name: string) => {
@@ -166,8 +149,8 @@ export function Templates() {
         crumb="Administration"
         title="Forecast Templates"
         actions={
-          <button className="btn btn-primary" onClick={() => setUploadOpen(true)}>
-            + Upload Template
+          <button className="btn btn-primary" disabled={busy} onClick={() => setUploadOpen(true)}>
+            {busy ? 'Working…' : '+ Upload Template'}
           </button>
         }
       />
@@ -248,13 +231,15 @@ export function Templates() {
                           >
                             Replace
                           </button>
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => download(t)}
-                          >
-                            Download
-                          </button>
+                          {t.hasFile && (
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => download(t)}
+                            >
+                              Download
+                            </button>
+                          )}
                           <button
                             className="btn btn-danger"
                             style={{ padding: '4px 10px', fontSize: 11 }}
@@ -323,9 +308,9 @@ export function Templates() {
             <option value="days-across">Days across columns — one row per line item</option>
           </select>
           <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
-            Grouped workbooks need a “Date” header column followed by category columns (group
-            bands come from the row above). Days-across workbooks list line items in the first
-            column; rows containing formulas are treated as computed totals.
+            The file is uploaded to the server, which stores it and derives the template
+            structure from the workbook. Grouped workbooks need a “Date” header column;
+            days-across workbooks list line items in the first column.
           </div>
         </div>
       </Modal>

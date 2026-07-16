@@ -1,31 +1,26 @@
 // ============================================================================
 // Submission lifecycle helpers shared by the Submission screen and the
-// Dashboard KPIs. Sits on top of the storage layer; knows how to seed demo
-// data for the standard template and how rolling weekly horizons align for
-// variance comparison.
+// Dashboard KPIs. All persistence goes through the API; this module knows how
+// to seed demo data for a brand-new grid and how rolling weekly horizons
+// align for variance comparison.
 // ============================================================================
 import type { ForecastTemplate, Settings, Submission } from '../types';
-import {
-  generateGridValues,
-  seedFor,
-  STANDARD_TEMPLATE_ID,
-  startingBalanceFor,
-} from './mockData';
+import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID, startingBalanceFor } from './demoData';
 import { HORIZON_DAYS, prevWeekKey, WORKDAYS_PER_WEEK } from './periods';
-import { loadSubmission, saveSubmission } from '../storage/localStorage';
+import { getSubmission, putSubmission } from '../api/resources';
 import type { GridValues } from '../components/submissions/gridMath';
 
 /**
  * Load the stored submission for (week, entity, template) or create and
- * persist a fresh one. The standard template seeds demo values; uploaded
- * templates start blank.
+ * persist a fresh one through the API. The standard template seeds demo
+ * values; uploaded templates start blank.
  */
-export function getOrCreateSubmission(
+export async function getOrCreateSubmission(
   entity: string,
   week: string,
   template: ForecastTemplate,
-): Submission {
-  const stored = loadSubmission(week, entity, template.id);
+): Promise<Submission> {
+  const stored = await getSubmission(week, entity, template.id);
   if (stored) return stored;
 
   const isStandard = template.id === STANDARD_TEMPLATE_ID;
@@ -45,8 +40,7 @@ export function getOrCreateSubmission(
     startingBalance: startingBalanceFor(entity),
     updatedAt: new Date().toISOString(),
   };
-  saveSubmission(fresh);
-  return fresh;
+  return putSubmission(fresh);
 }
 
 /**
@@ -54,23 +48,22 @@ export function getOrCreateSubmission(
  * the stored previous-week submission if one exists, otherwise (standard
  * template only) deterministic generated data, otherwise blank.
  */
-export function getPriorValues(
+export async function getPriorValues(
   entity: string,
   week: string,
   template: ForecastTemplate,
-): GridValues {
+): Promise<{ values: GridValues; stored: boolean }> {
   const prevKey = prevWeekKey(week);
-  const stored = loadSubmission(prevKey, entity, template.id);
-  if (stored) return stored.values;
+  const stored = await getSubmission(prevKey, entity, template.id);
+  if (stored) return { values: stored.values, stored: true };
   if (template.id === STANDARD_TEMPLATE_ID) {
-    return generateGridValues(
-      template.categories,
-      prevKey,
-      seedFor(`${entity}:${prevKey}`),
-      false,
-    ).values;
+    return {
+      values: generateGridValues(template.categories, prevKey, seedFor(`${entity}:${prevKey}`), false)
+        .values,
+      stored: false,
+    };
   }
-  return {};
+  return { values: {}, stored: false };
 }
 
 /**

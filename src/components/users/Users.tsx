@@ -1,8 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
-import { entities, users as seedUsers } from '../../data/mockData';
-import { loadUsers, saveUsers } from '../../storage/localStorage';
+import { ErrorView, LoadingView } from '../common/Async';
+import { useApi } from '../../hooks/useApi';
+import {
+  createUser,
+  deleteUser,
+  getEntities,
+  getUsers,
+  updateUser,
+} from '../../api/resources';
 import type { Role, User } from '../../types';
 
 const ROLES: Role[] = ['submitter', 'approver', 'treasury', 'admin'];
@@ -14,54 +21,69 @@ const initials = (name: string) =>
     .slice(0, 2)
     .join('');
 
-const EMPTY_FORM = { name: '', email: '', team: entities[0]?.name ?? '', role: 'submitter' as Role };
-
-/** User management: add users, assign roles per entity, remove — all persisted. */
+/** User management: add users, assign roles per entity, remove — all via API. */
 export function Users() {
-  const [users, setUsers] = useState<User[]>(() => loadUsers(seedUsers));
+  const { data, error, loading, reload } = useApi(() =>
+    Promise.all([getUsers(), getEntities()]),
+  );
+  const [users, setUsers] = useState<User[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState({ name: '', email: '', team: '', role: 'submitter' as Role });
+  useEffect(() => {
+    if (data) {
+      setUsers(data[0]);
+      setForm((f) => ({ ...f, team: f.team || data[1][0]?.name || '' }));
+    }
+  }, [data]);
 
-  const commit = (next: User[]) => {
-    setUsers(next);
-    saveUsers(next);
+  if (error) return <ErrorView crumb="Administration" title="User Management" message={error} onRetry={reload} />;
+  if (loading && users.length === 0) return <LoadingView crumb="Administration" title="User Management" />;
+  const entities = data?.[1] ?? [];
+
+  const fail = (err: unknown) =>
+    alert(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
+
+  const setRole = async (email: string, role: Role) => {
+    try {
+      const updated = await updateUser(email, { role });
+      setUsers((prev) => prev.map((u) => (u.email === email ? updated : u)));
+    } catch (err) {
+      fail(err);
+    }
   };
 
-  const setRole = (email: string, role: Role) => {
-    commit(users.map((u) => (u.email === email ? { ...u, role } : u)));
-  };
-
-  const removeUser = (u: User) => {
+  const removeUser = async (u: User) => {
     if (!confirm(`Remove ${u.name} (${u.email})?`)) return;
-    commit(users.filter((x) => x.email !== u.email));
-    setEditing(null);
+    try {
+      await deleteUser(u.email);
+      setUsers((prev) => prev.filter((x) => x.email !== u.email));
+      setEditing(null);
+    } catch (err) {
+      fail(err);
+    }
   };
 
-  const addUser = () => {
-    const name = form.name.trim();
-    const email = form.email.trim().toLowerCase();
-    if (!name || !email) {
+  const addUser = async () => {
+    if (!form.name.trim() || !form.email.trim()) {
       alert('Name and email are required.');
       return;
     }
-    if (users.some((u) => u.email.toLowerCase() === email)) {
-      alert('A user with this email already exists.');
-      return;
-    }
-    commit([
-      ...users,
-      {
-        name,
-        email,
+    try {
+      const created = await createUser({
+        name: form.name,
+        email: form.email,
         team: form.team,
         role: form.role,
         scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
         last: 'Invited',
-      },
-    ]);
-    setForm(EMPTY_FORM);
-    setAdding(false);
+      });
+      setUsers((prev) => [...prev, created]);
+      setForm({ name: '', email: '', team: entities[0]?.name ?? '', role: 'submitter' });
+      setAdding(false);
+    } catch (err) {
+      fail(err);
+    }
   };
 
   return (
