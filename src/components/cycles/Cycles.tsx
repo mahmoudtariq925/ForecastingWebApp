@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { ErrorView, LoadingView } from '../common/Async';
-import { useApi } from '../../hooks/useApi';
-import { getCycles, updateCycle } from '../../api/resources';
+import { cycles as seedCycles } from '../../data/mockData';
+import { loadCycles, saveCycles } from '../../storage/localStorage';
 import type { Cycle } from '../../types';
 import type { ModalId } from '../../types/nav';
 
@@ -11,26 +10,19 @@ interface CyclesProps {
   onOpenModal: (id: ModalId) => void;
 }
 
-/** Weekly forecast cycles with open/close actions persisted via the API. */
+/** Weekly forecast cycles with open/close actions persisted to storage. */
 export function Cycles({ onOpenModal }: CyclesProps) {
-  const { data, error, loading, reload } = useApi(getCycles);
-  const [cycles, setCycles] = useState<Cycle[]>([]);
-  useEffect(() => {
-    if (data) setCycles(data);
-  }, [data]);
-
-  if (error) return <ErrorView crumb="Treasury" title="Forecast Cycles" message={error} onRetry={reload} />;
-  if (loading && cycles.length === 0) return <LoadingView crumb="Treasury" title="Forecast Cycles" />;
+  const [cycles, setCycles] = useState<Cycle[]>(() => loadCycles(seedCycles));
 
   // "submitted" here means the cycle is open for entry; "consolidated" = closed.
-  const toggleCycle = async (c: Cycle) => {
-    const status = c.status === 'submitted' ? ('consolidated' as const) : ('submitted' as const);
-    try {
-      const updated = await updateCycle(c.id, { status });
-      setCycles((prev) => prev.map((x) => (x.id === c.id ? updated : x)));
-    } catch (err) {
-      alert(`Update failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const toggleCycle = (id: string) => {
+    const next = cycles.map((c) =>
+      c.id === id
+        ? { ...c, status: c.status === 'submitted' ? ('consolidated' as const) : ('submitted' as const) }
+        : c,
+    );
+    setCycles(next);
+    saveCycles(next);
   };
 
   return (
@@ -80,7 +72,7 @@ export function Cycles({ onOpenModal }: CyclesProps) {
                         <button
                           className="btn btn-ghost"
                           style={{ padding: '4px 10px', fontSize: 11 }}
-                          onClick={() => toggleCycle(c)}
+                          onClick={() => toggleCycle(c.id)}
                         >
                           {isOpen ? 'Close' : 'Open'}
                         </button>

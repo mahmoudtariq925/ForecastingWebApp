@@ -1,32 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
-import { ErrorView, LoadingView } from '../common/Async';
-import { useApi } from '../../hooks/useApi';
-import { getSettings, putSettings } from '../../api/resources';
+import { loadSettings, saveSettings } from '../../storage/localStorage';
+import { DEFAULT_SETTINGS } from './defaults';
 import type { Settings as SettingsModel } from '../../types';
 
-/** Variance-threshold and cycle-rule configuration, persisted via the API. */
+/** Variance-threshold and cycle-rule configuration, persisted on change. */
 export function Settings() {
-  const { data, error, reload } = useApi(getSettings);
-  const [settings, setSettings] = useState<SettingsModel | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    if (data) setSettings(data);
-  }, [data]);
-
-  if (error) return <ErrorView crumb="Administration" title="Settings" message={error} onRetry={reload} />;
-  if (!settings) return <LoadingView crumb="Administration" title="Settings" />;
+  const [settings, setSettings] = useState<SettingsModel>(() => loadSettings(DEFAULT_SETTINGS));
 
   const update = <K extends keyof SettingsModel>(key: K, value: SettingsModel[K]) => {
     const next = { ...settings, [key]: value };
     setSettings(next);
-    // Debounce writes so typing in the threshold fields doesn't spam the API.
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      putSettings(next).catch((err) =>
-        alert(`Saving settings failed: ${err instanceof Error ? err.message : String(err)}`),
-      );
-    }, 400);
+    saveSettings(next);
   };
 
   return (

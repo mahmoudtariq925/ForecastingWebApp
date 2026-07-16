@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { ErrorView, LoadingView } from '../common/Async';
-import { useApi } from '../../hooks/useApi';
-import { getApprovals, getCycles, getEntities, putApproval } from '../../api/resources';
-import type { ApprovalMap, SubmissionStatus } from '../../types';
+import { cycles as seedCycles, entities } from '../../data/mockData';
+import {
+  loadApprovals,
+  loadCycles,
+  saveApprovals,
+  type ApprovalMap,
+} from '../../storage/localStorage';
+import type { SubmissionStatus } from '../../types';
 
-// Deterministic variance-flag counts per pending entity (demo presentation).
+// Deterministic variance-flag counts per pending entity (prototype used random).
 const flagCounts: Record<string, number> = {
   Germany: 2,
   France: 3,
@@ -24,30 +28,19 @@ const submittedHours: Record<string, number> = {
   Portugal: 18,
 };
 
-/** Approval queue for the active cycle; approve/reject persists via the API. */
+/** Approval queue for the active cycle; approve/reject persists per entity. */
 export function Approvals() {
-  const { data, error, loading, reload } = useApi(async () => {
-    const [entities, cycles] = await Promise.all([getEntities(), getCycles()]);
-    const activeCycleId = (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? '';
-    const approvals = activeCycleId ? await getApprovals(activeCycleId) : {};
-    return { entities, activeCycleId, approvals };
-  });
-  const [overrides, setOverrides] = useState<ApprovalMap>({});
-  useEffect(() => {
-    if (data) setOverrides(data.approvals);
-  }, [data]);
+  const activeCycleId = useMemo(() => {
+    const cycles = loadCycles(seedCycles);
+    return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
+  }, []);
+  const queue = entities.filter((e) => e.status === 'submitted' || e.status === 'pending');
+  const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(activeCycleId));
 
-  if (error) return <ErrorView crumb="Workflow" title="Pending Approvals" message={error} onRetry={reload} />;
-  if (loading || !data) return <LoadingView crumb="Workflow" title="Pending Approvals" />;
-
-  const queue = data.entities.filter((e) => e.status === 'submitted' || e.status === 'pending');
-
-  const decide = async (entity: string, status: SubmissionStatus) => {
-    try {
-      setOverrides(await putApproval(data.activeCycleId, entity, status));
-    } catch (err) {
-      alert(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const decide = (entity: string, status: SubmissionStatus) => {
+    const next = { ...overrides, [entity]: status };
+    setOverrides(next);
+    saveApprovals(activeCycleId, next);
   };
 
   return (
@@ -55,7 +48,7 @@ export function Approvals() {
       <TopBar
         crumb="Workflow"
         title="Pending Approvals"
-        actions={<CyclePill label="Active" value={data.activeCycleId || '—'} />}
+        actions={<CyclePill label="Active" value={activeCycleId} />}
       />
       <div className="content">
         <div className="panel">
