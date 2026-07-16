@@ -3,11 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Liquid — Treasury Cash Flow Forecasting (Phase 1: React + localStorage)",
+  "description": "Liquid \u2014 Treasury Cash Flow Forecasting (Phase 2: React client + Express/SQLite API)",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "npm --prefix server run dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "start:server": "npm --prefix server run start",
+    "typecheck:server": "npm --prefix server run typecheck",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
@@ -28,6 +32,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "concurrently": "^9.1.0"
   }
 }

@@ -2,21 +2,18 @@ import { useMemo } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Chart } from '../common/Chart';
+import { ErrorView, LoadingView } from '../common/Async';
+import { useApi } from '../../hooks/useApi';
 import {
-  buildStandardTemplate,
-  cycles as seedCycles,
-  entities,
-  generateGridValues,
-  seedFor,
-} from '../../data/mockData';
-import { currentWeekKey, HORIZON_DAYS, weekLabel } from '../../data/periods';
-import { getOrCreateSubmission } from '../../data/submissionService';
-import {
-  loadApprovals,
-  loadCycles,
-  loadTemplates,
+  getApprovals,
+  getCycles,
+  getEntities,
+  getTemplates,
   listSubmissions,
-} from '../../storage/localStorage';
+} from '../../api/resources';
+import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/demoData';
+import { getOrCreateSubmission } from '../../data/submissionService';
+import { currentWeekKey, HORIZON_DAYS, weekLabel } from '../../data/periods';
 import { dayNet } from '../submissions/gridMath';
 import type { Entity, SubmissionStatus } from '../../types';
 import type { ModalId, ViewId } from '../../types/nav';
@@ -40,51 +37,60 @@ function Delta({ delta }: { delta: number }) {
 const updatedHours = [3, 11, 26, 7, 19];
 
 export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
-  const cycles = loadCycles(seedCycles);
-  const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
-  const overrides = loadApprovals(activeCycle?.id ?? 'CW-2026-21');
-
-  const statusOf = (e: Entity): SubmissionStatus => overrides[e.name] ?? e.status;
-
-  // --- KPIs computed from the data stores -------------------------------
-  const totalForecast = entities.reduce((s, e) => s + e.total, 0) / 1000;
-  const weightedDelta =
-    entities.reduce((s, e) => s + e.total * e.delta, 0) /
-    Math.max(entities.reduce((s, e) => s + e.total, 0), 1);
-
   const week = currentWeekKey();
+  const { data, error, loading, reload } = useApi(async () => {
+    const [entities, cycles, templates] = await Promise.all([
+      getEntities(),
+      getCycles(),
+      getTemplates(),
+    ]);
+    const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
+    const approvals = activeCycle ? await getApprovals(activeCycle.id) : {};
+    // Ensure at least the first entity has a submission so the KPI is live.
+    if (templates.length > 0 && entities.length > 0) {
+      await getOrCreateSubmission(entities[0].name, week, templates[0]);
+    }
+    const submissions = await listSubmissions({ period: week });
+    return { entities, cycles, templates, activeCycle, approvals, submissions };
+  });
+
+  const standardCategories = useMemo(() => {
+    const templates = data?.templates ?? [];
+    const std = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
+    return std?.categories ?? [];
+  }, [data]);
 
   const netPosition = useMemo(() => {
-    const tpl = buildStandardTemplate();
+    if (standardCategories.length === 0) return 0;
     const values = generateGridValues(
-      tpl.categories,
+      standardCategories,
       week,
       seedFor(`Consolidated:${week}`),
       false,
     ).values;
     let net = 0;
-    for (let d = 0; d < HORIZON_DAYS; d++) net += dayNet(tpl.categories.length, values, d);
+    for (let d = 0; d < HORIZON_DAYS; d++) net += dayNet(standardCategories.length, values, d);
     return net / 1000;
-  }, [week]);
+  }, [standardCategories, week]);
 
+  if (error)
+    return <ErrorView crumb="Overview" title="Treasury Dashboard" message={error} onRetry={reload} />;
+  if (loading || !data) return <LoadingView crumb="Overview" title="Treasury Dashboard" />;
+
+  const { entities, activeCycle, approvals, submissions } = data;
+  const statusOf = (e: Entity): SubmissionStatus => approvals[e.name] ?? e.status;
+
+  const totalForecast = entities.reduce((s, e) => s + e.total, 0) / 1000;
+  const weightedDelta =
+    entities.reduce((s, e) => s + e.total * e.delta, 0) /
+    Math.max(entities.reduce((s, e) => s + e.total, 0), 1);
   const received = entities.filter((e) => statusOf(e) !== 'pending').length;
   const pendingApproval = entities.filter((e) => statusOf(e) === 'submitted').length;
-
-  const { flagCount, needComment } = useMemo(() => {
-    // Ensure at least the first entity has a submission so the KPI is live.
-    const templates = loadTemplates();
-    if (templates.length > 0) {
-      getOrCreateSubmission(entities[0].name, week, templates[0]);
-    }
-    const subs = listSubmissions(week);
-    const flags = subs.reduce((s, sub) => s + sub.flags.length, 0);
-    const missing = subs.reduce(
-      (s, sub) => s + sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length,
-      0,
-    );
-    return { flagCount: flags, needComment: missing };
-  }, [week]);
-
+  const flagCount = submissions.reduce((s, sub) => s + sub.flags.length, 0);
+  const needComment = submissions.reduce(
+    (s, sub) => s + sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length,
+    0,
+  );
   const progress = entities.slice(0, 5);
 
   return (

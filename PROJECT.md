@@ -4,72 +4,60 @@ This document captures where the project is today and how it is intended to
 evolve. The architecture is deliberately staged so each phase is an additive,
 low-risk step.
 
-## Phase 1 — React frontend + localStorage (current)
+## Phase 1 — React frontend + localStorage (done)
 
-**Status: built.**
+The original single-file prototype rebuilt as a React + TypeScript + Vite +
+Tailwind app with all screens interactive and persistence in browser
+`localStorage`. Superseded by Phase 2.
 
-- React + TypeScript + Vite + Tailwind CSS single-page app.
-- All screens from the prototype plus a **Forecast Templates** section,
-  componentised, with the original visual design preserved exactly.
-- **Forecast templates**: upload real .xlsx files (parsed in-browser with
-  exceljs), assign them per country/region, edit / replace / download / remove.
-  Structure is derived from the workbook (no naming conventions); two layouts
-  are supported — grouped (one row per day, the standard
-  `samples/CF_Forecast_Template.xlsx` workbook) and days-across-columns. The
-  built-in default mirrors the standard treasury workbook incl. starting
-  balance and running total.
-- **Dynamic submissions**: entity + Year/Month/Week selectors (rolling weekly
-  forecasts, 4-week working-day horizon); the grid layout is driven by the
-  selected template. Each (entity, week, template) submission is stored
-  separately, so historical weeks remain viewable and editable without
-  affecting current ones. Exports are formula-based Excel tables.
-- **Real file features**: Excel import populates the grid, exports generate
-  valid .xlsx/.csv/.json downloads, paste-from-Excel fills cells, variance
-  flags carry per-cell commentary.
-- **Responsive**: the sidebar collapses to a drawer below ~900px and wide
-  tables scroll within their panels.
-- Seed data in `src/data/mockData.ts`; **persistence via browser
-  `localStorage`**, wrapped entirely in `src/storage/localStorage.ts`
-  (`saveData`/`loadData` plus named helpers such as `saveSubmission`,
-  `loadSubmission`, `saveCycle`, `saveTemplates`, `saveApprovals`,
-  `saveUsers`, `saveSettings`).
-- Deployed to GitHub Pages for instant browser preview.
+## Phase 2 — Client/server architecture (current)
 
-There is **no backend yet** — everything lives in the browser. Data is
-per-browser and not shared between users; uploaded template files are stored
-as base64 in localStorage (capped at 1 MB per file until Phase 2).
+**Status: built** — locally with SQLite + a filesystem uploads folder as
+stand-ins for the Azure services.
 
-## Phase 2 — Azure Blob Storage via Azure Functions API
+- **Express API** (`server/`) exposing REST endpoints for all business data:
+  users, forecast templates, template assignments, submissions, approvals,
+  settings, entities, cycles, variances. The frontend communicates only
+  through API calls — no local data files, nothing in localStorage.
+- **Repository/service/controller layering**: controllers do HTTP only,
+  services hold the business rules, repositories implement narrow
+  persistence interfaces (`server/src/repositories/types.ts`).
+- **SQLite** (`server/data/liquid.db`) as the temporary database behind the
+  repository interfaces; the demo dataset is seeded on first boot.
+- **Uploads folder** (`server/uploads/`) behind a `FileStorage` interface:
+  template uploads store the physical .xlsx and create a database record
+  referencing it; the structure is parsed server-side with the shared parser
+  (`shared/excelTemplate.ts`).
+- **Shared contracts** (`shared/types.ts`) typed against by both sides.
 
-Replace the localStorage persistence with a real, shared backend.
+### Moving to Azure (the point of this phase's design)
 
-- Stand up an **Azure Functions** app exposing a small REST API (submissions,
-  cycles, approvals, users, settings).
-- Persist data in **Azure Blob Storage** (one blob/container per cycle, or a
-  document store as appropriate).
-- Reimplement `src/storage/localStorage.ts` against the API (fetch calls) — the
-  function signatures stay the same, so **no screen component changes**. This
-  is the reason all persistence is funnelled through that one module today.
-- Introduce async loading states where reads become network calls.
+| Local stand-in | Azure production | Change required |
+| --- | --- | --- |
+| SQLite via repository interfaces | Azure SQL | New repository implementations; swap the factory in `server/src/repositories/index.ts` |
+| `server/uploads/` via `FileStorage` | Azure Blob Storage | New `FileStorage` implementation in `server/src/storage/fileStorage.ts` |
+| Express on :4000, Vite proxy | App Service / Container Apps behind the same `/api` prefix | Env config only (`VITE_API_URL` if hosted apart) |
+
+No frontend changes are required for either swap.
 
 ## Phase 3 — Azure AD SSO via Azure Static Web Apps
 
-Add authentication and hosting suited to an internal treasury tool.
+Add authentication and production hosting:
 
-- Host the frontend on **Azure Static Web Apps** (which can also bind the
-  Phase 2 Azure Functions as its managed API).
-- Add **Azure Active Directory (Entra ID) SSO** so users sign in with their
-  corporate identity; the Settings screen already reflects the intended
-  tenant/allowed-domain configuration.
-- Enforce the existing roles (Treasury / Approver / Submitter / Admin) on the
-  server side and scope data access per entity.
+- Host the client on **Azure Static Web Apps**, binding the API as its
+  managed backend (or App Service + SWA linked API).
+- **Azure Active Directory (Entra ID) SSO**; the Settings screen already
+  reflects the intended tenant/allowed-domain configuration.
+- Enforce the existing roles (Treasury / Approver / Submitter / Admin) in the
+  API's service layer and scope data access per entity.
 
 ## Guiding principle
 
 Each phase swaps out one layer without rewriting the UI:
 
 ```
-Phase 1:  UI  ->  storage/localStorage.ts  ->  browser localStorage
-Phase 2:  UI  ->  storage/localStorage.ts  ->  Azure Functions  ->  Blob Storage
+Phase 1:  UI  →  localStorage
+Phase 2:  UI  →  REST API  →  repositories (SQLite)  +  FileStorage (/uploads)
+Azure:    UI  →  REST API  →  repositories (Azure SQL) + FileStorage (Blob)
 Phase 3:  + Azure AD SSO + Azure Static Web Apps hosting
 ```

@@ -1,19 +1,19 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import {
-  buildStandardTemplate,
-  cycles as seedCycles,
-  entities,
-  generateGridValues,
-  seedFor,
-} from '../../data/mockData';
+  createCycle,
+  getCycles,
+  getEntities,
+  getTemplates,
+  listSubmissions,
+} from '../../api/resources';
+import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/demoData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
   horizonDates,
   weekLabelShort,
 } from '../../data/periods';
-import { listSubmissions, loadCycles } from '../../storage/localStorage';
 import {
   cyclesTable,
   exportSubmissionXlsx,
@@ -26,8 +26,8 @@ import type { ModalId } from '../../types/nav';
 interface AppModalsProps {
   modal: ModalId;
   onClose: () => void;
-  /** Called with the fully-formed cycle when the user confirms creation. */
-  onCreateCycle: (cycle: Cycle) => void;
+  /** Called after the new cycle has been persisted via the API. */
+  onCycleCreated: (cycle: Cycle) => void;
 }
 
 function fmtDay(iso: string): string {
@@ -45,39 +45,50 @@ function fmtDeadline(iso: string): string {
   return `${day} · ${time}`;
 }
 
-/** Shared dialogs: New Cycle (creates + persists) and Export (real downloads). */
-export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
-  const [cycleId, setCycleId] = useState('CW-2026-22');
-  const [startDate, setStartDate] = useState('2026-05-25');
-  const [deadline, setDeadline] = useState('2026-05-29T18:00');
+/** Shared dialogs: New Cycle (persists via API) and Export (real downloads). */
+export function AppModals({ modal, onClose, onCycleCreated }: AppModalsProps) {
+  const [cycleId, setCycleId] = useState('CW-2026-30');
+  const [startDate, setStartDate] = useState('2026-07-20');
+  const [deadline, setDeadline] = useState('2026-07-24T18:00');
   const [format, setFormat] = useState<'xlsx' | 'csv' | 'json'>('xlsx');
   const [scope, setScope] = useState('consolidated');
   const [busy, setBusy] = useState(false);
 
-  const createCycle = () => {
+  const create = async () => {
     const id = cycleId.trim();
     if (!id) {
       alert('Please enter a cycle ID.');
       return;
     }
-    onCreateCycle({
-      id,
-      start: fmtDay(startDate),
-      closes: fmtDeadline(deadline),
-      status: 'submitted',
-      subs: `0 / ${entities.length}`,
-      total: 0,
-    });
+    setBusy(true);
+    try {
+      const entities = await getEntities();
+      const cycle = await createCycle({
+        id,
+        start: fmtDay(startDate),
+        closes: fmtDeadline(deadline),
+        status: 'submitted',
+        subs: `0 / ${entities.length}`,
+        total: 0,
+      });
+      onCycleCreated(cycle);
+    } catch (err) {
+      alert(`Creating cycle failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const runExport = async () => {
     setBusy(true);
     try {
       if (scope === 'consolidated') {
-        const tpl = buildStandardTemplate();
+        const templates = await getTemplates();
+        const std = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
+        if (!std) throw new Error('No template available');
         const week = currentWeekKey();
         const values = generateGridValues(
-          tpl.categories,
+          std.categories,
           week,
           seedFor(`Consolidated:${week}`),
           false,
@@ -85,7 +96,7 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
         const dayLabels = dayLabelsForWeek(week);
         if (format === 'xlsx') {
           await exportSubmissionXlsx({
-            template: tpl,
+            template: std,
             layout: 'days-across',
             entity: 'Consolidated (all entities)',
             weekLabel: weekLabelShort(week),
@@ -100,7 +111,7 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
           const table = {
             name: 'Consolidated',
             header: ['Category', ...dayLabels.map((_d, i) => `D${i + 1}`)],
-            rows: tpl.categories.map((cat, catIdx) => [
+            rows: std.categories.map((cat, catIdx) => [
               cat.label,
               ...dayLabels.map((_d, i) => values[`${catIdx}-${i}`] || 0),
             ]),
@@ -108,11 +119,11 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
           await exportTable(table, format, 'consolidated-forecast');
         }
       } else if (scope === 'submissions') {
-        await exportTable(submissionsTable(listSubmissions()), format, 'submissions');
+        await exportTable(submissionsTable(await listSubmissions()), format, 'submissions');
       } else if (scope === 'cycles4') {
-        await exportTable(cyclesTable(loadCycles(seedCycles).slice(0, 4)), format, 'last-4-cycles');
+        await exportTable(cyclesTable((await getCycles()).slice(0, 4)), format, 'last-4-cycles');
       } else {
-        await exportTable(cyclesTable(loadCycles(seedCycles)), format, 'cycles-ytd');
+        await exportTable(cyclesTable(await getCycles()), format, 'cycles-ytd');
       }
       onClose();
     } catch (err) {
@@ -133,8 +144,8 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
             <button className="btn btn-ghost" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={createCycle}>
-              Open Cycle
+            <button className="btn btn-primary" onClick={create} disabled={busy}>
+              {busy ? 'Opening…' : 'Open Cycle'}
             </button>
           </>
         }
