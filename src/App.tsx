@@ -10,6 +10,8 @@ import { Templates } from './components/templates/Templates';
 import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
 import { AppModals } from './components/common/AppModals';
+import { cycles as seedCycles } from './data/mockData';
+import { loadCycles, saveCycle } from './storage/localStorage';
 import type { Cycle } from './types';
 import type { ModalId, ViewId } from './types/nav';
 
@@ -17,8 +19,8 @@ export default function App() {
   const [view, setView] = useState<ViewId>('dashboard');
   const [modal, setModal] = useState<ModalId>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Bumped whenever a shared modal writes to the API, remounting the active
-  // screen so it refetches fresh data.
+  // Bumped whenever a shared modal writes to storage, remounting the active
+  // screen so it reloads fresh data.
   const [dataVersion, setDataVersion] = useState(0);
 
   const navigate = (v: ViewId) => {
@@ -26,7 +28,8 @@ export default function App() {
     setMenuOpen(false);
   };
 
-  const onCycleCreated = (cycle: Cycle) => {
+  const createCycle = (cycle: Cycle) => {
+    saveCycle(cycle, loadCycles(seedCycles));
     setModal(null);
     setDataVersion((n) => n + 1);
     alert(
@@ -74,7 +77,7 @@ export default function App() {
       <main className="main" key={dataVersion}>
         {screens[view]}
       </main>
-      <AppModals modal={modal} onClose={() => setModal(null)} onCycleCreated={onCycleCreated} />
+      <AppModals modal={modal} onClose={() => setModal(null)} onCreateCycle={createCycle} />
     </div>
   );
 }

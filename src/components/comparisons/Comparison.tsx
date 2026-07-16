@@ -2,17 +2,17 @@ import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Chart } from '../common/Chart';
-import { ErrorView, LoadingView } from '../common/Async';
-import { useApi } from '../../hooks/useApi';
 import {
-  getCycles,
-  getEntities,
-  getSettings,
-  getTemplates,
-  getVariances,
-} from '../../api/resources';
-import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/demoData';
+  buildStandardTemplate,
+  cycles as seedCycles,
+  entities,
+  generateGridValues,
+  seedFor,
+  variances,
+} from '../../data/mockData';
 import { currentWeekKey, HORIZON_DAYS, prevWeekKey } from '../../data/periods';
+import { loadCycles, loadSettings } from '../../storage/localStorage';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
 
 const TABS = ['Daily Variance', 'By Entity', 'By Category'] as const;
 
@@ -27,30 +27,26 @@ function DeltaCell({ pct }: { pct: number }) {
   );
 }
 
-/** Forecast-vs-forecast comparison with variance drill-down. */
-export function Comparison() {
-  const [tab, setTab] = useState(0);
-  const [pairIdx, setPairIdx] = useState(0);
-  const { data, error, loading, reload } = useApi(() =>
-    Promise.all([getCycles(), getEntities(), getVariances(), getSettings(), getTemplates()]),
-  );
-
-  // Category totals (current vs prior week) from the consolidated demo data.
-  const categories = useMemo(() => {
-    const templates = data?.[4] ?? [];
-    const std = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
-    if (!std) return [];
+/** Category totals (current vs prior week) from the consolidated demo data. */
+function useCategoryComparison() {
+  return useMemo(() => {
+    const tpl = buildStandardTemplate();
     const week = currentWeekKey();
     const prevKey = prevWeekKey(week);
-    const current = generateGridValues(std.categories, week, seedFor(`Consolidated:${week}`), false)
-      .values;
+    const current = generateGridValues(
+      tpl.categories,
+      week,
+      seedFor(`Consolidated:${week}`),
+      false,
+    ).values;
     const prior = generateGridValues(
-      std.categories,
+      tpl.categories,
       prevKey,
       seedFor(`Consolidated:${prevKey}`),
       false,
     ).values;
-    return std.categories.map((cat, catIdx) => {
+
+    return tpl.categories.map((cat, catIdx) => {
       let cur = 0;
       let pri = 0;
       for (let i = 0; i < HORIZON_DAYS; i++) {
@@ -60,24 +56,31 @@ export function Comparison() {
       const pct = ((cur - pri) / Math.max(Math.abs(pri), 1)) * 100;
       return { label: cat.label, current: cur, prior: pri, pct };
     });
-  }, [data]);
+  }, []);
+}
 
-  if (error)
-    return <ErrorView crumb="Analysis" title="Forecast vs Forecast" message={error} onRetry={reload} />;
-  if (loading || !data) return <LoadingView crumb="Analysis" title="Forecast vs Forecast" />;
-
-  const [cycles, entities, variances, settings] = data;
+/** Forecast-vs-forecast comparison with variance drill-down. */
+export function Comparison() {
+  const [tab, setTab] = useState(0);
+  const cycles = loadCycles(seedCycles);
+  const settings = loadSettings(DEFAULT_SETTINGS);
 
   // Consecutive cycle pairs from the store drive the selector.
-  const pairs: { label: string; current: string; prior: string }[] = [];
-  for (let i = 0; i < cycles.length - 1; i++) {
-    pairs.push({
-      label: `${cycles[i].id} vs ${cycles[i + 1].id}`,
-      current: cycles[i].id,
-      prior: cycles[i + 1].id,
-    });
-  }
-  const pair = pairs[Math.min(pairIdx, Math.max(pairs.length - 1, 0))];
+  const pairs = useMemo(() => {
+    const out: { label: string; current: string; prior: string }[] = [];
+    for (let i = 0; i < cycles.length - 1; i++) {
+      out.push({
+        label: `${cycles[i].id} vs ${cycles[i + 1].id}`,
+        current: cycles[i].id,
+        prior: cycles[i + 1].id,
+      });
+    }
+    return out;
+  }, [cycles]);
+  const [pairIdx, setPairIdx] = useState(0);
+  const pair = pairs[Math.min(pairIdx, pairs.length - 1)];
+
+  const categories = useCategoryComparison();
 
   return (
     <div className="view active">

@@ -25,7 +25,3 @@ dist-ssr
 
 # TypeScript incremental build info
 *.tsbuildinfo
-
-# Backend runtime data (SQLite db + uploaded files)
-server/data/
-server/uploads/
