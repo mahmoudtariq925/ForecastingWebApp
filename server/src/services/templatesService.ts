@@ -6,9 +6,11 @@ import type { FileStorage } from '../storage/fileStorage.js';
 import { badRequest, notFound } from './errors.js';
 
 /**
- * Template management: uploads store the physical .xlsx in FileStorage and a
- * database record referencing it; the structure is parsed server-side from
+ * Template management: uploads store the physical .xlsx via FileStorage and a
+ * persistence record referencing it; the structure is parsed server-side from
  * the workbook (authoritative — the client never sends parsed structure).
+ * Persistence and file storage are both abstracted, so this service is
+ * unaffected by the storage backend.
  */
 export class TemplatesService {
   constructor(
@@ -16,62 +18,66 @@ export class TemplatesService {
     private files: FileStorage,
   ) {}
 
-  private toDto(record: TemplateRecord): ForecastTemplate {
+  private async toDto(record: TemplateRecord): Promise<ForecastTemplate> {
     const { fileKey, ...rest } = record;
     return {
       ...rest,
-      assignedEntities: this.repos.templates.getAssignments(record.id),
+      assignedEntities: await this.repos.templates.getAssignments(record.id),
       hasFile: Boolean(fileKey),
     };
   }
 
-  list(): ForecastTemplate[] {
-    return this.repos.templates.list().map((t) => this.toDto(t));
+  async list(): Promise<ForecastTemplate[]> {
+    const records = await this.repos.templates.list();
+    return Promise.all(records.map((t) => this.toDto(t)));
   }
 
-  get(id: string): ForecastTemplate {
-    const record = this.repos.templates.getById(id);
+  async get(id: string): Promise<ForecastTemplate> {
+    const record = await this.repos.templates.getById(id);
     if (!record) throw notFound('Template');
     return this.toDto(record);
   }
 
   async upload(
-    file: { originalname: string; buffer: Buffer },
+    file: { originalName: string; buffer: Buffer },
     layout: TemplateLayout | 'auto',
     uploadedBy: string,
   ): Promise<ForecastTemplate> {
+    if (!['auto', 'grouped', 'days-across'].includes(layout)) {
+      throw badRequest(`Unknown layout: ${layout}`);
+    }
     const parsed = await parseTemplateBuffer(file.buffer, layout);
     const id = `tpl-${randomUUID()}`;
     const fileKey = await this.files.put(`${id}.xlsx`, file.buffer);
-    this.repos.templates.create({
+    await this.repos.templates.create({
       id,
-      name: file.originalname.replace(/\.xlsx$/i, ''),
-      fileName: file.originalname,
+      name: file.originalName.replace(/\.xlsx$/i, ''),
+      fileName: file.originalName,
       fileKey,
       uploadedAt: new Date().toISOString(),
       uploadedBy,
       layout: parsed.layout,
       categories: parsed.categories,
     });
-    this.repos.templates.setAssignments(id, []);
+    await this.repos.templates.setAssignments(id, []);
     return this.get(id);
   }
 
-  update(
+  async update(
     id: string,
     patch: { name?: string; layout?: TemplateLayout; assignedEntities?: string[] },
-  ): ForecastTemplate {
-    const record = this.repos.templates.getById(id);
+  ): Promise<ForecastTemplate> {
+    const record = await this.repos.templates.getById(id);
     if (!record) throw notFound('Template');
     if (patch.layout && patch.layout !== 'grouped' && patch.layout !== 'days-across') {
       throw badRequest(`Unknown layout: ${patch.layout}`);
     }
-    this.repos.templates.update(id, {
+    await this.repos.templates.update(id, {
       name: patch.name?.trim() || record.name,
       layout: patch.layout ?? record.layout,
     });
     if (patch.assignedEntities) {
-      this.repos.templates.setAssignments(id, patch.assignedEntities);
+      await this.repos.templates.setAssignments(id, patch.assignedEntities);
     }
     return this.get(id);
   }
@@ -79,15 +85,15 @@ export class TemplatesService {
   /** Replace the workbook: re-parse the structure and swap the stored file. */
   async replaceFile(
     id: string,
-    file: { originalname: string; buffer: Buffer },
+    file: { originalName: string; buffer: Buffer },
   ): Promise<ForecastTemplate> {
-    const record = this.repos.templates.getById(id);
+    const record = await this.repos.templates.getById(id);
     if (!record) throw notFound('Template');
     const parsed = await parseTemplateBuffer(file.buffer, record.layout);
     const fileKey = await this.files.put(`${id}.xlsx`, file.buffer);
-    this.repos.templates.update(id, {
+    await this.repos.templates.update(id, {
       fileKey,
-      fileName: file.originalname,
+      fileName: file.originalName,
       layout: parsed.layout,
       categories: parsed.categories,
       uploadedAt: new Date().toISOString(),
@@ -96,14 +102,14 @@ export class TemplatesService {
   }
 
   async remove(id: string): Promise<void> {
-    const record = this.repos.templates.getById(id);
+    const record = await this.repos.templates.getById(id);
     if (!record) throw notFound('Template');
     if (record.fileKey) await this.files.delete(record.fileKey);
-    this.repos.templates.remove(id);
+    await this.repos.templates.remove(id);
   }
 
   async getFile(id: string): Promise<{ fileName: string; data: Buffer }> {
-    const record = this.repos.templates.getById(id);
+    const record = await this.repos.templates.getById(id);
     if (!record) throw notFound('Template');
     if (!record.fileKey) throw notFound('Template file');
     return {

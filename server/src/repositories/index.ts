@@ -1,13 +1,11 @@
-// Repository factory — the single place that decides which persistence
-// backend the app runs on. Azure migration: implement the interfaces in
-// ./types.ts against Azure SQL and return them here instead.
-import { openDatabase } from '../db/index.js';
-import { createSqliteRepositories } from './sqlite.js';
+// Repository factory. Repositories are storage-agnostic: they run over any
+// StorageProvider, so this never needs to change when the backend does.
+import type { StorageProvider } from '../storage/storageProvider.js';
+import { createJsonRepositories } from './jsonRepositories.js';
 import type { Repositories } from './types.js';
 
 export type { Repositories, TemplateRecord } from './types.js';
 
-export function createRepositories(dbPath: string): Repositories {
-  const db = openDatabase(dbPath);
-  return createSqliteRepositories(db);
+export function createRepositories(provider: StorageProvider): Repositories {
+  return createJsonRepositories(provider);
 }

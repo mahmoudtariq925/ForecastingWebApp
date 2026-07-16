@@ -12,33 +12,46 @@ Tailwind app with all screens interactive and persistence in browser
 
 ## Phase 2 — Client/server architecture (current)
 
-**Status: built** — locally with SQLite + a filesystem uploads folder as
-stand-ins for the Azure services.
+**Status: built** — aligned with the target Azure architecture, using local
+files (default) or SQLite as stand-ins for Azure Blob Storage.
+
+Target layering, implemented locally end to end:
+
+```
+React frontend → REST API → Handlers → Services → Repositories → StorageProvider → Azure Blob Storage
+```
 
 - **Express API** (`server/`) exposing REST endpoints for all business data:
   users, forecast templates, template assignments, submissions, approvals,
   settings, entities, cycles, variances. The frontend communicates only
   through API calls — no local data files, nothing in localStorage.
-- **Repository/service/controller layering**: controllers do HTTP only,
-  services hold the business rules, repositories implement narrow
-  persistence interfaces (`server/src/repositories/types.ts`).
-- **SQLite** (`server/data/liquid.db`) as the temporary database behind the
-  repository interfaces; the demo dataset is seeded on first boot.
-- **Uploads folder** (`server/uploads/`) behind a `FileStorage` interface:
-  template uploads store the physical .xlsx and create a database record
-  referencing it; the structure is parsed server-side with the shared parser
-  (`shared/excelTemplate.ts`).
-- **Shared contracts** (`shared/types.ts`) typed against by both sides.
+- **Azure Function-style handlers** (`server/src/handlers/`): each endpoint is
+  an isolated `(HttpRequest) => Promise<HttpResult>` with no framework types,
+  ready to drop into an Azure Function. A neutral route table
+  (`http/routes.ts`) plus a thin Express adapter (`http/expressAdapter.ts`) —
+  the only web-framework-coupled file — bind them to HTTP.
+- **Services** hold every business rule; **repositories** do persistence only;
+  handlers do request/response shaping only.
+- **StorageProvider abstraction** (`server/src/storage/`): repositories depend
+  only on this interface (JSON documents + binary blobs, modelled on Blob
+  Storage). `LocalStorageProvider` (default) mirrors Blob with a `storage/`
+  folder; `SqliteStorageProvider` is a second implementation of the same
+  interface, proving repositories are storage-agnostic. `FileStorage` is a
+  generalized façade over the provider's blobs for uploaded workbooks.
+- **Shared contracts** (`shared/types.ts`, `shared/excelTemplate.ts`) typed
+  against by both sides; template structure is parsed server-side.
 
 ### Moving to Azure (the point of this phase's design)
 
 | Local stand-in | Azure production | Change required |
 | --- | --- | --- |
-| SQLite via repository interfaces | Azure SQL | New repository implementations; swap the factory in `server/src/repositories/index.ts` |
-| `server/uploads/` via `FileStorage` | Azure Blob Storage | New `FileStorage` implementation in `server/src/storage/fileStorage.ts` |
-| Express on :4000, Vite proxy | App Service / Container Apps behind the same `/api` prefix | Env config only (`VITE_API_URL` if hosted apart) |
+| `LocalStorageProvider` / `SqliteStorageProvider` | Azure Blob Storage | New `AzureBlobStorageProvider` (same `StorageProvider` interface); return it from `storage/index.ts` for `STORAGE_PROVIDER=azure-blob` |
+| Express adapter over the handlers | Azure Functions | An equivalent adapter binding the **same handlers** to the Functions host |
+| Express on :4000, Vite proxy | Functions app behind the same `/api` prefix | Env config only (`VITE_API_URL` if hosted apart) |
 
-No frontend changes are required for either swap.
+No frontend, service, repository-interface or API changes are required —
+only a new storage provider, Azure Function entry points reusing the existing
+handlers, and configuration.
 
 ## Phase 3 — Azure AD SSO via Azure Static Web Apps
 
@@ -57,7 +70,7 @@ Each phase swaps out one layer without rewriting the UI:
 
 ```
 Phase 1:  UI  →  localStorage
-Phase 2:  UI  →  REST API  →  repositories (SQLite)  +  FileStorage (/uploads)
-Azure:    UI  →  REST API  →  repositories (Azure SQL) + FileStorage (Blob)
+Phase 2:  UI  →  REST API → handlers → services → repositories → StorageProvider (local files / SQLite)
+Azure:    UI  →  REST API → handlers → services → repositories → StorageProvider (Azure Blob), handlers on Azure Functions
 Phase 3:  + Azure AD SSO + Azure Static Web Apps hosting
 ```

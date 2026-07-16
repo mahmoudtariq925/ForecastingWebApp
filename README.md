@@ -4,8 +4,9 @@ A client/server application for weekly treasury cash-flow forecasting across
 multiple entities:
 
 - **Client**: React + TypeScript + Vite + Tailwind CSS (`src/`)
-- **API**: Node + Express + SQLite (`server/`), with uploaded workbooks in
-  `server/uploads/`
+- **API**: Node + Express (`server/`), organised as Azure Function-style
+  handlers → services → repositories → a pluggable storage provider (local
+  files by default, mirroring Azure Blob Storage)
 - **Shared contracts**: domain types + the Excel template parser (`shared/`),
   used by both sides
 
@@ -37,33 +38,72 @@ npm run typecheck:server  # type-check the API
 npm run lint              # ESLint over client + server
 ```
 
-The API stores its SQLite database in `server/data/liquid.db` and uploaded
-template workbooks in `server/uploads/` (both git-ignored, created and seeded
-on first boot). Delete them for a factory reset.
+By default the API persists to `server/storage/` (JSON documents + uploaded
+workbooks; git-ignored, created and seeded on first boot). Delete that folder
+for a factory reset. Set `STORAGE_PROVIDER=sqlite` to persist to
+`server/data/liquid.db` instead — same behaviour, different backend.
 
 ## Architecture
 
+The backend mirrors the planned Azure production layering. Each arrow is an
+interface boundary:
+
 ```
-src/  (React client)                    server/src/  (API)
-  api/          fetch client + typed      controllers/   HTTP routing only
-                calls per resource        services/      business rules
-  components/   screens (unchanged UI)    repositories/  persistence interfaces
-  data/         periods, demo seeding,       + SQLite implementations
-                submission lifecycle      storage/       FileStorage interface
-  hooks/        useApi loader                + local /uploads implementation
-  utils/        Excel import/export       db/            schema + demo seed
-shared/         domain types + workbook-structure parser (both sides)
+React frontend → REST API → Handlers → Services → Repositories → StorageProvider → (Local files / SQLite / Azure Blob)
 ```
 
-**Swap points for Azure** (by design, no frontend changes):
+```
+src/  (React client)              server/src/  (API)
+  api/        fetch client +        http/          neutral HttpRequest/Result, route table,
+              typed calls                          Express adapter (only framework binding)
+  components/ screens (UI)          handlers/      Azure Function-style handlers (minimal HTTP)
+  data/       periods, demo         services/      ALL business rules (async)
+              seeding, submission   repositories/  storage-agnostic persistence (JSON collections)
+  hooks/      useApi loader         storage/       StorageProvider interface +
+  utils/      Excel import/export                   LocalStorageProvider, SqliteStorageProvider,
+shared/       domain types +                        FileStorage façade
+              workbook parser       seed.ts        demo dataset (via repositories)
+```
 
-- `server/src/repositories/index.ts` — factory returning the SQLite
-  implementations of the repository interfaces in `repositories/types.ts`.
-  Azure SQL = new implementations, same interfaces.
-- `server/src/storage/fileStorage.ts` — `FileStorage` interface with a local
-  `/uploads` implementation. Azure Blob Storage = new implementation.
+- **Handlers** are isolated `(HttpRequest) => Promise<HttpResult>` functions
+  with no framework types — each could be dropped into an Azure Function. The
+  Express adapter (`http/expressAdapter.ts`) is the only web-framework-coupled
+  file; it consumes a neutral route table (`http/routes.ts`).
+- **Services** hold every business rule (validation, duplicate/conflict
+  checks, status transitions). Handlers and repositories contain none.
+- **Repositories** depend only on the `StorageProvider` interface — no SQL, no
+  filesystem, no vendor concepts. They manage JSON collections/documents.
+- **StorageProvider** models storage like Azure Blob: named collections
+  holding JSON documents and binary blobs.
+
+**Swap points for Azure** (by design — no frontend, service, repository or API
+changes):
+
+- `server/src/storage/index.ts` — provider factory. Add an
+  `AzureBlobStorageProvider` implementing `StorageProvider` and return it for
+  `STORAGE_PROVIDER=azure-blob`. Repositories and `FileStorage` then use Blob
+  automatically.
+- `server/src/http/` — the Express adapter + route table. Azure Functions =
+  an equivalent adapter reusing the same handlers.
 - Client API base URL: `/api` by default (proxied), overridable via
   `VITE_API_URL`.
+
+### Storage providers
+
+`STORAGE_PROVIDER` selects the backend (default `local`):
+
+- **`local`** — `LocalStorageProvider`, a folder that mirrors Azure Blob:
+  ```
+  server/storage/
+    users/users.json          entities/entities.json     cycles/cycles.json
+    settings/settings.json     submissions/submissions.json
+    approvals/approvals.json   variances/variances.json
+    templates/templates.json   templates/uploads/<templateId>.xlsx
+  ```
+- **`sqlite`** — `SqliteStorageProvider`, the same interface backed by a
+  `documents` (JSON) + `blobs` table. Proves the abstraction; run with
+  `STORAGE_PROVIDER=sqlite npm run start:server`.
+- **`azure-blob`** — production target; implement `AzureBlobStorageProvider`.
 
 ### REST API
 
@@ -79,8 +119,10 @@ shared/         domain types + workbook-structure parser (both sides)
 | Variances | `GET /api/variances` |
 
 Template uploads are multipart (`file`, optional `layout`); the server stores
-the physical .xlsx in `/uploads`, parses the structure **server-side** with
-the shared parser, and creates the database record referencing the file.
+the physical .xlsx via `FileStorage` (a blob in the active storage provider),
+parses the structure **server-side** with the shared parser, and creates the
+persistence record referencing the file. URLs, request and response models are
+identical across storage providers.
 
 ## Screens
 

@@ -1,5 +1,7 @@
-// Seeds the database with the demo dataset on first boot (tables empty).
-// This is the data that previously lived hardcoded in the frontend.
+// Seeds the demo dataset on first boot (when the store is empty). This is the
+// data that previously lived hardcoded in the frontend. It works through the
+// repositories and FileStorage, so it is storage-agnostic — no knowledge of
+// files, SQLite or Blob Storage.
 import fs from 'node:fs';
 import type {
   Cycle,
@@ -8,9 +10,9 @@ import type {
   TemplateCategory,
   User,
   Variance,
-} from '../../../shared/types';
-import type { Repositories } from '../repositories/types.js';
-import type { FileStorage } from '../storage/fileStorage.js';
+} from '../../shared/types';
+import type { Repositories } from './repositories/types.js';
+import type { FileStorage } from './storage/fileStorage.js';
 
 export const STANDARD_TEMPLATE_ID = 'tpl-cf-standard';
 const STANDARD_TEMPLATE_FILE = 'CF_Forecast_Template.xlsx';
@@ -39,6 +41,7 @@ const users: User[] = [
   { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', scope: 'All entities', last: '20m ago' },
 ];
 
+// Newest first — the order the API returns and the UI shows.
 const cycles: Cycle[] = [
   { id: 'CW-2026-21', start: 'May 18', closes: 'May 22 · 18:00', status: 'submitted', subs: '14 / 18', total: 184.2 },
   { id: 'CW-2026-20', start: 'May 11', closes: 'May 15 · 18:00', status: 'consolidated', subs: '18 / 18', total: 178.4 },
@@ -86,26 +89,24 @@ export async function seedIfEmpty(
   files: FileStorage,
   standardTemplateSource: string,
 ): Promise<void> {
-  if (repos.entities.list().length === 0) {
-    for (const e of entities) repos.entities.insert(e);
+  if ((await repos.entities.list()).length === 0) {
+    for (const e of entities) await repos.entities.insert(e);
   }
-  if (repos.users.list().length === 0) {
-    for (const u of users) repos.users.create(u);
+  if ((await repos.users.list()).length === 0) {
+    for (const u of users) await repos.users.create(u);
   }
-  if (repos.cycles.list().length === 0) {
-    // Insert oldest-first so the newest ends up on top (lowest sort).
-    for (const c of [...cycles].reverse()) repos.cycles.create(c);
+  if ((await repos.cycles.list()).length === 0) {
+    // Insert oldest-first so the newest (create prepends) ends up on top.
+    for (const c of [...cycles].reverse()) await repos.cycles.create(c);
   }
-  try {
-    repos.settings.get();
-  } catch {
-    repos.settings.put(defaultSettings);
+  if ((await repos.settings.get()) === null) {
+    await repos.settings.put(defaultSettings);
   }
-  if (repos.variances.list().length === 0) {
-    for (const v of variances) repos.variances.insert(v);
+  if ((await repos.variances.list()).length === 0) {
+    for (const v of variances) await repos.variances.insert(v);
   }
-  if (repos.templates.list().length === 0) {
-    // Store the physical workbook in file storage and reference it.
+  if ((await repos.templates.list()).length === 0) {
+    // Store the physical workbook via FileStorage and reference it.
     let fileKey: string | undefined;
     try {
       const bytes = await fs.promises.readFile(standardTemplateSource);
@@ -113,7 +114,7 @@ export async function seedIfEmpty(
     } catch (err) {
       console.warn('[seed] standard template workbook not found:', err);
     }
-    repos.templates.create({
+    await repos.templates.create({
       id: STANDARD_TEMPLATE_ID,
       name: 'CF Forecast (Standard)',
       fileName: STANDARD_TEMPLATE_FILE,
@@ -123,7 +124,7 @@ export async function seedIfEmpty(
       layout: 'grouped',
       categories: standardCategories,
     });
-    repos.templates.setAssignments(
+    await repos.templates.setAssignments(
       STANDARD_TEMPLATE_ID,
       entities.map((e) => e.name),
     );

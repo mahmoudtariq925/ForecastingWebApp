@@ -1,6 +1,6 @@
 // Thin services over the repositories for the simpler resources. Business
-// rules (duplicate checks, key validation) live here so controllers stay
-// pure HTTP and repositories stay pure persistence.
+// rules (duplicate checks, key/status validation) live here so handlers stay
+// pure request/response shaping and repositories stay pure persistence.
 import type {
   ApprovalMap,
   Cycle,
@@ -16,47 +16,51 @@ import { badRequest, conflict, notFound } from './errors.js';
 
 export class EntitiesService {
   constructor(private repos: Repositories) {}
-  list(): Entity[] {
+  list(): Promise<Entity[]> {
     return this.repos.entities.list();
   }
 }
 
 export class UsersService {
   constructor(private repos: Repositories) {}
-  list(): User[] {
+  list(): Promise<User[]> {
     return this.repos.users.list();
   }
-  create(user: User): User {
+  async create(user: User): Promise<User> {
     if (!user.name?.trim() || !user.email?.trim()) throw badRequest('Name and email are required');
     const email = user.email.trim().toLowerCase();
-    if (this.repos.users.getByEmail(email)) throw conflict('A user with this email already exists');
+    if (await this.repos.users.getByEmail(email)) {
+      throw conflict('A user with this email already exists');
+    }
     const created: User = { ...user, email, name: user.name.trim() };
-    this.repos.users.create(created);
+    await this.repos.users.create(created);
     return created;
   }
-  update(email: string, patch: Partial<User>): User {
-    const updated = this.repos.users.update(email, patch);
+  async update(email: string, patch: Partial<User>): Promise<User> {
+    const updated = await this.repos.users.update(email, patch);
     if (!updated) throw notFound('User');
     return updated;
   }
-  remove(email: string): void {
-    if (!this.repos.users.remove(email)) throw notFound('User');
+  async remove(email: string): Promise<void> {
+    if (!(await this.repos.users.remove(email))) throw notFound('User');
   }
 }
 
 export class CyclesService {
   constructor(private repos: Repositories) {}
-  list(): Cycle[] {
+  list(): Promise<Cycle[]> {
     return this.repos.cycles.list();
   }
-  create(cycle: Cycle): Cycle {
+  async create(cycle: Cycle): Promise<Cycle> {
     if (!cycle.id?.trim()) throw badRequest('Cycle ID is required');
-    if (this.repos.cycles.getById(cycle.id)) throw conflict(`Cycle ${cycle.id} already exists`);
-    this.repos.cycles.create(cycle);
+    if (await this.repos.cycles.getById(cycle.id)) {
+      throw conflict(`Cycle ${cycle.id} already exists`);
+    }
+    await this.repos.cycles.create(cycle);
     return cycle;
   }
-  update(id: string, patch: Partial<Cycle>): Cycle {
-    const updated = this.repos.cycles.update(id, patch);
+  async update(id: string, patch: Partial<Cycle>): Promise<Cycle> {
+    const updated = await this.repos.cycles.update(id, patch);
     if (!updated) throw notFound('Cycle');
     return updated;
   }
@@ -64,54 +68,54 @@ export class CyclesService {
 
 export class SettingsService {
   constructor(private repos: Repositories) {}
-  get(): Settings {
-    return this.repos.settings.get();
+  async get(): Promise<Settings> {
+    const settings = await this.repos.settings.get();
+    if (!settings) throw notFound('Settings');
+    return settings;
   }
-  put(settings: Settings): Settings {
-    this.repos.settings.put(settings);
+  async put(settings: Settings): Promise<Settings> {
+    await this.repos.settings.put(settings);
     return settings;
   }
 }
 
 export class SubmissionsService {
   constructor(private repos: Repositories) {}
-  list(filter?: { period?: string; entity?: string }): Submission[] {
+  list(filter?: { period?: string; entity?: string }): Promise<Submission[]> {
     return this.repos.submissions.list(filter);
   }
-  get(period: string, entity: string, templateId: string): Submission {
-    const sub = this.repos.submissions.get(period, entity, templateId);
+  async get(period: string, entity: string, templateId: string): Promise<Submission> {
+    const sub = await this.repos.submissions.get(period, entity, templateId);
     if (!sub) throw notFound('Submission');
     return sub;
   }
-  upsert(submission: Submission): Submission {
+  async upsert(submission: Submission): Promise<Submission> {
     if (!submission.period || !submission.entity || !submission.templateId) {
       throw badRequest('period, entity and templateId are required');
     }
-    this.repos.submissions.upsert({
-      ...submission,
-      updatedAt: new Date().toISOString(),
-    });
-    return this.repos.submissions.get(submission.period, submission.entity, submission.templateId)!;
+    const stored: Submission = { ...submission, updatedAt: new Date().toISOString() };
+    await this.repos.submissions.upsert(stored);
+    return stored;
   }
 }
 
 export class ApprovalsService {
   constructor(private repos: Repositories) {}
-  getForCycle(cycleId: string): ApprovalMap {
+  getForCycle(cycleId: string): Promise<ApprovalMap> {
     return this.repos.approvals.getForCycle(cycleId);
   }
-  decide(cycleId: string, entity: string, status: SubmissionStatus): ApprovalMap {
+  async decide(cycleId: string, entity: string, status: SubmissionStatus): Promise<ApprovalMap> {
     if (!['approved', 'rejected', 'pending', 'submitted'].includes(status)) {
       throw badRequest(`Invalid approval status: ${status}`);
     }
-    this.repos.approvals.set(cycleId, entity, status);
+    await this.repos.approvals.set(cycleId, entity, status);
     return this.repos.approvals.getForCycle(cycleId);
   }
 }
 
 export class VariancesService {
   constructor(private repos: Repositories) {}
-  list(): Variance[] {
+  list(): Promise<Variance[]> {
     return this.repos.variances.list();
   }
 }

@@ -1,15 +1,16 @@
 // ============================================================================
-// Repository interfaces — the persistence swap point. The SQLite
-// implementations live in ./sqlite.ts; moving to Azure SQL means writing a
-// new set of implementations of these interfaces and changing only the
-// factory in ./index.ts. Services and controllers depend on these interfaces,
-// never on a concrete database.
+// Repository interfaces — the persistence contract used by services. Every
+// method is async so the same interfaces work over any StorageProvider
+// (local files, SQLite, Azure Blob Storage). Implementations live in
+// ./jsonRepositories.ts and depend only on a StorageProvider — no SQL, no
+// filesystem, no vendor concepts leak up to the services.
+//
+// Migrating to Azure requires NO changes to these interfaces.
 // ============================================================================
 import type {
   ApprovalMap,
   Cycle,
   Entity,
-  ForecastTemplate,
   Settings,
   Submission,
   SubmissionStatus,
@@ -18,62 +19,69 @@ import type {
 } from '../../../shared/types';
 
 export interface EntityRepository {
-  list(): Entity[];
+  list(): Promise<Entity[]>;
   /** Used by the seed only — entities are reference data with no write API. */
-  insert(entity: Entity): void;
+  insert(entity: Entity): Promise<void>;
 }
 
 export interface UserRepository {
-  list(): User[];
-  getByEmail(email: string): User | null;
-  create(user: User): void;
-  update(email: string, patch: Partial<User>): User | null;
-  remove(email: string): boolean;
+  list(): Promise<User[]>;
+  getByEmail(email: string): Promise<User | null>;
+  create(user: User): Promise<void>;
+  update(email: string, patch: Partial<User>): Promise<User | null>;
+  remove(email: string): Promise<boolean>;
 }
 
 export interface CycleRepository {
-  list(): Cycle[];
-  getById(id: string): Cycle | null;
-  create(cycle: Cycle): void;
-  update(id: string, patch: Partial<Cycle>): Cycle | null;
+  list(): Promise<Cycle[]>;
+  getById(id: string): Promise<Cycle | null>;
+  create(cycle: Cycle): Promise<void>;
+  update(id: string, patch: Partial<Cycle>): Promise<Cycle | null>;
 }
 
 export interface SettingsRepository {
-  get(): Settings;
-  put(settings: Settings): void;
+  get(): Promise<Settings | null>;
+  put(settings: Settings): Promise<void>;
 }
 
-/** Template records; entity assignments live in their own table. */
-export interface TemplateRecord extends Omit<ForecastTemplate, 'assignedEntities' | 'hasFile'> {
+/** Template persistence record; entity assignments are managed alongside it. */
+export interface TemplateRecord {
+  id: string;
+  name: string;
+  fileName?: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  layout: 'grouped' | 'days-across';
+  categories: { label: string; group?: string }[];
   /** Storage key of the uploaded workbook in FileStorage, if any. */
   fileKey?: string;
 }
 
 export interface TemplateRepository {
-  list(): TemplateRecord[];
-  getById(id: string): TemplateRecord | null;
-  create(record: TemplateRecord): void;
-  update(id: string, patch: Partial<TemplateRecord>): TemplateRecord | null;
-  remove(id: string): boolean;
-  getAssignments(templateId: string): string[];
-  setAssignments(templateId: string, entities: string[]): void;
+  list(): Promise<TemplateRecord[]>;
+  getById(id: string): Promise<TemplateRecord | null>;
+  create(record: TemplateRecord): Promise<void>;
+  update(id: string, patch: Partial<TemplateRecord>): Promise<TemplateRecord | null>;
+  remove(id: string): Promise<boolean>;
+  getAssignments(templateId: string): Promise<string[]>;
+  setAssignments(templateId: string, entities: string[]): Promise<void>;
 }
 
 export interface SubmissionRepository {
-  list(filter?: { period?: string; entity?: string }): Submission[];
-  get(period: string, entity: string, templateId: string): Submission | null;
-  upsert(submission: Submission): void;
+  list(filter?: { period?: string; entity?: string }): Promise<Submission[]>;
+  get(period: string, entity: string, templateId: string): Promise<Submission | null>;
+  upsert(submission: Submission): Promise<void>;
 }
 
 export interface ApprovalRepository {
-  getForCycle(cycleId: string): ApprovalMap;
-  set(cycleId: string, entity: string, status: SubmissionStatus): void;
+  getForCycle(cycleId: string): Promise<ApprovalMap>;
+  set(cycleId: string, entity: string, status: SubmissionStatus): Promise<void>;
 }
 
 export interface VarianceRepository {
-  list(): Variance[];
+  list(): Promise<Variance[]>;
   /** Used by the seed only — variances are reference data with no write API. */
-  insert(variance: Variance): void;
+  insert(variance: Variance): Promise<void>;
 }
 
 export interface Repositories {

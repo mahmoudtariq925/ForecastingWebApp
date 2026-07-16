@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "REST API for the Liquid cash-flow forecasting app (Phase 2: Express + SQLite)",
+  "description": "REST API for Liquid (Azure-ready: handlers \u2192 services \u2192 repositories \u2192 storage provider)",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
