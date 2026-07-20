@@ -71,7 +71,7 @@ tables scroll inside their panels.
 
 ## Run locally
 
-Requires Node 18+ (Node 20 recommended).
+Requires Node 20+ (Node 24 LTS recommended — what CI builds with).
 
 ```bash
 npm install      # install dependencies
