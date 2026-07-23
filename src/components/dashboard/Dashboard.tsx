@@ -12,8 +12,8 @@ import {
 import { currentWeekKey, dayLabelsForWeek, HORIZON_DAYS, weekLabel } from '../../data/periods';
 import {
   consolidatedValues,
-  getOrCreateSubmission,
   mergedEntityStatus,
+  peekSubmission,
 } from '../../data/submissionService';
 import { currentUser } from '../../data/session';
 import {
@@ -22,7 +22,6 @@ import {
   loadSettings,
   loadSubmission,
   loadTemplates,
-  listSubmissions,
 } from '../../storage/localStorage';
 import { dayInflows, dayNet, dayOutflows } from '../submissions/gridMath';
 import { emailForName, mailDomain, openEmail } from '../../utils/email';
@@ -93,14 +92,16 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
   const pendingApproval = entities.filter((e) => statusOf(e) === 'submitted').length;
 
   const { flagCount, needComment } = useMemo(() => {
-    // Ensure at least the first entity has a submission so the KPI is live.
-    if (template) getOrCreateSubmission(entities[0].name, week, template);
-    const subs = listSubmissions(week);
-    const flags = subs.reduce((s, sub) => s + sub.flags.length, 0);
-    const missing = subs.reduce(
-      (s, sub) => s + sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length,
-      0,
-    );
+    // Same coverage as the Comments Review screen: every entity's current
+    // week (stored submission or the deterministic demo data).
+    if (!template) return { flagCount: 0, needComment: 0 };
+    let flags = 0;
+    let missing = 0;
+    for (const e of entities) {
+      const sub = peekSubmission(e.name, week, template);
+      flags += sub.flags.length;
+      missing += sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length;
+    }
     return { flagCount: flags, needComment: missing };
   }, [template, week]);
 

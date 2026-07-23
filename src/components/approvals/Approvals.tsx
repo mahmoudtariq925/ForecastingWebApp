@@ -3,10 +3,12 @@ import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { cycles as seedCycles, entities, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { currentWeekKey } from '../../data/periods';
+import { peekSubmission } from '../../data/submissionService';
 import {
   loadApprovals,
   loadCycles,
   loadSubmission,
+  loadTemplates,
   saveApprovals,
   saveSubmission,
   type ApprovalMap,
@@ -52,17 +54,25 @@ export function Approvals({ onOpenSubmission }: ApprovalsProps) {
     if (stored) saveSubmission({ ...stored, status, updatedAt: new Date().toISOString() });
   };
 
+  const template = useMemo(() => {
+    const templates = loadTemplates();
+    return templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0] ?? null;
+  }, []);
+
   const rowData = (name: string) => {
     const stored = loadSubmission(week, name, STANDARD_TEMPLATE_ID);
+    // Flag counts match the Dashboard KPI and Comments Review screen:
+    // stored submission or the same deterministic demo data.
+    const flags = template ? peekSubmission(name, week, template).flags.length : 0;
     if (stored) {
       const hours = Math.max(
         1,
         Math.round((Date.now() - new Date(stored.updatedAt).getTime()) / 3_600_000),
       );
-      return { flags: stored.flags.length, hours: Math.min(hours, 99) };
+      return { flags, hours: Math.min(Number.isFinite(hours) ? hours : 1, 99) };
     }
-    // Stable demo values for entities that have not opened a submission yet.
-    return { flags: seedFor(`${name}:flags`) % 4, hours: (seedFor(`${name}:hrs`) % 18) + 1 };
+    // Stable demo submission time for entities that have not started yet.
+    return { flags, hours: (seedFor(`${name}:hrs`) % 18) + 1 };
   };
 
   return (
