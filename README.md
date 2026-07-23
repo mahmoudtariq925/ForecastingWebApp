@@ -11,22 +11,25 @@ later).
 
 | Screen | What it does |
 | --- | --- |
-| **Dashboard** | Computed KPIs, live cycle-progress table, 30-day outlook chart, real data export (xlsx/csv/json) |
+| **Dashboard** | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
 | **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
-| **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid, paste-from-Excel, .xlsx import/export, variance flags with per-cell commentary, per-period history |
-| **Approvals** | Approve/reject queue persisted against the active cycle |
-| **Consolidated** | Treasury read-only view with computed KPIs and real XLSX export |
-| **Comparisons** | Forecast-vs-forecast: chart, by-entity and by-category tabs, cycle pairs from the store |
-| **Templates** | Upload .xlsx forecast templates, assign them to countries, edit / replace / download / remove |
-| **User Management** | Add users, assign roles (Treasury / Approver / Submitter / Admin), remove — all persisted |
+| **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart (selectable series & line styles), paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, per-period history |
+| **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
+| **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email |
+| **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector |
+| **Comments Review** | Admin triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
+| **Templates** | Upload .xlsx forecast templates (structure & orientation auto-detected), assign them to countries, edit / replace / download / remove |
+| **User Management** | Add users, assign roles (Treasury / Approver / Submitter / Admin), remove — all persisted — plus a prefilled Outlook setup email per user |
 | **Settings** | Variance threshold and cycle rules (drive the submission variance flags) |
 
 ### Forecast templates
 
 Templates are ordinary .xlsx files parsed in the browser ([exceljs](https://github.com/exceljs/exceljs)).
 **The structure is derived from the workbook itself** — there are no naming
-conventions to follow. Two layouts are supported (auto-detected on upload, or
-chosen explicitly; a template's layout can be switched later in Edit):
+conventions to follow. Two workbook layouts are auto-detected on upload; the
+on-screen orientation is a **display option toggled on the Submission screen**
+(dates across the columns or dates down the rows), independent of how the
+uploaded file was laid out and without touching the stored values:
 
 - **Grouped** (the default `samples/CF_Forecast_Template.xlsx` standard): one
   row per working day, a `Date` header column followed by category columns,
@@ -65,6 +68,23 @@ Admins assign each template to one or more countries in the Templates screen;
 submitters then pick from their assigned templates in My Submissions. Each
 (entity, week, template) combination is stored separately, so previous
 weeks stay editable without affecting current ones.
+
+### One source of truth
+
+Every screen that shows forecast numbers (Dashboard KPIs and outlook chart,
+Consolidated, Comparisons, Comments Review, the Export modal) derives them
+from the same stored submissions the Submission screen edits, via
+`src/data/submissionService.ts` (entities without a stored submission fall
+back to deterministic demo data). Change a cell in My Submissions and the
+consolidated totals, comparison tabs, variance tables and charts all follow.
+
+### Email actions (frontend-only)
+
+Buttons like **Email Approver**, **Send Chaser**, **Email Summary** and the
+User Management setup emails open the user's desktop mail client (Outlook)
+through prefilled `mailto:` drafts — recipients resolved from the managed
+user list, subject and body prepopulated from the live data. Nothing is sent
+by the app itself and there is no backend involved.
 
 The app is responsive: below ~900px the sidebar becomes a drawer and wide
 tables scroll inside their panels.
@@ -116,14 +136,16 @@ src/
     approvals/     Approvals screen
     consolidated/  Treasury consolidated (read-only) view
     comparisons/   Forecast vs forecast
+    review/        Comments Review (admin comment triage)
     templates/     Forecast template upload / assignment management
     users/         User management
     settings/      Settings screen (+ defaults)
-    common/        Modal, StatusPill, Chart, icons, AppModals
+    common/        Modal, StatusPill, Chart (data-driven SVG), icons, AppModals
   data/
     mockData.ts    Seed data, the standard template, demo-value generation
     periods.ts     Reporting periods (month/year) and day labels
-    submissionService.ts  Get-or-create submissions, prior values, variance rule
+    session.ts     The signed-in user (seeded admin until Phase 3 SSO)
+    submissionService.ts  Submissions, consolidation, variances, review groups
   storage/
     localStorage.ts  saveData()/loadData() + named helpers (saveSubmission, ...)
   types/
@@ -131,6 +153,7 @@ src/
     nav.ts         View / modal identifiers and nav config
   utils/
     excel.ts       .xlsx parse/import/export (exceljs, lazily loaded)
+    email.ts       mailto: helpers (Outlook drafts, recipient resolution)
     download.ts    Blob download + base64 file helpers
   App.tsx          Shell: navigation + active screen + shared modals
   main.tsx         Entry point

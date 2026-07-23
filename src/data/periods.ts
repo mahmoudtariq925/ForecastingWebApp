@@ -58,6 +58,13 @@ export function prevWeekKey(key: string): string {
   return toIso(d);
 }
 
+/** The week `n` weeks after `key` (negative n moves back). */
+export function shiftWeeks(key: string, n: number): string {
+  const d = fromKey(key);
+  d.setDate(d.getDate() + n * 7);
+  return toIso(d);
+}
+
 /** ISO-8601 week number, for labels like "Wk 29". */
 export function isoWeekNumber(d: Date): number {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));

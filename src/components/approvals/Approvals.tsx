@@ -1,46 +1,68 @@
 import { useMemo, useState } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { cycles as seedCycles, entities } from '../../data/mockData';
+import { cycles as seedCycles, entities, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { currentWeekKey } from '../../data/periods';
 import {
   loadApprovals,
   loadCycles,
+  loadSubmission,
   saveApprovals,
+  saveSubmission,
   type ApprovalMap,
 } from '../../storage/localStorage';
 import type { SubmissionStatus } from '../../types';
+import type { SubmissionTarget } from '../submissions/Submission';
 
-// Deterministic variance-flag counts per pending entity (prototype used random).
-const flagCounts: Record<string, number> = {
-  Germany: 2,
-  France: 3,
-  Spain: 1,
-  Poland: 0,
-  Switzerland: 2,
-  Portugal: 1,
-};
-const submittedHours: Record<string, number> = {
-  Germany: 4,
-  France: 9,
-  Spain: 2,
-  Poland: 13,
-  Switzerland: 6,
-  Portugal: 18,
-};
+interface ApprovalsProps {
+  onOpenSubmission?: (target: SubmissionTarget) => void;
+}
 
-/** Approval queue for the active cycle; approve/reject persists per entity. */
-export function Approvals() {
+/**
+ * Approval queue for the active cycle. Flag counts, submission times and
+ * statuses come from the stored submissions where they exist (deterministic
+ * demo values otherwise); a decision persists to the approval map AND onto
+ * the stored submission so the submitter sees it on the Submission screen.
+ */
+export function Approvals({ onOpenSubmission }: ApprovalsProps) {
+  const week = currentWeekKey();
   const activeCycleId = useMemo(() => {
     const cycles = loadCycles(seedCycles);
     return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
   }, []);
-  const queue = entities.filter((e) => e.status === 'submitted' || e.status === 'pending');
   const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(activeCycleId));
+
+  // In the queue: entities whose seed status needs a decision, plus any
+  // entity whose stored submission was submitted this week.
+  const queue = entities.filter((e) => {
+    const stored = loadSubmission(week, e.name, STANDARD_TEMPLATE_ID);
+    return (
+      e.status === 'submitted' ||
+      e.status === 'pending' ||
+      (stored !== null && stored.status === 'submitted')
+    );
+  });
 
   const decide = (entity: string, status: SubmissionStatus) => {
     const next = { ...overrides, [entity]: status };
     setOverrides(next);
     saveApprovals(activeCycleId, next);
+    // Reflect the decision on the stored submission, if there is one.
+    const stored = loadSubmission(week, entity, STANDARD_TEMPLATE_ID);
+    if (stored) saveSubmission({ ...stored, status, updatedAt: new Date().toISOString() });
+  };
+
+  const rowData = (name: string) => {
+    const stored = loadSubmission(week, name, STANDARD_TEMPLATE_ID);
+    if (stored) {
+      const hours = Math.max(
+        1,
+        Math.round((Date.now() - new Date(stored.updatedAt).getTime()) / 3_600_000),
+      );
+      return { flags: stored.flags.length, hours: Math.min(hours, 99) };
+    }
+    // Stable demo values for entities that have not opened a submission yet.
+    return { flags: seedFor(`${name}:flags`) % 4, hours: (seedFor(`${name}:hrs`) % 18) + 1 };
   };
 
   return (
@@ -53,82 +75,109 @@ export function Approvals() {
       <div className="content">
         <div className="panel">
           <div className="panel-body no-pad">
-            <table>
-              <thead>
-                <tr>
-                  <th>Entity / Team</th>
-                  <th>Submitted by</th>
-                  <th>Variance Flags</th>
-                  <th className="num">Total (€)</th>
-                  <th className="num">Δ vs Prior</th>
-                  <th>Status</th>
-                  <th>Submitted</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {queue.map((e) => {
-                  const flags = flagCounts[e.name] ?? 0;
-                  const status = overrides[e.name] ?? e.status;
-                  const deltaClass = e.delta > 0 ? 'up' : 'down';
-                  const deltaSign = e.delta > 0 ? '↑' : '↓';
-                  const decided = status === 'approved' || status === 'rejected';
-                  return (
-                    <tr key={e.name}>
-                      <td>
-                        <strong>{e.name}</strong>
-                      </td>
-                      <td className="text-dim">{e.submitter}</td>
-                      <td>
-                        {flags ? (
-                          <StatusPill status="pending" label={`${flags} flag${flags > 1 ? 's' : ''}`} />
-                        ) : (
-                          <span className="text-muted" style={{ fontSize: 11 }}>
-                            —
+            {queue.length === 0 ? (
+              <div className="empty-state">
+                <div className="ic">✓</div>
+                <p>Nothing awaiting approval.</p>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Entity / Team</th>
+                    <th>Submitted by</th>
+                    <th>Variance Flags</th>
+                    <th className="num">Total (€)</th>
+                    <th className="num">Δ vs Prior</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {queue.map((e) => {
+                    const { flags, hours } = rowData(e.name);
+                    const status = overrides[e.name] ?? e.status;
+                    const deltaClass = e.delta > 0 ? 'up' : 'down';
+                    const deltaSign = e.delta > 0 ? '↑' : '↓';
+                    const decided = status === 'approved' || status === 'rejected';
+                    return (
+                      <tr key={e.name}>
+                        <td>
+                          <strong>{e.name}</strong>
+                        </td>
+                        <td className="text-dim">{e.submitter}</td>
+                        <td>
+                          {flags ? (
+                            <StatusPill
+                              status="pending"
+                              label={`${flags} flag${flags > 1 ? 's' : ''}`}
+                            />
+                          ) : (
+                            <span className="text-muted" style={{ fontSize: 11 }}>
+                              —
+                            </span>
+                          )}
+                        </td>
+                        <td className="num">€{e.total.toLocaleString()}k</td>
+                        <td className="num">
+                          <span className={`delta ${deltaClass}`}>
+                            {deltaSign} {Math.abs(e.delta).toFixed(1)}%
                           </span>
-                        )}
-                      </td>
-                      <td className="num">€{e.total.toLocaleString()}k</td>
-                      <td className="num">
-                        <span className={`delta ${deltaClass}`}>
-                          {deltaSign} {Math.abs(e.delta).toFixed(1)}%
-                        </span>
-                      </td>
-                      <td>
-                        <StatusPill status={status} />
-                      </td>
-                      <td className="text-muted" style={{ fontSize: 12 }}>
-                        {submittedHours[e.name] ?? 0}h ago
-                      </td>
-                      <td>
-                        {decided ? (
-                          <span className="text-muted" style={{ fontSize: 11 }}>
-                            {status === 'approved' ? 'Approved' : 'Rejected'}
-                          </span>
-                        ) : (
+                        </td>
+                        <td>
+                          <StatusPill status={status} />
+                        </td>
+                        <td className="text-muted" style={{ fontSize: 12 }}>
+                          {hours}h ago
+                        </td>
+                        <td>
                           <div className="row-flex">
-                            <button
-                              className="btn btn-success"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => decide(e.name, 'approved')}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              className="btn btn-danger"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => decide(e.name, 'rejected')}
-                            >
-                              Reject
-                            </button>
+                            {onOpenSubmission && (
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                onClick={() =>
+                                  onOpenSubmission({
+                                    entity: e.name,
+                                    week,
+                                    templateId: STANDARD_TEMPLATE_ID,
+                                  })
+                                }
+                              >
+                                Review
+                              </button>
+                            )}
+                            {decided ? (
+                              <span className="text-muted" style={{ fontSize: 11 }}>
+                                {status === 'approved' ? 'Approved' : 'Rejected'}
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  className="btn btn-success"
+                                  style={{ padding: '4px 10px', fontSize: 11 }}
+                                  onClick={() => decide(e.name, 'approved')}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  className="btn btn-danger"
+                                  style={{ padding: '4px 10px', fontSize: 11 }}
+                                  onClick={() => decide(e.name, 'rejected')}
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
                           </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>

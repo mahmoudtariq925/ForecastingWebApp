@@ -1,19 +1,19 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import {
-  buildStandardTemplate,
   cycles as seedCycles,
   entities,
-  generateGridValues,
-  seedFor,
+  STANDARD_TEMPLATE_ID,
 } from '../../data/mockData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
   horizonDates,
+  shiftWeeks,
   weekLabelShort,
 } from '../../data/periods';
-import { listSubmissions, loadCycles } from '../../storage/localStorage';
+import { consolidatedValues } from '../../data/submissionService';
+import { listSubmissions, loadCycles, loadTemplates } from '../../storage/localStorage';
 import {
   cyclesTable,
   exportSubmissionXlsx,
@@ -45,11 +45,31 @@ function fmtDeadline(iso: string): string {
   return `${day} · ${time}`;
 }
 
+/** Sensible defaults for a new cycle: next id after the latest stored one,
+ * starting next Monday, closing that week's Friday 18:00. */
+function nextCycleDefaults(): { id: string; start: string; deadline: string } {
+  const cycles = loadCycles(seedCycles);
+  let id = 'CW-2026-22';
+  const parsed = cycles
+    .map((c) => /^CW-(\d{4})-(\d+)$/.exec(c.id))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(b[2]) - Number(a[2]))[0];
+  if (parsed) id = `CW-${parsed[1]}-${String(Number(parsed[2]) + 1).padStart(2, '0')}`;
+  const start = shiftWeeks(currentWeekKey(), 1);
+  const [y, m, d] = start.split('-').map(Number);
+  const friday = new Date(y, m - 1, d + 4);
+  const iso = `${friday.getFullYear()}-${String(friday.getMonth() + 1).padStart(2, '0')}-${String(
+    friday.getDate(),
+  ).padStart(2, '0')}`;
+  return { id, start, deadline: `${iso}T18:00` };
+}
+
 /** Shared dialogs: New Cycle (creates + persists) and Export (real downloads). */
 export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
-  const [cycleId, setCycleId] = useState('CW-2026-22');
-  const [startDate, setStartDate] = useState('2026-05-25');
-  const [deadline, setDeadline] = useState('2026-05-29T18:00');
+  const defaults = useState(nextCycleDefaults)[0];
+  const [cycleId, setCycleId] = useState(defaults.id);
+  const [startDate, setStartDate] = useState(defaults.start);
+  const [deadline, setDeadline] = useState(defaults.deadline);
   const [format, setFormat] = useState<'xlsx' | 'csv' | 'json'>('xlsx');
   const [scope, setScope] = useState('consolidated');
   const [busy, setBusy] = useState(false);
@@ -74,14 +94,12 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
     setBusy(true);
     try {
       if (scope === 'consolidated') {
-        const tpl = buildStandardTemplate();
+        const templates = loadTemplates();
+        const tpl = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
+        if (!tpl) throw new Error('No forecast template available.');
         const week = currentWeekKey();
-        const values = generateGridValues(
-          tpl.categories,
-          week,
-          seedFor(`Consolidated:${week}`),
-          false,
-        ).values;
+        // Same live consolidation the Dashboard / Consolidated screens show.
+        const { values, startingBalance } = consolidatedValues(week, tpl);
         const dayLabels = dayLabelsForWeek(week);
         if (format === 'xlsx') {
           await exportSubmissionXlsx({
@@ -92,7 +110,7 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
             dates: horizonDates(week),
             dayLabels,
             values,
-            startingBalance: 42000,
+            startingBalance,
             filename: 'consolidated-forecast.xlsx',
           });
         } else {

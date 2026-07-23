@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { Cycles } from './components/cycles/Cycles';
-import { Submission } from './components/submissions/Submission';
+import { Submission, type SubmissionTarget } from './components/submissions/Submission';
 import { Approvals } from './components/approvals/Approvals';
 import { Consolidated } from './components/consolidated/Consolidated';
 import { Comparison } from './components/comparisons/Comparison';
+import { CommentsReview } from './components/review/CommentsReview';
 import { Templates } from './components/templates/Templates';
 import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
@@ -19,12 +20,23 @@ export default function App() {
   const [view, setView] = useState<ViewId>('dashboard');
   const [modal, setModal] = useState<ModalId>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Deep-link target for the Submission screen (set by Review / Approvals).
+  const [submissionTarget, setSubmissionTarget] = useState<SubmissionTarget | null>(null);
   // Bumped whenever a shared modal writes to storage, remounting the active
   // screen so it reloads fresh data.
   const [dataVersion, setDataVersion] = useState(0);
 
   const navigate = (v: ViewId) => {
+    // Plain navigation clears any pending deep-link so "My Submissions"
+    // opens on its defaults again.
+    if (v !== 'submission') setSubmissionTarget(null);
     setView(v);
+    setMenuOpen(false);
+  };
+
+  const openSubmission = (target: SubmissionTarget) => {
+    setSubmissionTarget(target);
+    setView('submission');
     setMenuOpen(false);
   };
 
@@ -40,10 +52,16 @@ export default function App() {
   const screens: Record<ViewId, JSX.Element> = {
     dashboard: <Dashboard onOpenModal={setModal} onNavigate={navigate} />,
     cycles: <Cycles onOpenModal={setModal} />,
-    submission: <Submission />,
-    approvals: <Approvals />,
+    submission: (
+      <Submission
+        key={submissionTarget ? JSON.stringify(submissionTarget) : 'default'}
+        initial={submissionTarget ?? undefined}
+      />
+    ),
+    approvals: <Approvals onOpenSubmission={openSubmission} />,
     consolidated: <Consolidated />,
     comparison: <Comparison />,
+    review: <CommentsReview onOpenSubmission={openSubmission} />,
     templates: <Templates />,
     users: <Users />,
     settings: <Settings />,

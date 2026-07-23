@@ -8,6 +8,7 @@ export type ViewId =
   | 'approvals'
   | 'consolidated'
   | 'comparison'
+  | 'review'
   | 'templates'
   | 'users'
   | 'settings';
@@ -29,6 +30,7 @@ export const workspaceNav: NavEntry[] = [
 ];
 
 export const adminNav: NavEntry[] = [
+  { view: 'review', label: 'Comments Review' },
   { view: 'templates', label: 'Templates' },
   { view: 'users', label: 'User Management' },
   { view: 'settings', label: 'Settings' },

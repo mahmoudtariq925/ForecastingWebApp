@@ -43,6 +43,13 @@ const icons: Record<ViewId, ReactElement> = {
       <line x1="6" y1="20" x2="6" y2="14" />
     </svg>
   ),
+  review: (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <line x1="12" y1="7" x2="12" y2="11" />
+      <line x1="12" y1="14" x2="12.01" y2="14" />
+    </svg>
+  ),
   templates: (
     <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <path d="M12 2 2 7l10 5 10-5-10-5z" />

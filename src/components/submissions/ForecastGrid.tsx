@@ -82,7 +82,8 @@ function EditableCell({
 // days-across: rows = line items, columns = days
 // ---------------------------------------------------------------------------
 function DaysAcrossGrid(props: ForecastGridProps) {
-  const { categories, dayLabels, values, startingBalance } = props;
+  const { categories, dayLabels, values, startingBalance, dayComments, editable, onChangeDayComment } =
+    props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
@@ -140,6 +141,26 @@ function DaysAcrossGrid(props: ForecastGridProps) {
             </td>
           </tr>
         ))}
+        {dayComments !== undefined && (
+          <tr>
+            <td className="row-label">Comments</td>
+            {dayLabels.map((_dl, d) => (
+              <td key={d} className="cell comment-cell">
+                {editable ? (
+                  <input
+                    type="text"
+                    className="comment-input"
+                    value={dayComments?.[String(d)] ?? ''}
+                    onChange={(e) => onChangeDayComment?.(d, e.target.value)}
+                  />
+                ) : (
+                  <span style={{ padding: '0 8px' }}>{dayComments?.[String(d)] ?? ''}</span>
+                )}
+              </td>
+            ))}
+            <td className="cell" style={{ background: '#ebe9e0' }} />
+          </tr>
+        )}
       </tbody>
     </table>
   );

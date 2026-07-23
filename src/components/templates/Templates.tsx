@@ -3,6 +3,7 @@ import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
 import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
+import { currentUser } from '../../data/session';
 import { loadTemplates, saveTemplates } from '../../storage/localStorage';
 import { exportTemplateXlsx, parseTemplateFile } from '../../utils/excel';
 import { base64ToBlob, downloadBlob, fileToBase64, XLSX_MIME } from '../../utils/download';
@@ -33,10 +34,8 @@ export function Templates() {
   const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);
   const [editName, setEditName] = useState('');
-  const [editLayout, setEditLayout] = useState<TemplateLayout>('grouped');
   const [editEntities, setEditEntities] = useState<Set<string>>(new Set());
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadLayout, setUploadLayout] = useState<TemplateLayout | 'auto'>('auto');
   const uploadInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<string | null>(null);
@@ -53,14 +52,16 @@ export function Templates() {
       return;
     }
     try {
-      const parsed = await parseTemplateFile(file, uploadLayout);
+      // Structure AND orientation are auto-detected from the workbook; the
+      // on-screen orientation is chosen dynamically on the Submission screen.
+      const parsed = await parseTemplateFile(file, 'auto');
       const fileData = await fileToBase64(file);
       const template: ForecastTemplate = {
         id: `tpl-${Date.now()}`,
         name: file.name.replace(/\.xlsx$/i, ''),
         fileName: file.name,
         uploadedAt: new Date().toISOString(),
-        uploadedBy: 'Maja Kowalska',
+        uploadedBy: currentUser().name,
         assignedEntities: [],
         layout: parsed.layout,
         categories: parsed.categories,
@@ -132,7 +133,6 @@ export function Templates() {
   const openEdit = (t: ForecastTemplate) => {
     setEditing(t);
     setEditName(t.name);
-    setEditLayout(t.layout);
     setEditEntities(new Set(t.assignedEntities));
   };
 
@@ -144,7 +144,6 @@ export function Templates() {
           ? {
               ...t,
               name: editName.trim() || t.name,
-              layout: editLayout,
               assignedEntities: [...editEntities],
             }
           : t,
@@ -312,20 +311,14 @@ export function Templates() {
         }
       >
         <div className="form-group">
-          <label className="form-label">Template Layout</label>
-          <select
-            className="form-select"
-            value={uploadLayout}
-            onChange={(e) => setUploadLayout(e.target.value as TemplateLayout | 'auto')}
-          >
-            <option value="auto">Auto-detect from the workbook</option>
-            <option value="grouped">Grouped — one row per day, categories across columns</option>
-            <option value="days-across">Days across columns — one row per line item</option>
-          </select>
-          <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
-            Grouped workbooks need a “Date” header column followed by category columns (group
-            bands come from the row above). Days-across workbooks list line items in the first
-            column; rows containing formulas are treated as computed totals.
+          <label className="form-label">How Uploads Are Read</label>
+          <div className="text-muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
+            The structure and orientation are detected automatically from the workbook — no
+            setup needed. Grouped workbooks need a “Date” header column followed by category
+            columns (group bands come from the row above); days-across workbooks list line
+            items in the first column, and rows containing formulas are treated as computed
+            totals. On the Submission screen the grid can be flipped between dates-across and
+            dates-down at any time, whatever the file looked like.
           </div>
         </div>
       </Modal>
@@ -345,26 +338,19 @@ export function Templates() {
           </>
         }
       >
-        <div className="form-row">
-          <div className="form-group">
-            <label className="form-label">Template Name</label>
-            <input
-              className="form-input"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Layout</label>
-            <select
-              className="form-select"
-              value={editLayout}
-              onChange={(e) => setEditLayout(e.target.value as TemplateLayout)}
-            >
-              <option value="grouped">{LAYOUT_LABELS.grouped}</option>
-              <option value="days-across">{LAYOUT_LABELS['days-across']}</option>
-            </select>
-          </div>
+        <div className="form-group">
+          <label className="form-label">Template Name</label>
+          <input
+            className="form-input"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+          {editing && (
+            <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+              Source layout: {LAYOUT_LABELS[editing.layout]} (detected from the workbook — the
+              on-screen orientation is switched on the Submission screen).
+            </div>
+          )}
         </div>
         <div className="form-group">
           <label className="form-label">Assigned Countries / Regions</label>
