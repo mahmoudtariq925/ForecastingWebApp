@@ -31,19 +31,23 @@ import {
 } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
 
-/** Fill in any fields missing from submissions stored by older app versions,
- * so downstream code can rely on the full shape. */
+/** Fill in fields missing (or of the wrong type) in submissions stored by
+ * older app versions, so downstream code can rely on the full shape. */
 function normalizeSubmission(sub: Submission): Submission {
+  const record = (v: unknown): Record<string, never> | null =>
+    typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, never>) : null;
   return {
     ...sub,
-    status: sub.status ?? 'draft',
-    values: sub.values ?? {},
-    flags: sub.flags ?? [],
-    resolvedFlags: sub.resolvedFlags ?? [],
-    comments: sub.comments ?? {},
-    dayComments: sub.dayComments ?? {},
-    startingBalance: sub.startingBalance ?? 0,
-    updatedAt: sub.updatedAt ?? new Date().toISOString(),
+    status: typeof sub.status === 'string' ? sub.status : 'draft',
+    values: record(sub.values) ?? {},
+    flags: Array.isArray(sub.flags) ? sub.flags.filter((k) => typeof k === 'string') : [],
+    resolvedFlags: Array.isArray(sub.resolvedFlags)
+      ? sub.resolvedFlags.filter((k) => typeof k === 'string')
+      : [],
+    comments: record(sub.comments) ?? {},
+    dayComments: record(sub.dayComments) ?? {},
+    startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : 0,
+    updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
   };
 }
 

@@ -1018,6 +1018,43 @@ td.num {
   cursor: default;
 }
 
+/* === ERROR BOUNDARY === */
+.error-screen {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 20px;
+}
+.error-panel {
+  max-width: 560px;
+  margin: 80px auto;
+  padding: 28px;
+}
+.error-panel h1 {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 500;
+  margin: 6px 0 10px;
+}
+.error-panel p {
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.error-detail {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--red);
+  background: var(--red-soft);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
 /* === EMPTY STATES === */
 .empty-state {
   text-align: center;
