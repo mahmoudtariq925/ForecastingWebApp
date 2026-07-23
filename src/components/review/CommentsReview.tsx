@@ -296,8 +296,8 @@ export function CommentsReview({ onOpenSubmission }: CommentsReviewProps) {
               <div className="ic">✓</div>
               <p>
                 {groups.length === 0
-                  ? 'No forecasts with comments yet. Flagged cells appear here once submitters explain variances.'
-                  : 'Nothing matches the current filters.'}
+                  ? 'Nothing to review — no current-week forecast has flagged cells or day comments.'
+                  : 'Nothing matches the current filters — try "All comments" or clear the search.'}
               </p>
             </div>
           </div>

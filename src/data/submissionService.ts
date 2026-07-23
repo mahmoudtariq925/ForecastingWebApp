@@ -15,14 +15,37 @@ import {
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
-import { dayLabelsForWeek, HORIZON_DAYS, prevWeekKey, WORKDAYS_PER_WEEK } from './periods';
+import {
+  currentWeekKey,
+  dayLabelsForWeek,
+  HORIZON_DAYS,
+  prevWeekKey,
+  WORKDAYS_PER_WEEK,
+} from './periods';
 import {
   listSubmissions,
   loadSubmission,
+  loadTemplates,
   saveSubmission,
   type ApprovalMap,
 } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
+
+/** Fill in any fields missing from submissions stored by older app versions,
+ * so downstream code can rely on the full shape. */
+function normalizeSubmission(sub: Submission): Submission {
+  return {
+    ...sub,
+    status: sub.status ?? 'draft',
+    values: sub.values ?? {},
+    flags: sub.flags ?? [],
+    resolvedFlags: sub.resolvedFlags ?? [],
+    comments: sub.comments ?? {},
+    dayComments: sub.dayComments ?? {},
+    startingBalance: sub.startingBalance ?? 0,
+    updatedAt: sub.updatedAt ?? new Date().toISOString(),
+  };
+}
 
 /** Build the fresh (unsaved) submission a given (entity, week, template) would
  * start from: seeded demo values for the standard template, blank otherwise. */
@@ -58,7 +81,7 @@ export function getOrCreateSubmission(
   template: ForecastTemplate,
 ): Submission {
   const stored = loadSubmission(week, entity, template.id);
-  if (stored) return stored;
+  if (stored) return normalizeSubmission(stored);
   const fresh = buildSubmission(entity, week, template);
   saveSubmission(fresh);
   return fresh;
@@ -75,7 +98,8 @@ export function peekSubmission(
   week: string,
   template: ForecastTemplate,
 ): Submission {
-  return loadSubmission(week, entity, template.id) ?? buildSubmission(entity, week, template);
+  const stored = loadSubmission(week, entity, template.id);
+  return stored ? normalizeSubmission(stored) : buildSubmission(entity, week, template);
 }
 
 /** Aggregated grid across all entities for one week (standard template). */
@@ -274,77 +298,116 @@ export interface ReviewGroup {
 }
 
 /**
- * Collect every stored submission that has flagged cells or day comments,
- * grouped per forecast and enriched with labels/prior values for display.
+ * Collect every forecast with flagged cells or day comments, grouped per
+ * forecast and enriched with labels/prior values for display. Coverage
+ * matches the rest of the app: the current week is included for EVERY
+ * entity (stored submission or the same deterministic demo data the other
+ * screens show), plus any stored submission from other weeks. Malformed
+ * legacy storage entries are skipped rather than crashing the screen.
  */
 export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[] {
   const groups: ReviewGroup[] = [];
-  for (const sub of listSubmissions()) {
-    const flagCount = sub.flags?.length ?? 0;
-    const dayNoteCount = Object.keys(sub.dayComments ?? {}).length;
-    if (flagCount === 0 && dayNoteCount === 0) continue;
+  const seen = new Set<string>();
 
-    const template = templates.find((t) => t.id === sub.templateId);
-    const labels = dayLabelsForWeek(sub.period);
-    const prior = template ? getPriorValues(sub.entity, sub.period, template) : {};
-    const resolved = new Set(sub.resolvedFlags ?? []);
+  // Current week across all entities (peek = stored-or-demo, no writes)…
+  const week = currentWeekKey();
+  const candidates: Submission[] = [];
+  for (const e of entities) {
+    const template = templatesForEntity(templates, e.name)[0];
+    if (template) candidates.push(peekSubmission(e.name, week, template));
+  }
+  // …plus everything actually stored (historical weeks, other templates).
+  candidates.push(...listSubmissions());
 
-    const items: ReviewItem[] = (sub.flags ?? []).map((key) => {
-      const [c, d] = key.split('-').map(Number);
-      const current = sub.values[key] || 0;
-      const prev = template ? priorValueFor(prior, c, d) : null;
-      return {
-        key,
-        catIdx: c,
-        dayIdx: d,
-        category: template?.categories[c]?.label ?? `Line ${c + 1}`,
-        dateLabel: labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`,
-        current,
-        prior: prev,
-        pct: prev === null ? null : ((current - prev) / Math.max(Math.abs(prev), 1)) * 100,
-        comment: sub.comments?.[key]?.trim() ?? '',
-        resolved: resolved.has(key),
-      };
-    });
-    // Unresolved first, then by absolute delta so the big movers lead.
-    items.sort(
-      (a, b) =>
-        Number(a.resolved) - Number(b.resolved) ||
-        Math.abs(b.current - (b.prior ?? 0)) - Math.abs(a.current - (a.prior ?? 0)),
-    );
+  for (const raw of candidates) {
+    const id = `${raw.period}:${raw.entity}:${raw.templateId}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    try {
+      const sub = normalizeSubmission(raw);
+      if (sub.flags.length === 0 && Object.keys(sub.dayComments).length === 0) continue;
 
-    const dayNotes = Object.entries(sub.dayComments ?? {})
-      .filter(([, text]) => text.trim())
-      .map(([d, text]) => ({
-        dayIdx: Number(d),
-        dateLabel: labels[Number(d)]
-          ? `${labels[Number(d)].dow} ${labels[Number(d)].dm}`
-          : `Day ${Number(d) + 1}`,
-        text,
-      }))
-      .sort((a, b) => a.dayIdx - b.dayIdx);
+      const template = templates.find((t) => t.id === sub.templateId);
+      const labels = dayLabelsForWeek(sub.period);
+      const prior = template ? getPriorValues(sub.entity, sub.period, template) : {};
+      const resolved = new Set(sub.resolvedFlags);
 
-    groups.push({
-      id: `${sub.period}:${sub.entity}:${sub.templateId}`,
-      entity: sub.entity,
-      period: sub.period,
-      templateId: sub.templateId,
-      templateName: template?.name ?? sub.templateId,
-      submitter: entities.find((e) => e.name === sub.entity)?.submitter ?? '—',
-      status: sub.status,
-      updatedAt: sub.updatedAt,
-      items,
-      dayNotes,
-      unresolved: items.filter((i) => !i.resolved).length,
-      needsCommentary: items.filter((i) => !i.comment && !i.resolved).length,
-    });
+      const items: ReviewItem[] = sub.flags.map((key) => {
+        const [c, d] = key.split('-').map(Number);
+        const current = sub.values[key] || 0;
+        const prev = template ? priorValueFor(prior, c, d) : null;
+        return {
+          key,
+          catIdx: c,
+          dayIdx: d,
+          category: template?.categories[c]?.label ?? `Line ${c + 1}`,
+          dateLabel: labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`,
+          current,
+          prior: prev,
+          pct: prev === null ? null : ((current - prev) / Math.max(Math.abs(prev), 1)) * 100,
+          comment: sub.comments[key]?.trim() ?? '',
+          resolved: resolved.has(key),
+        };
+      });
+      // Unresolved first, then by absolute delta so the big movers lead.
+      items.sort(
+        (a, b) =>
+          Number(a.resolved) - Number(b.resolved) ||
+          Math.abs(b.current - (b.prior ?? 0)) - Math.abs(a.current - (a.prior ?? 0)),
+      );
+
+      const dayNotes = Object.entries(sub.dayComments)
+        .filter(([, text]) => String(text).trim())
+        .map(([d, text]) => ({
+          dayIdx: Number(d),
+          dateLabel: labels[Number(d)]
+            ? `${labels[Number(d)].dow} ${labels[Number(d)].dm}`
+            : `Day ${Number(d) + 1}`,
+          text: String(text),
+        }))
+        .sort((a, b) => a.dayIdx - b.dayIdx);
+
+      groups.push({
+        id,
+        entity: sub.entity,
+        period: sub.period,
+        templateId: sub.templateId,
+        templateName: template?.name ?? sub.templateId,
+        submitter: entities.find((e) => e.name === sub.entity)?.submitter ?? '—',
+        status: sub.status,
+        updatedAt: sub.updatedAt,
+        items,
+        dayNotes,
+        unresolved: items.filter((i) => !i.resolved).length,
+        needsCommentary: items.filter((i) => !i.comment && !i.resolved).length,
+      });
+    } catch (err) {
+      console.warn(`[review] skipped malformed submission "${id}"`, err);
+    }
   }
   // Most blocked first, newest week first within equal counts.
   groups.sort((a, b) => b.unresolved - a.unresolved || b.period.localeCompare(a.period));
   return groups;
 }
 
-/** Mark one flagged cell reviewed/unreviewed on the stored submission. */
+/**
+ * The submission a review action targets: the stored one, or — for a
+ * current-week demo forecast that was never opened — the same generated
+ * submission persisted first, so the resolution has something to stick to.
+ */
+function materializeSubmission(
+  period: string,
+  entity: string,
+  templateId: string,
+): Submission | null {
+  const stored = loadSubmission(period, entity, templateId);
+  if (stored) return normalizeSubmission(stored);
+  const template = loadTemplates().find((t) => t.id === templateId);
+  if (!template) return null;
+  return getOrCreateSubmission(entity, period, template);
+}
+
+/** Mark one flagged cell reviewed/unreviewed on the submission. */
 export function setFlagResolved(
   period: string,
   entity: string,
@@ -352,17 +415,17 @@ export function setFlagResolved(
   key: string,
   resolved: boolean,
 ): void {
-  const stored = loadSubmission(period, entity, templateId);
-  if (!stored) return;
-  const set = new Set(stored.resolvedFlags ?? []);
+  const sub = materializeSubmission(period, entity, templateId);
+  if (!sub) return;
+  const set = new Set(sub.resolvedFlags);
   if (resolved) set.add(key);
   else set.delete(key);
-  saveSubmission({ ...stored, resolvedFlags: [...set] });
+  saveSubmission({ ...sub, resolvedFlags: [...set] });
 }
 
 /** Mark every flagged cell of a submission as reviewed. */
 export function resolveAllFlags(period: string, entity: string, templateId: string): void {
-  const stored = loadSubmission(period, entity, templateId);
-  if (!stored) return;
-  saveSubmission({ ...stored, resolvedFlags: [...(stored.flags ?? [])] });
+  const sub = materializeSubmission(period, entity, templateId);
+  if (!sub) return;
+  saveSubmission({ ...sub, resolvedFlags: [...sub.flags] });
 }
