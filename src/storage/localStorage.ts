@@ -35,6 +35,24 @@ export function loadData<T>(key: string, fallback: T): T {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Shape guards. localStorage can hold anything an older app version (or a
+// stray write) left behind; every typed read below validates the top-level
+// shape and falls back to the seed data instead of letting a malformed value
+// crash the whole app at render time.
+// ---------------------------------------------------------------------------
+
+/** A parsed value that should be a plain object (not null / array). */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Keep only object entries of a stored array (drops null/junk elements). */
+function objectEntries<T>(v: unknown): T[] | null {
+  if (!Array.isArray(v)) return null;
+  return v.filter((item): item is T => isRecord(item as unknown));
+}
+
 /** Low-level: remove a value. */
 export function removeData(key: string): void {
   try {
@@ -62,29 +80,41 @@ export function loadSubmission(
   entity: string,
   templateId: string,
 ): Submission | null {
-  return loadData<Submission | null>(submissionKey(period, entity, templateId), null);
+  const raw = loadData<unknown>(submissionKey(period, entity, templateId), null);
+  return isRecord(raw) ? (raw as unknown as Submission) : null;
 }
 
 export function removeSubmission(period: string, entity: string, templateId: string): void {
   removeData(submissionKey(period, entity, templateId));
 }
 
-/** All stored submissions, optionally filtered to one period. */
+/** All stored submissions, optionally filtered to one period. One malformed
+ * entry is skipped rather than aborting the whole listing. */
 export function listSubmissions(period?: string): Submission[] {
   const out: Submission[] = [];
+  let keys: string[] = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key || !key.startsWith(PREFIX + SUBMISSION_PREFIX)) continue;
+      if (key && key.startsWith(PREFIX + SUBMISSION_PREFIX)) keys.push(key);
+    }
+  } catch (err) {
+    console.warn('[storage] failed to enumerate submissions', err);
+    keys = [];
+  }
+  for (const key of keys) {
+    try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const sub = JSON.parse(raw) as Submission;
-      if (!sub || typeof sub !== 'object' || !sub.period) continue;
+      if (!isRecord(sub)) continue;
+      if (typeof sub.period !== 'string' || !sub.period) continue;
+      if (typeof sub.entity !== 'string' || typeof sub.templateId !== 'string') continue;
       if (period && sub.period !== period) continue;
       out.push(sub);
+    } catch (err) {
+      console.warn(`[storage] skipped malformed submission entry "${key}"`, err);
     }
-  } catch (err) {
-    console.warn('[storage] failed to list submissions', err);
   }
   return out;
 }
@@ -137,8 +167,11 @@ function migrateTemplate(legacy: LegacyTemplate): ForecastTemplate {
 }
 
 export function loadTemplates(): ForecastTemplate[] {
-  const stored = loadData<(ForecastTemplate | LegacyTemplate)[] | null>('templates', null);
-  if (!stored) {
+  const raw = loadData<unknown>('templates', null);
+  // Drop junk elements (e.g. null) before inspecting shapes — `'layout' in t`
+  // on a non-object would otherwise crash every screen that loads templates.
+  const stored = objectEntries<ForecastTemplate | LegacyTemplate>(raw);
+  if (!stored || stored.length === 0) {
     const seeded = [buildStandardTemplate()];
     saveData('templates', seeded);
     return seeded;
@@ -169,7 +202,7 @@ export function saveCycles(cycles: Cycle[]): void {
 }
 
 export function loadCycles(fallback: Cycle[]): Cycle[] {
-  return loadData('cycles', fallback);
+  return objectEntries<Cycle>(loadData<unknown>('cycles', null)) ?? fallback;
 }
 
 export function saveCycle(cycle: Cycle, all: Cycle[]): Cycle[] {
@@ -190,7 +223,8 @@ export function saveApprovals(cycleId: string, map: ApprovalMap): void {
 }
 
 export function loadApprovals(cycleId: string): ApprovalMap {
-  return loadData<ApprovalMap>(approvalKey(cycleId), {});
+  const raw = loadData<unknown>(approvalKey(cycleId), null);
+  return isRecord(raw) ? (raw as ApprovalMap) : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +235,8 @@ export function saveUsers(users: User[]): void {
 }
 
 export function loadUsers(fallback: User[]): User[] {
-  return loadData('users', fallback);
+  const users = objectEntries<User>(loadData<unknown>('users', null));
+  return users && users.length > 0 ? users : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,5 +247,7 @@ export function saveSettings(settings: Settings): void {
 }
 
 export function loadSettings(fallback: Settings): Settings {
-  return loadData('settings', fallback);
+  const raw = loadData<unknown>('settings', null);
+  // Merge over the defaults so fields added in newer versions are present.
+  return isRecord(raw) ? { ...fallback, ...(raw as Partial<Settings>) } : fallback;
 }
