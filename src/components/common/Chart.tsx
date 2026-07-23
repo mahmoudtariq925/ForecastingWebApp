@@ -1,134 +1,224 @@
 import { useEffect, useRef, useState } from 'react';
 
-/**
- * Deterministic PRNG so the charts render identical bars/lines on every mount
- * (the prototype re-randomised on each draw). Seeded per variant.
- */
-function seededRandoms(seed: number, count: number): number[] {
-  const out: number[] = [];
-  let s = seed >>> 0;
-  for (let i = 0; i < count; i++) {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    out.push(((t ^ (t >>> 14)) >>> 0) / 4294967296);
-  }
-  return out;
-}
+// ============================================================================
+// Data-driven SVG chart. Every chart in the app renders REAL forecast data
+// through this component — the prototype's random-series generators are gone.
+// Supports bar / line / area series, negative values, gaps (null = the series
+// has no value for that slot, e.g. days beyond the prior horizon), hover
+// tooltips and a compact legend, in the app's mono/muted visual style.
+// ============================================================================
 
-type Variant = 'mixed' | 'compare';
+/** Palette shared by all charts (matches the CSS custom properties). */
+export const CHART_COLORS = {
+  accent: '#8a6d3b',
+  green: '#2f8a5c',
+  red: '#b8484a',
+  blue: '#3d6da3',
+  muted: '#8e92a3',
+} as const;
+
+export interface ChartSeries {
+  label: string;
+  /** One value per x slot; null renders a gap. */
+  values: (number | null)[];
+  color: string;
+  kind: 'bar' | 'line' | 'area';
+  /** Dashed stroke (line/area outline). */
+  dashed?: boolean;
+}
 
 interface ChartProps {
-  variant: Variant;
-  /** Reseeds the generated series (compare variant) so pairs differ. */
-  seed?: number;
-  /** Legend text override for the compare variant. */
-  legend?: string;
+  /** X-axis slot labels (all series must have this length). */
+  labels: string[];
+  series: ChartSeries[];
+  /** Unit suffix for tooltips / axis labels, e.g. "k". */
+  unit?: string;
+  height?: number;
 }
 
+const PAD_L = 52;
+const PAD_R = 12;
+const PAD_T = 14;
+const PAD_B = 24;
+
+function fmtAxis(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (abs >= 10_000) return `${Math.round(v / 1000)}k`;
+  if (abs >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return `${Math.round(v)}`;
+}
+
+const fmtVal = (v: number, unit: string) => `${Math.round(v).toLocaleString()}${unit}`;
+
 /** Measures its container width and redraws the SVG on resize. */
-export function Chart({ variant, seed = 0, legend }: ChartProps) {
+export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const update = () => setWidth(Math.max(el.clientWidth - 40, 200));
+    const update = () => setWidth(Math.max(el.clientWidth - 40, 240));
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
+  const n = labels.length;
+  const w = width;
+  const h = height;
+  const plotW = w - PAD_L - PAD_R;
+  const plotH = h - PAD_T - PAD_B;
+
+  const all = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
+  let min = Math.min(0, ...all);
+  let max = Math.max(0, ...all);
+  if (min === max) max = min + 1;
+  const span = max - min;
+  if (min < 0) min -= span * 0.06;
+  if (max > 0) max += span * 0.06;
+
+  const y = (v: number) => PAD_T + ((max - v) / (max - min)) * plotH;
+  const slotW = plotW / Math.max(n, 1);
+  const x = (i: number) => PAD_L + (i + 0.5) * slotW;
+
+  const barSeries = series.filter((s) => s.kind === 'bar');
+  const barW = (slotW * 0.55) / Math.max(barSeries.length, 1);
+
+  /** Path segments for a line/area series, split at null gaps. */
+  const segments = (vals: (number | null)[]): { i: number; v: number }[][] => {
+    const out: { i: number; v: number }[][] = [];
+    let cur: { i: number; v: number }[] = [];
+    vals.forEach((v, i) => {
+      if (v === null) {
+        if (cur.length) out.push(cur);
+        cur = [];
+      } else {
+        cur.push({ i, v });
+      }
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+
+  const gridVals = [0, 1, 2, 3, 4].map((i) => min + ((max - min) * i) / 4);
+  const labelStep = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(plotW / 64))));
+
   return (
-    <div className="chart-container" ref={ref}>
-      {variant === 'mixed' ? (
-        <MixedChart w={width} />
-      ) : (
-        <CompareChart w={width} seed={seed} legend={legend} />
-      )}
+    <div className="chart-container" ref={ref} style={{ height: height + 40 }}>
+      <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        {/* horizontal gridlines + axis values */}
+        {gridVals.map((v, i) => (
+          <g key={i}>
+            <line x1={PAD_L} y1={y(v)} x2={w - PAD_R} y2={y(v)} stroke="#ebe9e0" strokeWidth="1" />
+            <text
+              x={PAD_L - 6}
+              y={y(v) + 3}
+              textAnchor="end"
+              fontFamily="JetBrains Mono, monospace"
+              fontSize="9"
+              fill="#8e92a3"
+            >
+              {fmtAxis(v)}
+            </text>
+          </g>
+        ))}
+        {/* zero baseline */}
+        {min < 0 && max > 0 && (
+          <line x1={PAD_L} y1={y(0)} x2={w - PAD_R} y2={y(0)} stroke="#d3cfc4" strokeWidth="1" />
+        )}
+
+        {/* bars */}
+        {barSeries.map((s, si) =>
+          s.values.map((v, i) => {
+            if (v === null || v === 0) return null;
+            const x0 = x(i) - (barSeries.length * barW) / 2 + si * barW;
+            const y0 = Math.min(y(0), y(v));
+            const bh = Math.max(Math.abs(y(v) - y(0)), 1);
+            return (
+              <rect key={`${si}-${i}`} x={x0} y={y0} width={barW * 0.92} height={bh} fill={s.color} opacity="0.45">
+                <title>{`${labels[i]} · ${s.label}: ${fmtVal(v, unit)}`}</title>
+              </rect>
+            );
+          }),
+        )}
+
+        {/* areas under line series flagged as area */}
+        {series
+          .filter((s) => s.kind === 'area')
+          .map((s, si) =>
+            segments(s.values).map((seg, gi) => {
+              const path =
+                seg.map((p, k) => `${k === 0 ? 'M' : 'L'}${x(p.i)},${y(p.v)}`).join(' ') +
+                ` L${x(seg[seg.length - 1].i)},${y(Math.max(min, 0))} L${x(seg[0].i)},${y(Math.max(min, 0))} Z`;
+              return <path key={`a${si}-${gi}`} d={path} fill={s.color} opacity="0.14" />;
+            }),
+          )}
+
+        {/* lines (and area outlines) */}
+        {series
+          .filter((s) => s.kind === 'line' || s.kind === 'area')
+          .map((s, si) =>
+            segments(s.values).map((seg, gi) => (
+              <path
+                key={`l${si}-${gi}`}
+                d={seg.map((p, k) => `${k === 0 ? 'M' : 'L'}${x(p.i)},${y(p.v)}`).join(' ')}
+                fill="none"
+                stroke={s.color}
+                strokeWidth="2"
+                strokeDasharray={s.dashed ? '5,4' : undefined}
+              />
+            )),
+          )}
+
+        {/* line vertices with tooltips */}
+        {series
+          .filter((s) => s.kind === 'line' || s.kind === 'area')
+          .map((s, si) =>
+            s.values.map((v, i) =>
+              v === null ? null : (
+                <circle key={`p${si}-${i}`} cx={x(i)} cy={y(v)} r="2.4" fill={s.color}>
+                  <title>{`${labels[i]} · ${s.label}: ${fmtVal(v, unit)}`}</title>
+                </circle>
+              ),
+            ),
+          )}
+
+        {/* x labels */}
+        {labels.map((label, i) =>
+          i % labelStep === 0 ? (
+            <text
+              key={i}
+              x={x(i)}
+              y={h - 6}
+              textAnchor="middle"
+              fontFamily="JetBrains Mono, monospace"
+              fontSize="9"
+              fill="#8e92a3"
+            >
+              {label}
+            </text>
+          ) : null,
+        )}
+      </svg>
+      <div className="chart-legend">
+        {series.map((s) => (
+          <span key={s.label} className="chart-legend-item">
+            <span
+              className="legend-swatch"
+              style={{
+                background: s.kind === 'bar' ? s.color : 'transparent',
+                opacity: s.kind === 'bar' ? 0.55 : 1,
+                borderTop: s.kind !== 'bar' ? `2px ${s.dashed ? 'dashed' : 'solid'} ${s.color}` : undefined,
+                height: s.kind !== 'bar' ? 0 : undefined,
+              }}
+            />
+            {s.label}
+          </span>
+        ))}
+      </div>
     </div>
-  );
-}
-
-/** Dashboard "30-Day Outlook": inflow/outflow bars + net cash flow line. */
-function MixedChart({ w }: { w: number }) {
-  const h = 200;
-  const days = 30;
-  const rIn = seededRandoms(101, days);
-  const rOut = seededRandoms(202, days);
-  const inflows = rIn.map((v) => 8 + v * 4);
-  const outflows = rOut.map((v) => -(6 + v * 4));
-  const net = inflows.map((v, i) => v + outflows[i]);
-
-  const maxAbs = Math.max(...inflows, ...outflows.map(Math.abs)) * 1.1;
-  const dx = w / (days - 1);
-  const midY = h / 2;
-
-  const netPath = net
-    .map((v, i) => `${i === 0 ? 'M' : 'L'}${i * dx},${midY - (v / maxAbs) * midY} `)
-    .join('');
-
-  return (
-    <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <line x1="0" y1={midY} x2={w} y2={midY} stroke="#d3cfc4" strokeWidth="1" />
-      {[1, 2, 3].map((i) => (
-        <g key={i}>
-          <line x1="0" y1={midY - (i * midY) / 4} x2={w} y2={midY - (i * midY) / 4} stroke="#ebe9e0" strokeWidth="1" />
-          <line x1="0" y1={midY + (i * midY) / 4} x2={w} y2={midY + (i * midY) / 4} stroke="#ebe9e0" strokeWidth="1" />
-        </g>
-      ))}
-      {inflows.map((v, i) => {
-        const barH = (v / maxAbs) * midY;
-        return <rect key={`in${i}`} x={i * dx - dx * 0.3} y={midY - barH} width={dx * 0.6} height={barH} fill="#2f8a5c" opacity="0.45" />;
-      })}
-      {outflows.map((v, i) => {
-        const barH = (Math.abs(v) / maxAbs) * midY;
-        return <rect key={`out${i}`} x={i * dx - dx * 0.3} y={midY} width={dx * 0.6} height={barH} fill="#b8484a" opacity="0.45" />;
-      })}
-      <path d={netPath} fill="none" stroke="#8a6d3b" strokeWidth="2" />
-      {net.map((v, i) => (
-        <circle key={`n${i}`} cx={i * dx} cy={midY - (v / maxAbs) * midY} r="2.5" fill="#8a6d3b" />
-      ))}
-      <text x="6" y="14" fontFamily="JetBrains Mono" fontSize="9" fill="#8e92a3" letterSpacing="1">
-        INFLOWS / OUTFLOWS · €M
-      </text>
-      <text x={w - 130} y="14" fontFamily="JetBrains Mono" fontSize="9" fill="#8a6d3b" letterSpacing="1">
-        — NET CASH FLOW
-      </text>
-    </svg>
-  );
-}
-
-/** Comparison "Daily Variance": prior (dashed) vs current (solid) line. */
-function CompareChart({ w, seed, legend }: { w: number; seed: number; legend?: string }) {
-  const h = 200;
-  const days = 30;
-  const rp = seededRandoms(303 + seed * 17, days);
-  const rc = seededRandoms(404 + seed * 29, days);
-  const prior = rp.map((v) => 2 + v * 2);
-  const current = prior.map((v, i) => v + (rc[i] - 0.5) * 1.2);
-
-  const maxV = Math.max(...prior, ...current) * 1.2;
-  const dx = w / (days - 1);
-
-  const priorPath = prior.map((v, i) => `${i === 0 ? 'M' : 'L'}${i * dx},${h - (v / maxV) * h} `).join('');
-  const currentPath = current.map((v, i) => `${i === 0 ? 'M' : 'L'}${i * dx},${h - (v / maxV) * h} `).join('');
-
-  return (
-    <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      {[1, 2, 3, 4].map((i) => (
-        <line key={i} x1="0" y1={(i * h) / 5} x2={w} y2={(i * h) / 5} stroke="#ebe9e0" strokeWidth="1" />
-      ))}
-      <path d={priorPath} fill="none" stroke="#8e92a3" strokeWidth="1.5" strokeDasharray="4,3" />
-      <path d={currentPath} fill="none" stroke="#8a6d3b" strokeWidth="2" />
-      {current.map((v, i) => (
-        <circle key={i} cx={i * dx} cy={h - (v / maxV) * h} r="2.5" fill="#8a6d3b" />
-      ))}
-      <text x="6" y="14" fontFamily="JetBrains Mono" fontSize="9" fill="#8e92a3" letterSpacing="1">
-        {legend ?? '- - - CW-2026-20 | ─── CW-2026-21'}
-      </text>
-    </svg>
   );
 }

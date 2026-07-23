@@ -55,19 +55,6 @@ export interface User {
   last: string;
 }
 
-/** A flagged variance between the current and prior cycle for a cell. */
-export interface Variance {
-  ent: string;
-  cat: string;
-  day: string;
-  /** Prior cycle value in EUR thousands. */
-  prior: number;
-  /** Current cycle value in EUR thousands. */
-  current: number;
-  /** Commentary explaining the driver; empty means commentary is still needed. */
-  comment: string;
-}
-
 /**
  * Demo-data generation config for a known category label (paydays, tax days,
  * value ranges). Only the seeded standard template has these.
@@ -128,6 +115,8 @@ export interface Submission {
   values: Record<string, number>;
   /** Variance-flagged cell keys (`${catIdx}-${dayIdx}`). */
   flags: string[];
+  /** Flagged cells an admin has marked as reviewed/resolved. */
+  resolvedFlags?: string[];
   /** Commentary per flagged cell, keyed like `values`. */
   comments: Record<string, string>;
   /** Free-text comment per day (the Comments column in grouped layout). */

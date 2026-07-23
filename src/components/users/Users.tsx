@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
 import { entities, users as seedUsers } from '../../data/mockData';
-import { loadUsers, saveUsers } from '../../storage/localStorage';
+import { currentUser } from '../../data/session';
+import { loadSettings, loadUsers, saveUsers } from '../../storage/localStorage';
+import { appUrl, openEmail } from '../../utils/email';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { Role, User } from '../../types';
 
 const ROLES: Role[] = ['submitter', 'approver', 'treasury', 'admin'];
@@ -15,6 +18,32 @@ const initials = (name: string) =>
     .join('');
 
 const EMPTY_FORM = { name: '', email: '', team: entities[0]?.name ?? '', role: 'submitter' as Role };
+
+/**
+ * Opens the admin's desktop Outlook with a prefilled account-setup email for
+ * `user`. Frontend-only: composing/sending stays in the mail client; the
+ * signed-in admin is the sender context (Outlook sends from their account).
+ */
+function openSetupEmail(user: User): void {
+  const admin = currentUser();
+  const settings = loadSettings(DEFAULT_SETTINGS);
+  openEmail({
+    to: user.email,
+    subject: `Your Liquid access — Cash Flow Forecasting (${user.role})`,
+    body:
+      `Hi ${user.name.split(' ')[0]},\n\n` +
+      `An account has been set up for you in Liquid, our treasury cash flow forecasting tool.\n\n` +
+      `Role: ${user.role}\n` +
+      `Entity / Team: ${user.team}\n` +
+      `Approval scope: ${user.scope}\n\n` +
+      `Getting started:\n` +
+      `1. Open ${appUrl()}\n` +
+      `2. Sign in with your ${settings.allowedDomains.split(/[,\s]+/)[0] ?? '@contoso.com'} account (${settings.ssoProvider.split('·')[0].trim()})\n` +
+      `3. Go to "My Submissions" to enter your first forecast${user.role === 'approver' ? ', or "Approvals" to review your queue' : ''}\n\n` +
+      `If anything looks wrong, just reply to this email.\n\n` +
+      `Best regards,\n${admin.name}\n${admin.email}`,
+  });
+}
 
 /** User management: add users, assign roles per entity, remove — all persisted. */
 export function Users() {
@@ -49,19 +78,19 @@ export function Users() {
       alert('A user with this email already exists.');
       return;
     }
-    commit([
-      ...users,
-      {
-        name,
-        email,
-        team: form.team,
-        role: form.role,
-        scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
-        last: 'Invited',
-      },
-    ]);
+    const created: User = {
+      name,
+      email,
+      team: form.team,
+      role: form.role,
+      scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
+      last: 'Invited',
+    };
+    commit([...users, created]);
     setForm(EMPTY_FORM);
     setAdding(false);
+    // Hand the setup information straight to Outlook for the admin to send.
+    openSetupEmail(created);
   };
 
   return (
@@ -134,6 +163,14 @@ export function Users() {
                           <button
                             className="btn btn-ghost"
                             style={{ padding: '4px 10px', fontSize: 11 }}
+                            title="Open a prefilled setup email in Outlook"
+                            onClick={() => openSetupEmail(u)}
+                          >
+                            Email Setup
+                          </button>
+                          <button
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
                             onClick={() => setEditing(isEditing ? null : u.email)}
                           >
                             {isEditing ? 'Done' : 'Edit'}
@@ -168,7 +205,7 @@ export function Users() {
               Cancel
             </button>
             <button className="btn btn-primary" onClick={addUser}>
-              Send Invite
+              Add &amp; Compose Invite
             </button>
           </>
         }

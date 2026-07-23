@@ -10,7 +10,6 @@ import type {
   LineItemConfig,
   TemplateCategory,
   User,
-  Variance,
 } from '../types';
 import { horizonDates } from './periods';
 
@@ -44,14 +43,6 @@ export const users: User[] = [
   { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', scope: 'DE Sales, DE Manufacturing', last: '3h ago' },
   { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', scope: 'UK Services, UK Support', last: 'Yesterday' },
   { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', scope: 'All entities', last: '20m ago' },
-];
-
-export const variances: Variance[] = [
-  { ent: 'NL Operations', cat: 'Customer Receipts', day: 'Day 14', prior: 2150, current: 2883, comment: 'Large invoice — Acme Corp paid early' },
-  { ent: 'DE Sales', cat: 'Supplier Payments', day: 'Day 8', prior: -1820, current: -2540, comment: 'New equipment delivery moved forward' },
-  { ent: 'US Corporate', cat: 'Tax Payments', day: 'Day 21', prior: 0, current: -3200, comment: '' },
-  { ent: 'FR Manufacturing', cat: 'Payroll', day: 'Day 15', prior: -890, current: -1340, comment: 'Bonus accruals included' },
-  { ent: 'UK Services', cat: 'Customer Receipts', day: 'Day 5', prior: 1450, current: 1820, comment: 'Pipeline tightening — confirmed deals' },
 ];
 
 // ---------------------------------------------------------------------------

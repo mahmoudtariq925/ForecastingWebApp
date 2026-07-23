@@ -2,9 +2,23 @@ import { useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
+import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
-import { cellKey, type GridValues } from './gridMath';
-import { entities, generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import {
+  cellKey,
+  dayInflows,
+  dayNet,
+  dayOutflows,
+  runningBalance,
+  type GridValues,
+} from './gridMath';
+import {
+  entities,
+  generateGridValues,
+  seedFor,
+  STANDARD_TEMPLATE_ID,
+  users as seedUsers,
+} from '../../data/mockData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -26,25 +40,43 @@ import {
   priorValueFor,
   templatesForEntity,
 } from '../../data/submissionService';
+import { currentUser } from '../../data/session';
 import {
   loadSettings,
   loadSubmission,
   loadTemplates,
+  loadUsers,
   periodsWithSubmissions,
   saveSubmission,
 } from '../../storage/localStorage';
 import { exportSubmissionXlsx, parseValuesFile } from '../../utils/excel';
+import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
-import type { ForecastTemplate, SubmissionStatus } from '../../types';
+import type { ForecastTemplate, SubmissionStatus, TemplateLayout } from '../../types';
 
-export function Submission() {
+/** Deep-link target used by the Review / Approvals screens. */
+export interface SubmissionTarget {
+  entity?: string;
+  week?: string;
+  templateId?: string;
+}
+
+export function Submission({ initial }: { initial?: SubmissionTarget }) {
   const templates = useMemo(() => loadTemplates(), []);
-  const [entity, setEntity] = useState(entities[0]?.name ?? 'Netherlands');
-  const [week, setWeek] = useState(currentWeekKey());
+  const [entity, setEntity] = useState(() =>
+    initial?.entity && entities.some((e) => e.name === initial.entity)
+      ? initial.entity
+      : entities[0]?.name ?? 'Netherlands',
+  );
+  const [week, setWeek] = useState(() => initial?.week ?? currentWeekKey());
 
   const available = templatesForEntity(templates, entity);
-  const [templateId, setTemplateId] = useState(available[0]?.id ?? '');
+  const [templateId, setTemplateId] = useState(() => initial?.templateId ?? available[0]?.id ?? '');
   const template = available.find((t) => t.id === templateId) ?? available[0] ?? null;
+
+  // The on-screen orientation is a view preference, not a data property:
+  // null = follow the template's native layout until the user picks one.
+  const [orientationOverride, setOrientationOverride] = useState<TemplateLayout | null>(null);
 
   // Weeks that already hold a saved submission for this entity (history).
   const savedWeeks = useMemo(() => periodsWithSubmissions(entity), [entity]);
@@ -81,6 +113,8 @@ export function Submission() {
         entity={entity}
         week={week}
         template={template}
+        orientation={orientationOverride ?? template.layout}
+        onChangeOrientation={setOrientationOverride}
         selectors={
           <>
             <select
@@ -168,10 +202,26 @@ interface EditorProps {
   entity: string;
   week: string;
   template: ForecastTemplate;
+  orientation: TemplateLayout;
+  onChangeOrientation: (layout: TemplateLayout) => void;
   selectors: React.ReactNode;
 }
 
-function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
+interface ChartOptions {
+  balance: boolean;
+  net: boolean;
+  inflows: boolean;
+  outflows: boolean;
+}
+
+function SubmissionEditor({
+  entity,
+  week,
+  template,
+  orientation,
+  onChangeOrientation,
+  selectors,
+}: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
   const dates = useMemo(() => horizonDates(week), [week]);
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
@@ -185,6 +235,7 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
 
   const [values, setValues] = useState<GridValues>(initial.values);
   const [flags, setFlags] = useState<Set<string>>(new Set(initial.flags));
+  const [resolvedFlags] = useState<string[]>(initial.resolvedFlags ?? []);
   const [comments, setComments] = useState<Record<string, string>>(initial.comments ?? {});
   const [dayComments, setDayComments] = useState<Record<string, string>>(
     initial.dayComments ?? {},
@@ -193,6 +244,13 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
   const [status, setStatus] = useState<SubmissionStatus>(initial.status);
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
+  const [chartOptions, setChartOptions] = useState<ChartOptions>({
+    balance: true,
+    net: true,
+    inflows: false,
+    outflows: false,
+  });
+  const [balanceStyle, setBalanceStyle] = useState<'solid' | 'dashed' | 'area'>('solid');
   const importInput = useRef<HTMLInputElement>(null);
 
   interface Snapshot {
@@ -211,6 +269,7 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
       status: snap.status ?? status,
       values: snap.values ?? values,
       flags: [...(snap.flags ?? flags)],
+      resolvedFlags,
       comments: snap.comments ?? comments,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance: snap.startingBalance ?? startingBalance,
@@ -250,8 +309,8 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
     grid.forEach((cols, ri) => {
       cols.forEach((raw, ci) => {
         // Pasted rows/cols follow the on-screen orientation.
-        const catIdx = template.layout === 'grouped' ? startCat + ci : startCat + ri;
-        const dayIdx = template.layout === 'grouped' ? startDay + ri : startDay + ci;
+        const catIdx = orientation === 'grouped' ? startCat + ci : startCat + ri;
+        const dayIdx = orientation === 'grouped' ? startDay + ri : startDay + ci;
         if (catIdx >= numCats || dayIdx >= HORIZON_DAYS) return;
         const n = Number(raw.replace(/[€$,\s]/g, ''));
         if (!Number.isFinite(n)) return;
@@ -376,9 +435,15 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
     alert('Forecast submitted for approval.');
   };
 
+  const saveDraft = () => {
+    persist();
+    alert('Draft saved. All values are kept in this browser.');
+  };
+
   const exportGrid = () => {
     exportSubmissionXlsx({
       template,
+      layout: orientation,
       entity,
       weekLabel: weekLabelShort(week),
       dates,
@@ -390,6 +455,63 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
     }).catch((err) =>
       alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`),
     );
+  };
+
+  // ---- Live horizon aggregates (drive the chart + the approver email) ----
+  const numDays = dayLabels.length;
+  const inflowByDay = dates.map((_d, d) => dayInflows(numCats, values, d));
+  const outflowByDay = dates.map((_d, d) => dayOutflows(numCats, values, d));
+  const netByDay = dates.map((_d, d) => dayNet(numCats, values, d));
+  const balanceByDay = dates.map((_d, d) => runningBalance(numCats, values, startingBalance, d));
+  const totalInflows = inflowByDay.reduce((a, b) => a + b, 0);
+  const totalOutflows = outflowByDay.reduce((a, b) => a + b, 0);
+  const totalNet = netByDay.reduce((a, b) => a + b, 0);
+  const closingBalance = balanceByDay[numDays - 1] ?? startingBalance;
+
+  const chartSeries: ChartSeries[] = [];
+  if (chartOptions.inflows)
+    chartSeries.push({ label: 'Inflows', values: inflowByDay, color: CHART_COLORS.green, kind: 'bar' });
+  if (chartOptions.outflows)
+    chartSeries.push({ label: 'Outflows', values: outflowByDay, color: CHART_COLORS.red, kind: 'bar' });
+  if (chartOptions.net)
+    chartSeries.push({ label: 'Net Cash Flow', values: netByDay, color: CHART_COLORS.blue, kind: 'bar' });
+  if (chartOptions.balance)
+    chartSeries.push({
+      label: 'Running Balance',
+      values: balanceByDay,
+      color: CHART_COLORS.accent,
+      kind: balanceStyle === 'area' ? 'area' : 'line',
+      dashed: balanceStyle === 'dashed',
+    });
+
+  const toggleChartOption = (key: keyof ChartOptions) =>
+    setChartOptions((o) => ({ ...o, [key]: !o[key] }));
+
+  const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
+
+  const emailApprover = () => {
+    const ent = entities.find((e) => e.name === entity);
+    const me = currentUser();
+    const domain = mailDomain(settings);
+    const users = loadUsers(seedUsers);
+    const to = ent ? emailForName(ent.approver, users, domain) : '';
+    openEmail({
+      to,
+      subject: `Cash flow forecast ready for review — ${entity} · ${weekLabel(week)}`,
+      body:
+        `Hi ${ent?.approver ?? 'there'},\n\n` +
+        `The ${entity} cash flow forecast for ${weekLabel(week)} is ready for your review in Liquid.\n\n` +
+        `Status: ${status}\n` +
+        `Template: ${template.name}\n` +
+        `Starting balance: ${fmtK(startingBalance)}\n` +
+        `Total inflows: ${fmtK(totalInflows)}\n` +
+        `Total outflows: ${fmtK(totalOutflows)}\n` +
+        `Net cash flow: ${fmtK(totalNet)}\n` +
+        `Closing balance: ${fmtK(closingBalance)}\n` +
+        `Variance flags: ${flags.size} (${uncommented.length} awaiting commentary)\n\n` +
+        `Open the forecast: ${appUrl()}\n\n` +
+        `Best regards,\n${me.name}\n${me.email}`,
+    });
   };
 
   const varianceDelta =
@@ -407,7 +529,7 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
         actions={
           <>
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
-            <button className="btn btn-ghost" onClick={() => persist()}>
+            <button className="btn btn-ghost" onClick={saveDraft}>
               Save Draft
             </button>
             <button className="btn btn-primary" onClick={submit}>
@@ -442,6 +564,9 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
               <button className="btn btn-ghost" onClick={exportGrid}>
                 Export Excel
               </button>
+              <button className="btn btn-ghost" onClick={emailApprover}>
+                Email Approver
+              </button>
               <button className="btn btn-ghost" onClick={copyPrior}>
                 Copy Prior Forecast
               </button>
@@ -470,6 +595,22 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
                   inflows +, outflows −
                 </span>
               </div>
+              <div className="seg-toggle" role="group" aria-label="Grid orientation">
+                <button
+                  className={orientation === 'days-across' ? 'active' : ''}
+                  onClick={() => onChangeOrientation('days-across')}
+                  title="Dates across the columns, one row per line item"
+                >
+                  Dates → Columns
+                </button>
+                <button
+                  className={orientation === 'grouped' ? 'active' : ''}
+                  onClick={() => onChangeOrientation('grouped')}
+                  title="Dates down the rows, one column per line item"
+                >
+                  Dates ↓ Rows
+                </button>
+              </div>
               <span className="paste-hint">⌘V · Paste from Excel supported</span>
             </div>
             <div className="row-flex">
@@ -491,7 +632,7 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
           <div className="forecast-grid-wrap">
             <ForecastGrid
               categories={template.categories}
-              layout={template.layout}
+              layout={orientation}
               dayLabels={dayLabels}
               values={values}
               flags={flags}
@@ -504,6 +645,67 @@ function SubmissionEditor({ entity, week, template, selectors }: EditorProps) {
               onChangeDayComment={setDayComment}
             />
           </div>
+        </div>
+
+        <div className="section-header">
+          <h2>Running Balance Outlook</h2>
+          <span className="tag">
+            {weekLabelShort(week)} · €k · updates as you type
+          </span>
+        </div>
+        <div className="panel">
+          <div className="chart-controls">
+            <label className="series-check">
+              <input
+                type="checkbox"
+                checked={chartOptions.balance}
+                onChange={() => toggleChartOption('balance')}
+              />
+              Running Balance
+            </label>
+            <label className="series-check">
+              <input
+                type="checkbox"
+                checked={chartOptions.net}
+                onChange={() => toggleChartOption('net')}
+              />
+              Net Cash Flow
+            </label>
+            <label className="series-check">
+              <input
+                type="checkbox"
+                checked={chartOptions.inflows}
+                onChange={() => toggleChartOption('inflows')}
+              />
+              Inflows
+            </label>
+            <label className="series-check">
+              <input
+                type="checkbox"
+                checked={chartOptions.outflows}
+                onChange={() => toggleChartOption('outflows')}
+              />
+              Outflows
+            </label>
+            <select
+              className="form-select"
+              style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+              value={balanceStyle}
+              onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
+              aria-label="Balance line style"
+            >
+              <option value="solid">Balance · solid line</option>
+              <option value="dashed">Balance · dashed line</option>
+              <option value="area">Balance · area</option>
+            </select>
+          </div>
+          {chartSeries.length === 0 ? (
+            <div className="empty-state" style={{ padding: '40px 20px' }}>
+              <p>Select at least one series to plot.</p>
+            </div>
+          ) : (
+            <Chart labels={dayLabels.map((dl) => dl.dm)} series={chartSeries} unit="k" />
+          )}
         </div>
       </div>
 

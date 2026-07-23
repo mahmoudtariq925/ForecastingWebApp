@@ -3,8 +3,8 @@
 // is only downloaded when an import/export actually happens).
 //
 // Template structure is DERIVED FROM THE WORKBOOK rather than naming
-// conventions. Two layouts are supported (auto-detected on upload/import,
-// user-selectable per template):
+// conventions. Two layouts are supported (auto-detected on upload/import;
+// on-screen the orientation is toggled dynamically on the Submission view):
 //
 //   grouped      — the standard CF_Forecast_Template layout: one row per
 //                  working day, a "Date" header column, category columns

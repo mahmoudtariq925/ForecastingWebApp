@@ -1,4 +1,5 @@
 import { NavIcon } from '../common/icons';
+import { currentUser } from '../../data/session';
 import { adminNav, workspaceNav } from '../../types/nav';
 import type { ViewId } from '../../types/nav';
 
@@ -9,8 +10,16 @@ interface SidebarProps {
   open?: boolean;
 }
 
+const initials = (name: string) =>
+  name
+    .split(' ')
+    .map((s) => s[0])
+    .slice(0, 2)
+    .join('');
+
 /** Left navigation rail with brand, workspace/admin sections and user card. */
 export function Sidebar({ active, onNavigate, open = false }: SidebarProps) {
+  const me = currentUser();
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="brand">
@@ -49,10 +58,12 @@ export function Sidebar({ active, onNavigate, open = false }: SidebarProps) {
       </div>
 
       <div className="user-card">
-        <div className="avatar">MK</div>
+        <div className="avatar">{initials(me.name)}</div>
         <div className="user-info">
-          <div className="user-name">Maja Kowalska</div>
-          <div className="user-role">Treasury · Admin</div>
+          <div className="user-name">{me.name}</div>
+          <div className="user-role">
+            {me.team} · {me.role}
+          </div>
         </div>
       </div>
     </aside>
