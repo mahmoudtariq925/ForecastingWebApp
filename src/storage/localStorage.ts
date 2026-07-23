@@ -108,7 +108,10 @@ export function listSubmissions(period?: string): Submission[] {
       if (!raw) continue;
       const sub = JSON.parse(raw) as Submission;
       if (!isRecord(sub)) continue;
-      if (typeof sub.period !== 'string' || !sub.period) continue;
+      // Periods must be ISO week keys ("YYYY-MM-DD"); entries written by very
+      // old app versions used other formats and are unusable in the current
+      // rolling-weekly model, so they are ignored rather than crashing screens.
+      if (typeof sub.period !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(sub.period)) continue;
       if (typeof sub.entity !== 'string' || typeof sub.templateId !== 'string') continue;
       if (period && sub.period !== period) continue;
       out.push(sub);

@@ -33,6 +33,15 @@ function fromKey(key: string): Date {
   return new Date(y, m - 1, d);
 }
 
+const WEEK_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Is `key` a parsable ISO week key ("YYYY-MM-DD")? Storage written by very
+ * old app versions used other period formats; label helpers must not crash
+ * on them. */
+export function isValidWeekKey(key: string): boolean {
+  return WEEK_KEY_RE.test(key) && !isNaN(fromKey(key).getTime());
+}
+
 /** The Monday of the week containing `d`. */
 function mondayOf(d: Date): Date {
   const out = new Date(d);
@@ -74,14 +83,16 @@ export function isoWeekNumber(d: Date): number {
   return Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
-/** "Wk 29 · 13 Jul 2026" */
+/** "Wk 29 · 13 Jul 2026" (unparsable keys fall back to the raw key). */
 export function weekLabel(key: string): string {
+  if (!isValidWeekKey(key)) return key;
   const d = fromKey(key);
   return `Wk ${isoWeekNumber(d)} · ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
 }
 
-/** Short label for crumbs: "Wk 29 2026". */
+/** Short label for crumbs: "Wk 29 2026" (falls back to the raw key). */
 export function weekLabelShort(key: string): string {
+  if (!isValidWeekKey(key)) return key;
   const d = fromKey(key);
   return `Wk ${isoWeekNumber(d)} ${d.getFullYear()}`;
 }
