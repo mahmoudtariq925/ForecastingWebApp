@@ -51,6 +51,18 @@ export function navFor(p: Permissions): NavSections {
       ],
     };
   }
+
+  // System-configuration-only role (e.g. admin without treasury duties):
+  // just the pages they manage, nothing financial.
+  const isConfigOnly = p.canManageUsers || p.canManageTemplates || p.canChangeSettings;
+  if (isConfigOnly && !p.canSubmitForecasts && !p.canApproveForecasts) {
+    const admin: NavEntry[] = [];
+    if (p.canManageUsers) admin.push({ view: 'users', label: 'User Management' });
+    if (p.canManageTemplates) admin.push({ view: 'templates', label: 'Templates' });
+    if (p.canChangeSettings) admin.push({ view: 'settings', label: 'Settings' });
+    return { workspace: [], admin };
+  }
+
   // Focused analyst / approver experience: just their own work.
   const workspace: NavEntry[] = [
     { view: 'analystHome', label: 'My Dashboard' },
@@ -67,7 +79,9 @@ export function allowedViews(p: Permissions): Set<ViewId> {
   return new Set<ViewId>([...sections.workspace, ...sections.admin].map((e) => e.view));
 }
 
-/** Where a user lands after sign-in / user switch. */
+/** Where a user lands after sign-in / user switch: the first item in their
+ * own navigation, so it can never point at a screen they can't reach. */
 export function landingViewFor(p: Permissions): ViewId {
-  return p.canViewTreasuryDashboard ? 'dashboard' : 'analystHome';
+  const sections = navFor(p);
+  return sections.workspace[0]?.view ?? sections.admin[0]?.view ?? 'analystHome';
 }
