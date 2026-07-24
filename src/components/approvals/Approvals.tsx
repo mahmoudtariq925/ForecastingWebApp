@@ -18,6 +18,8 @@ import type { SubmissionTarget } from '../submissions/Submission';
 
 interface ApprovalsProps {
   onOpenSubmission?: (target: SubmissionTarget) => void;
+  /** Restrict the queue to these entities (approver scoping); undefined = all. */
+  scopeEntities?: string[];
 }
 
 /**
@@ -26,7 +28,7 @@ interface ApprovalsProps {
  * demo values otherwise); a decision persists to the approval map AND onto
  * the stored submission so the submitter sees it on the Submission screen.
  */
-export function Approvals({ onOpenSubmission }: ApprovalsProps) {
+export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
   const week = currentWeekKey();
   const activeCycleId = useMemo(() => {
     const cycles = loadCycles(seedCycles);
@@ -35,8 +37,10 @@ export function Approvals({ onOpenSubmission }: ApprovalsProps) {
   const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(activeCycleId));
 
   // In the queue: entities whose seed status needs a decision, plus any
-  // entity whose stored submission was submitted this week.
+  // entity whose stored submission was submitted this week — limited to the
+  // approver's scoped entities when set.
   const queue = entities.filter((e) => {
+    if (scopeEntities && !scopeEntities.includes(e.name)) return false;
     const stored = loadSubmission(week, e.name, STANDARD_TEMPLATE_ID);
     return (
       e.status === 'submitted' ||

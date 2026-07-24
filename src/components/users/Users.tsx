@@ -85,6 +85,10 @@ export function Users() {
       role: form.role,
       scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
       last: 'Invited',
+      // Submitters/approvers work on the entity they were added under;
+      // admin/treasury see everything via permissions.
+      assignedEntities:
+        form.role === 'submitter' || form.role === 'approver' ? [form.team] : undefined,
     };
     commit([...users, created]);
     setForm(EMPTY_FORM);

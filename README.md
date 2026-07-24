@@ -69,6 +69,34 @@ submitters then pick from their assigned templates in My Submissions. Each
 (entity, week, template) combination is stored separately, so previous
 weeks stay editable without affecting current ones.
 
+### Roles &amp; the two experiences
+
+The app renders one of two experiences from the mock session (no real
+authentication yet — Phase 3 swaps this for Azure AD):
+
+- **Admin / Treasury** (`admin`, `treasury`): the full Treasury Manager
+  experience — Treasury Dashboard landing page (KPIs, a live *Requires
+  Attention* list covering missing submissions, forecasts awaiting approval,
+  unresolved comments and material week-over-week movements, plus a
+  Region → Country cycle-progress drill-down), all submissions, consolidated
+  and comparison views, approvals, comment review and every admin screen.
+- **End user / Analyst** (`submitter`, `approver`): a focused workspace —
+  *My Dashboard* landing page (welcome, current cycle and deadline, forecast
+  week, assigned entities, needs-my-action count, per-forecast status with
+  one-click **Open / Continue Forecast**, Treasury feedback, recent
+  activity), *My Forecasts* scoped to their assigned entities and a
+  read-only *Comments / Feedback* view (approvers additionally get their
+  scoped approval queue). No treasury-wide data, admin screens or other
+  entities are reachable.
+
+Role logic is centralised in `src/data/session.ts`: `currentUser()`,
+`permissionsFor(user)` (a flat capability map: `canViewTreasuryDashboard`,
+`canManageUsers`, `canSubmitForecasts`, …) and `assignedEntitiesFor(user)`.
+Navigation and the screen guard both derive from it (`navFor` /
+`allowedViews` / `landingViewFor` in `src/types/nav.ts`) — components never
+hardcode role checks. The sidebar user card doubles as a **dev-only user
+switcher** to preview each experience; the selection persists locally.
+
 ### One source of truth
 
 Every screen that shows forecast numbers (Dashboard KPIs and outlook chart,

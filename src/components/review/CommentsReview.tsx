@@ -27,6 +27,10 @@ const ALL = 'all';
 
 interface CommentsReviewProps {
   onOpenSubmission?: (target: SubmissionTarget) => void;
+  /** Restrict to these entities (analyst scoping); undefined = all. */
+  scopeEntities?: string[];
+  /** Whether the user may mark comments reviewed/resolved (admin/treasury). */
+  canResolve?: boolean;
 }
 
 function ItemStatePill({ item }: { item: ReviewItem }) {
@@ -43,14 +47,19 @@ const fmtK = (v: number) => `${Math.round(v).toLocaleString()}`;
  * searchable, with per-comment and per-forecast resolution. A forecast stops
  * counting as blocked once all its flagged cells are resolved.
  */
-export function CommentsReview({ onOpenSubmission }: CommentsReviewProps) {
+export function CommentsReview({
+  onOpenSubmission,
+  scopeEntities,
+  canResolve = true,
+}: CommentsReviewProps) {
   const templates = useMemo(() => loadTemplates(), []);
   // Bumped after every write so the groups re-read from storage.
   const [version, setVersion] = useState(0);
   const groups = useMemo(() => {
     void version; // storage changed → recollect
-    return collectReviewGroups(templates);
-  }, [templates, version]);
+    const all = collectReviewGroups(templates);
+    return scopeEntities ? all.filter((g) => scopeEntities.includes(g.entity)) : all;
+  }, [templates, version, scopeEntities]);
 
   const [search, setSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState(ALL);
@@ -151,8 +160,8 @@ export function CommentsReview({ onOpenSubmission }: CommentsReviewProps) {
   return (
     <div className="view active">
       <TopBar
-        crumb="Administration"
-        title="Comments Review"
+        crumb={canResolve ? 'Administration' : 'My Workspace'}
+        title={canResolve ? 'Comments Review' : 'Comments & Feedback'}
         actions={
           <span className="tag" style={{ letterSpacing: '0.12em' }}>
             {totalUnresolved} unresolved comment{totalUnresolved === 1 ? '' : 's'} across{' '}
@@ -349,7 +358,7 @@ export function CommentsReview({ onOpenSubmission }: CommentsReviewProps) {
                         Open Forecast
                       </button>
                     )}
-                    {g.unresolved > 0 && (
+                    {canResolve && g.unresolved > 0 && (
                       <button
                         className="btn btn-success"
                         style={{ padding: '4px 10px', fontSize: 11 }}
@@ -410,7 +419,24 @@ export function CommentsReview({ onOpenSubmission }: CommentsReviewProps) {
                                 {item.comment || 'No commentary provided yet.'}
                               </td>
                               <td>
-                                {item.resolved ? (
+                                {!canResolve ? (
+                                  !item.comment && (
+                                    <button
+                                      className="btn btn-ghost"
+                                      style={{ padding: '4px 10px', fontSize: 11 }}
+                                      title="Open the forecast to add your commentary"
+                                      onClick={() =>
+                                        onOpenSubmission?.({
+                                          entity: g.entity,
+                                          week: g.period,
+                                          templateId: g.templateId,
+                                        })
+                                      }
+                                    >
+                                      Explain
+                                    </button>
+                                  )
+                                ) : item.resolved ? (
                                   <button
                                     className="btn btn-ghost"
                                     style={{ padding: '4px 10px', fontSize: 11 }}

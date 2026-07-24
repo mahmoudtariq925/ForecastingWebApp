@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Dashboard } from './components/dashboard/Dashboard';
+import { AnalystHome } from './components/home/AnalystHome';
 import { Cycles } from './components/cycles/Cycles';
 import { Submission, type SubmissionTarget } from './components/submissions/Submission';
 import { Approvals } from './components/approvals/Approvals';
@@ -12,12 +13,31 @@ import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
 import { AppModals } from './components/common/AppModals';
 import { cycles as seedCycles } from './data/mockData';
+import {
+  assignedEntitiesFor,
+  currentUser,
+  permissionsFor,
+  setCurrentUser,
+} from './data/session';
 import { loadCycles, saveCycle } from './storage/localStorage';
 import type { Cycle } from './types';
+import { allowedViews, landingViewFor } from './types/nav';
 import type { ModalId, ViewId } from './types/nav';
 
 export default function App() {
-  const [view, setView] = useState<ViewId>('dashboard');
+  // Mock session (Phase 3 swaps this for the Azure AD identity). Bumping the
+  // version re-reads the user and remounts the screens.
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const user = useMemo(() => {
+    void sessionVersion;
+    return currentUser();
+  }, [sessionVersion]);
+  const permissions = permissionsFor(user);
+  const scopedEntities = permissionsFor(user).canViewAllEntities
+    ? undefined
+    : assignedEntitiesFor(user);
+
+  const [view, setView] = useState<ViewId>(() => landingViewFor(permissionsFor(currentUser())));
   const [modal, setModal] = useState<ModalId>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // Deep-link target for the Submission screen (set by Review / Approvals).
@@ -40,6 +60,16 @@ export default function App() {
     setMenuOpen(false);
   };
 
+  const switchUser = (email: string) => {
+    setCurrentUser(email);
+    const next = currentUser();
+    setSubmissionTarget(null);
+    setView(landingViewFor(permissionsFor(next)));
+    setSessionVersion((n) => n + 1);
+    setDataVersion((n) => n + 1);
+    setMenuOpen(false);
+  };
+
   const createCycle = (cycle: Cycle) => {
     saveCycle(cycle, loadCycles(seedCycles));
     setModal(null);
@@ -50,22 +80,36 @@ export default function App() {
   };
 
   const screens: Record<ViewId, JSX.Element> = {
-    dashboard: <Dashboard onOpenModal={setModal} onNavigate={navigate} />,
+    dashboard: <Dashboard onOpenModal={setModal} onNavigate={navigate} onOpenSubmission={openSubmission} />,
+    analystHome: (
+      <AnalystHome user={user} onOpenSubmission={openSubmission} onNavigate={navigate} />
+    ),
     cycles: <Cycles onOpenModal={setModal} />,
     submission: (
       <Submission
         key={submissionTarget ? JSON.stringify(submissionTarget) : 'default'}
         initial={submissionTarget ?? undefined}
+        allowedEntities={scopedEntities}
       />
     ),
-    approvals: <Approvals onOpenSubmission={openSubmission} />,
+    approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
     consolidated: <Consolidated />,
     comparison: <Comparison />,
-    review: <CommentsReview onOpenSubmission={openSubmission} />,
+    review: (
+      <CommentsReview
+        onOpenSubmission={openSubmission}
+        scopeEntities={scopedEntities}
+        canResolve={permissions.canReviewComments}
+      />
+    ),
     templates: <Templates />,
     users: <Users />,
     settings: <Settings />,
   };
+
+  // A role never renders a screen its navigation doesn't grant.
+  const allowed = allowedViews(permissions);
+  const activeView = allowed.has(view) ? view : landingViewFor(permissions);
 
   return (
     <div className="app">
@@ -91,9 +135,15 @@ export default function App() {
         className={`sidebar-backdrop${menuOpen ? ' show' : ''}`}
         onClick={() => setMenuOpen(false)}
       />
-      <Sidebar active={view} onNavigate={navigate} open={menuOpen} />
-      <main className="main" key={dataVersion}>
-        {screens[view]}
+      <Sidebar
+        active={activeView}
+        user={user}
+        onNavigate={navigate}
+        onSwitchUser={switchUser}
+        open={menuOpen}
+      />
+      <main className="main" key={`${dataVersion}:${user.email}`}>
+        {screens[activeView]}
       </main>
       <AppModals modal={modal} onClose={() => setModal(null)} onCreateCycle={createCycle} />
     </div>
