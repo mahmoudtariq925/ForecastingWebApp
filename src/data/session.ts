@@ -51,8 +51,18 @@ const NO_ACCESS: Permissions = {
 };
 
 const ROLE_PERMISSIONS: Record<Role, Permissions> = {
-  admin: FULL_ACCESS,
+  // Treasury runs the full financial-oversight experience (dashboard,
+  // submissions, approvals, consolidated/comparison views) AND system
+  // configuration. Admin is scoped to system configuration only — user
+  // management, forecast templates, settings — with no financial screens.
   treasury: FULL_ACCESS,
+  admin: {
+    ...NO_ACCESS,
+    canManageUsers: true,
+    canManageTemplates: true,
+    canChangeSettings: true,
+    canViewAllEntities: true,
+  },
   approver: { ...NO_ACCESS, canApproveForecasts: true, canSubmitForecasts: true },
   submitter: { ...NO_ACCESS, canSubmitForecasts: true },
 };
@@ -64,14 +74,21 @@ export function permissionsFor(user: User): Permissions {
 const CURRENT_USER_KEY = 'currentUserEmail';
 
 /** The signed-in user: the locally persisted switcher choice, falling back
- * to the first admin. */
+ * to the first treasury user (the fullest experience) so a fresh session
+ * shows the main app rather than the narrower admin-configuration screens. */
 export function currentUser(): User {
   const users = loadUsers(seedUsers);
   const email = loadData<string | null>(CURRENT_USER_KEY, null);
   const selected = email
     ? users.find((u) => u.email.toLowerCase() === email.toLowerCase())
     : undefined;
-  return selected ?? users.find((u) => u.role === 'admin') ?? users[0] ?? seedUsers[0];
+  return (
+    selected ??
+    users.find((u) => u.role === 'treasury') ??
+    users.find((u) => u.role === 'admin') ??
+    users[0] ??
+    seedUsers[0]
+  );
 }
 
 /** Persist the mock-session choice (dev-only user switcher). */

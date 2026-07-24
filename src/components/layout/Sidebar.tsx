@@ -54,23 +54,25 @@ export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }
         <div className="brand-sub">Cash Flow Forecasting</div>
       </div>
 
-      <div className="nav-section">
-        <div className="nav-label">Workspace</div>
-        {sections.workspace.map((entry) => (
-          <button
-            key={entry.view}
-            className={`nav-item${active === entry.view ? ' active' : ''}`}
-            onClick={() => onNavigate(entry.view)}
-          >
-            <NavIcon view={entry.view} />
-            {entry.label}
-          </button>
-        ))}
-      </div>
+      {sections.workspace.length > 0 && (
+        <div className="nav-section">
+          <div className="nav-label">Workspace</div>
+          {sections.workspace.map((entry) => (
+            <button
+              key={entry.view}
+              className={`nav-item${active === entry.view ? ' active' : ''}`}
+              onClick={() => onNavigate(entry.view)}
+            >
+              <NavIcon view={entry.view} />
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {sections.admin.length > 0 && (
         <div className="nav-section">
-          <div className="nav-label">Admin</div>
+          <div className="nav-label">{sections.workspace.length > 0 ? 'Admin' : 'Administration'}</div>
           {sections.admin.map((entry) => (
             <button
               key={entry.view}
