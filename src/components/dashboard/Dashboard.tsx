@@ -11,10 +11,13 @@ import {
 } from '../../data/mockData';
 import { currentWeekKey, dayLabelsForWeek, HORIZON_DAYS, weekLabel } from '../../data/periods';
 import {
+  collectReviewGroups,
   consolidatedValues,
+  largestVariances,
   mergedEntityStatus,
   peekSubmission,
 } from '../../data/submissionService';
+import type { SubmissionTarget } from '../submissions/Submission';
 import { currentUser } from '../../data/session';
 import {
   loadApprovals,
@@ -32,6 +35,7 @@ import type { ModalId, ViewId } from '../../types/nav';
 interface DashboardProps {
   onOpenModal: (id: ModalId) => void;
   onNavigate: (view: ViewId) => void;
+  onOpenSubmission?: (target: SubmissionTarget) => void;
 }
 
 function Delta({ delta }: { delta: number }) {
@@ -54,7 +58,7 @@ function agoLabel(iso: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
+export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: DashboardProps) {
   const cycles = loadCycles(seedCycles);
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
   const overrides = loadApprovals(activeCycle?.id ?? 'CW-2026-21');
@@ -118,6 +122,45 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
       { label: 'Net Cash Flow', values: net, color: CHART_COLORS.accent, kind: 'line' },
     ];
   }, [consolidated, dayLabels, numCats]);
+
+  // --- Requires Attention: what Treasury needs to act on right now -------
+  const attention = useMemo(() => {
+    const effective = (e: Entity) =>
+      template ? mergedEntityStatus(e, week, template.id, overrides) : e.status;
+    const missing = entities.filter((e) => effective(e) === 'pending');
+    const awaiting = entities.filter((e) => effective(e) === 'submitted');
+    const reviewGroups = template ? collectReviewGroups(loadTemplates()) : [];
+    const unresolved = reviewGroups.reduce((s, g) => s + g.unresolved, 0);
+    const blocked = reviewGroups.filter((g) => g.unresolved > 0).length;
+    const movements = template
+      ? largestVariances(week, template, loadSettings(DEFAULT_SETTINGS), 3)
+      : [];
+    return { missing, awaiting, unresolved, blocked, movements };
+  }, [template, week, overrides]);
+
+  // --- Region → country rollup for the progress table --------------------
+  const regions = useMemo(() => {
+    const effective = (e: Entity) =>
+      template ? mergedEntityStatus(e, week, template.id, overrides) : e.status;
+    const order: string[] = [];
+    const byRegion = new Map<string, Entity[]>();
+    for (const e of entities) {
+      if (!byRegion.has(e.region)) {
+        byRegion.set(e.region, []);
+        order.push(e.region);
+      }
+      byRegion.get(e.region)!.push(e);
+    }
+    return order.map((name) => {
+      const members = byRegion.get(name)!;
+      return {
+        name,
+        members,
+        total: members.reduce((s, e) => s + e.total, 0),
+        received: members.filter((e) => effective(e) !== 'pending').length,
+      };
+    });
+  }, [overrides, template, week]);
 
   /** Last-updated label: real timestamp when a submission exists, otherwise
    * a stable demo value derived from the entity name. */
@@ -192,7 +235,106 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
         </div>
 
         <div className="section-header">
-          <h2>Cycle Progress</h2>
+          <h2>Requires Attention</h2>
+          <span className="tag">live across all entities</span>
+        </div>
+        <div className="panel">
+          <div className="panel-body no-pad">
+            <div className="attention-row">
+              <span className="badge-num warn">{attention.missing.length}</span>
+              <div className="attention-text">
+                <strong>Missing submissions</strong>
+                <span className="text-dim">
+                  {attention.missing.length === 0
+                    ? 'Every entity has submitted.'
+                    : attention.missing.map((e) => e.name).join(', ')}
+                </span>
+              </div>
+              {attention.missing.length > 0 && (
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  title="Opens a prefilled reminder email in Outlook"
+                  onClick={() => sendChaser(attention.missing[0])}
+                >
+                  Chase {attention.missing[0].name}
+                </button>
+              )}
+            </div>
+            <div className="attention-row">
+              <span className="badge-num">{attention.awaiting.length}</span>
+              <div className="attention-text">
+                <strong>Forecasts awaiting approval</strong>
+                <span className="text-dim">
+                  {attention.awaiting.length === 0
+                    ? 'Approval queue is clear.'
+                    : attention.awaiting.map((e) => e.name).join(', ')}
+                </span>
+              </div>
+              <button
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => onNavigate('approvals')}
+              >
+                Open Approvals
+              </button>
+            </div>
+            <div className="attention-row">
+              <span className="badge-num warn">{attention.unresolved}</span>
+              <div className="attention-text">
+                <strong>Unresolved comments</strong>
+                <span className="text-dim">
+                  {attention.unresolved === 0
+                    ? 'Nothing blocking cycle close.'
+                    : `${attention.blocked} forecast${attention.blocked === 1 ? '' : 's'} blocked until reviewed.`}
+                </span>
+              </div>
+              <button
+                className="btn btn-ghost"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => onNavigate('review')}
+              >
+                Review Comments
+              </button>
+            </div>
+            {attention.movements.map((m) => (
+              <div className="attention-row" key={`${m.entity}-${m.category}-${m.dayIdx}`}>
+                <span className={`delta ${m.pct > 0 ? 'up' : 'down'}`} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
+                  {m.pct > 0 ? '+' : ''}
+                  {m.pct.toFixed(0)}%
+                </span>
+                <div className="attention-text">
+                  <strong>
+                    {m.entity} · {m.category}
+                  </strong>
+                  <span className="text-dim">
+                    Week-over-week move: €{m.prior.toLocaleString()}k → €
+                    {m.current.toLocaleString()}k (day {m.dayIdx + 1})
+                    {m.comment ? ` — “${m.comment}”` : ' — no commentary yet'}
+                  </span>
+                </div>
+                {onOpenSubmission && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    onClick={() =>
+                      onOpenSubmission({
+                        entity: m.entity,
+                        week,
+                        templateId: template?.id,
+                      })
+                    }
+                  >
+                    Open Forecast
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="section-header">
+          <h2>Cycle Progress · Region → Country</h2>
           <span className="tag">
             {activeCycle?.id ?? '—'} · Closes {activeCycle?.closes ?? '—'}
           </span>
@@ -214,48 +356,19 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {entities.map((e) => {
-                  const status = statusOf(e);
-                  return (
-                    <tr key={e.name}>
-                      <td>
-                        <strong>{e.name}</strong>
-                      </td>
-                      <td className="text-dim">{e.submitter}</td>
-                      <td className="text-dim">{e.approver}</td>
-                      <td>
-                        <StatusPill status={status} />
-                      </td>
-                      <td className="num">€{e.total.toLocaleString()}k</td>
-                      <td className="num">
-                        <Delta delta={e.delta} />
-                      </td>
-                      <td className="text-muted" style={{ fontSize: 12 }}>
-                        {updatedLabel(e.name)}
-                      </td>
-                      <td>
-                        {status === 'approved' ? (
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => onNavigate('submission')}
-                          >
-                            View
-                          </button>
-                        ) : (
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            title="Opens a prefilled reminder email in Outlook"
-                            onClick={() => sendChaser(e)}
-                          >
-                            Send Chaser
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {regions.map((region) => (
+                  <RegionRows
+                    key={region.name}
+                    region={region}
+                    statusOf={statusOf}
+                    updatedLabel={updatedLabel}
+                    sendChaser={sendChaser}
+                    week={week}
+                    templateId={template?.id}
+                    onOpenSubmission={onOpenSubmission}
+                    onNavigate={onNavigate}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
@@ -270,5 +383,93 @@ export function Dashboard({ onOpenModal, onNavigate }: DashboardProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+interface RegionRowsProps {
+  region: { name: string; members: Entity[]; total: number; received: number };
+  statusOf: (e: Entity) => SubmissionStatus;
+  updatedLabel: (entityName: string) => string;
+  sendChaser: (e: Entity) => void;
+  week: string;
+  templateId?: string;
+  onOpenSubmission?: (target: SubmissionTarget) => void;
+  onNavigate: (view: ViewId) => void;
+}
+
+/** One region band + its country rows (Region → Country drill-down). */
+function RegionRows({
+  region,
+  statusOf,
+  updatedLabel,
+  sendChaser,
+  week,
+  templateId,
+  onOpenSubmission,
+  onNavigate,
+}: RegionRowsProps) {
+  return (
+    <>
+      <tr className="region-row">
+        <td>
+          <strong>{region.name}</strong>
+        </td>
+        <td className="text-muted" style={{ fontSize: 11 }} colSpan={2}>
+          {region.received} / {region.members.length} received
+        </td>
+        <td />
+        <td className="num" style={{ fontWeight: 600 }}>
+          €{region.total.toLocaleString()}k
+        </td>
+        <td colSpan={3} />
+      </tr>
+      {region.members.map((e) => {
+        const status = statusOf(e);
+        return (
+          <tr key={e.name}>
+            <td style={{ paddingLeft: 32 }}>
+              <strong>{e.name}</strong>
+            </td>
+            <td className="text-dim">{e.submitter}</td>
+            <td className="text-dim">{e.approver}</td>
+            <td>
+              <StatusPill status={status} />
+            </td>
+            <td className="num">€{e.total.toLocaleString()}k</td>
+            <td className="num">
+              <Delta delta={e.delta} />
+            </td>
+            <td className="text-muted" style={{ fontSize: 12 }}>
+              {updatedLabel(e.name)}
+            </td>
+            <td>
+              <div className="row-flex">
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  onClick={() =>
+                    onOpenSubmission
+                      ? onOpenSubmission({ entity: e.name, week, templateId })
+                      : onNavigate('submission')
+                  }
+                >
+                  View
+                </button>
+                {status !== 'approved' && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    title="Opens a prefilled reminder email in Outlook"
+                    onClick={() => sendChaser(e)}
+                  >
+                    Send Chaser
+                  </button>
+                )}
+              </div>
+            </td>
+          </tr>
+        );
+      })}
+    </>
   );
 }

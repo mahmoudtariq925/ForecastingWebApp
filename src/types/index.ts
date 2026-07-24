@@ -21,6 +21,8 @@ export type Role = 'admin' | 'treasury' | 'approver' | 'submitter';
 export interface Entity {
   /** Country / team display name, also used as the stable key. */
   name: string;
+  /** Reporting region the country rolls up into. */
+  region: string;
   submitter: string;
   approver: string;
   /** Headline total in EUR thousands. */
@@ -53,6 +55,12 @@ export interface User {
   /** Entities this user can approve for, or "—". */
   scope: string;
   last: string;
+  /**
+   * Entities this user works on (submitters/approvers). Admin/treasury see
+   * everything regardless. Users without the field fall back to the entities
+   * that name them as submitter/approver.
+   */
+  assignedEntities?: string[];
 }
 
 /**

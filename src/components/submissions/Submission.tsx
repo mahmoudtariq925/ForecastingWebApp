@@ -61,12 +61,22 @@ export interface SubmissionTarget {
   templateId?: string;
 }
 
-export function Submission({ initial }: { initial?: SubmissionTarget }) {
+interface SubmissionProps {
+  initial?: SubmissionTarget;
+  /** Restrict the entity selector (analyst scoping); undefined = all. */
+  allowedEntities?: string[];
+}
+
+export function Submission({ initial, allowedEntities }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
+  const selectableEntities = useMemo(
+    () => (allowedEntities ? entities.filter((e) => allowedEntities.includes(e.name)) : entities),
+    [allowedEntities],
+  );
   const [entity, setEntity] = useState(() =>
-    initial?.entity && entities.some((e) => e.name === initial.entity)
+    initial?.entity && selectableEntities.some((e) => e.name === initial.entity)
       ? initial.entity
-      : entities[0]?.name ?? 'Netherlands',
+      : selectableEntities[0]?.name ?? entities[0]?.name ?? 'Netherlands',
   );
   const [week, setWeek] = useState(() => initial?.week ?? currentWeekKey());
 
@@ -124,7 +134,7 @@ export function Submission({ initial }: { initial?: SubmissionTarget }) {
               onChange={(e) => setEntity(e.target.value)}
               aria-label="Entity"
             >
-              {entities.map((en) => (
+              {selectableEntities.map((en) => (
                 <option key={en.name} value={en.name}>
                   {en.name}
                 </option>
