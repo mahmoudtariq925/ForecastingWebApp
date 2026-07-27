@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
+import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import {
@@ -65,9 +66,11 @@ interface SubmissionProps {
   initial?: SubmissionTarget;
   /** Restrict the entity selector (analyst scoping); undefined = all. */
   allowedEntities?: string[];
+  /** Viewer role: the grid and all write actions are read-only. */
+  readOnly?: boolean;
 }
 
-export function Submission({ initial, allowedEntities }: SubmissionProps) {
+export function Submission({ initial, allowedEntities, readOnly = false }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const selectableEntities = useMemo(
     () => (allowedEntities ? entities.filter((e) => allowedEntities.includes(e.name)) : entities),
@@ -125,6 +128,7 @@ export function Submission({ initial, allowedEntities }: SubmissionProps) {
         template={template}
         orientation={orientationOverride ?? template.layout}
         onChangeOrientation={setOrientationOverride}
+        readOnly={readOnly}
         selectors={
           <>
             <select
@@ -214,6 +218,8 @@ interface EditorProps {
   template: ForecastTemplate;
   orientation: TemplateLayout;
   onChangeOrientation: (layout: TemplateLayout) => void;
+  /** Viewer role: render everything, allow no changes. */
+  readOnly: boolean;
   selectors: React.ReactNode;
 }
 
@@ -230,6 +236,7 @@ function SubmissionEditor({
   template,
   orientation,
   onChangeOrientation,
+  readOnly,
   selectors,
 }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
@@ -539,12 +546,18 @@ function SubmissionEditor({
         actions={
           <>
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
-            <button className="btn btn-ghost" onClick={saveDraft}>
-              Save Draft
-            </button>
-            <button className="btn btn-primary" onClick={submit}>
-              Submit for Approval
-            </button>
+            {readOnly ? (
+              <ViewOnlyBadge hint="Viewers have read-only access to forecasts" />
+            ) : (
+              <>
+                <button className="btn btn-ghost" onClick={saveDraft}>
+                  Save Draft
+                </button>
+                <button className="btn btn-primary" onClick={submit}>
+                  Submit for Approval
+                </button>
+              </>
+            )}
           </>
         }
       />
@@ -568,21 +581,27 @@ function SubmissionEditor({
           <div className="grid-toolbar">
             <div className="grid-toolbar-left">{selectors}</div>
             <div className="row-flex">
-              <button className="btn btn-ghost" onClick={() => importInput.current?.click()}>
-                Import Excel
-              </button>
+              {!readOnly && (
+                <button className="btn btn-ghost" onClick={() => importInput.current?.click()}>
+                  Import Excel
+                </button>
+              )}
               <button className="btn btn-ghost" onClick={exportGrid}>
                 Export Excel
               </button>
               <button className="btn btn-ghost" onClick={emailApprover}>
                 Email Approver
               </button>
-              <button className="btn btn-ghost" onClick={copyPrior}>
-                Copy Prior Forecast
-              </button>
-              <button className="btn btn-ghost" onClick={reset}>
-                Reset
-              </button>
+              {!readOnly && (
+                <>
+                  <button className="btn btn-ghost" onClick={copyPrior}>
+                    Copy Prior Forecast
+                  </button>
+                  <button className="btn btn-ghost" onClick={reset}>
+                    Reset
+                  </button>
+                </>
+              )}
               <input
                 ref={importInput}
                 type="file"
@@ -631,6 +650,7 @@ function SubmissionEditor({
                 className="form-input"
                 style={{ width: 120, textAlign: 'right', fontFamily: 'var(--mono)' }}
                 value={startingBalance}
+                disabled={readOnly}
                 onChange={(e) => {
                   const n = Number(e.target.value.replace(/[€$,\s]/g, ''));
                   setBalance(Number.isFinite(n) ? n : 0);
@@ -648,7 +668,7 @@ function SubmissionEditor({
               flags={flags}
               startingBalance={startingBalance}
               dayComments={dayComments}
-              editable
+              editable={!readOnly}
               onChangeCell={setCell}
               onPaste={handlePaste}
               onCellClick={openVariance}
@@ -721,16 +741,18 @@ function SubmissionEditor({
 
       <Modal
         open={varianceCell !== null}
-        title="Explain Variance"
+        title={readOnly ? 'Variance Detail' : 'Explain Variance'}
         onClose={() => setVarianceCell(null)}
         footer={
           <>
             <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
-              Cancel
+              {readOnly ? 'Close' : 'Cancel'}
             </button>
-            <button className="btn btn-primary" onClick={saveComment}>
-              Save
-            </button>
+            {!readOnly && (
+              <button className="btn btn-primary" onClick={saveComment}>
+                Save
+              </button>
+            )}
           </>
         }
       >
@@ -759,11 +781,18 @@ function SubmissionEditor({
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Commentary (required)</label>
+              <label className="form-label">
+                {readOnly ? 'Commentary' : 'Commentary (required)'}
+              </label>
               <textarea
                 className="form-textarea"
-                placeholder="Explain the driver behind this variance..."
+                placeholder={
+                  readOnly
+                    ? 'No commentary provided yet.'
+                    : 'Explain the driver behind this variance...'
+                }
                 value={commentDraft}
+                disabled={readOnly}
                 onChange={(e) => setCommentDraft(e.target.value)}
               />
             </div>

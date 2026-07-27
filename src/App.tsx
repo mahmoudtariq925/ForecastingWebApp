@@ -8,6 +8,7 @@ import { Approvals } from './components/approvals/Approvals';
 import { Consolidated } from './components/consolidated/Consolidated';
 import { Comparison } from './components/comparisons/Comparison';
 import { CommentsReview } from './components/review/CommentsReview';
+import { LegalEntitySetup } from './components/legalEntities/LegalEntitySetup';
 import { Templates } from './components/templates/Templates';
 import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
@@ -90,6 +91,7 @@ export default function App() {
         key={submissionTarget ? JSON.stringify(submissionTarget) : 'default'}
         initial={submissionTarget ?? undefined}
         allowedEntities={scopedEntities}
+        readOnly={!permissions.canSubmitForecasts}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
@@ -103,6 +105,7 @@ export default function App() {
       />
     ),
     templates: <Templates />,
+    legalEntities: <LegalEntitySetup />,
     users: <Users />,
     settings: <Settings />,
   };

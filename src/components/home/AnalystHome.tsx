@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { cycles as seedCycles } from '../../data/mockData';
-import { assignedEntitiesFor } from '../../data/session';
+import { assignedEntitiesFor, permissionsFor } from '../../data/session';
 import {
   currentWeekKey,
   prevWeekKey,
@@ -90,14 +90,18 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     [myEntities, templates, week],
   );
 
-  const actionCount = work.reduce(
-    (s, w) =>
-      s +
-      w.needCommentary +
-      (w.returnedForUpdate ? 1 : 0) +
-      (w.submission.status === 'draft' ? 1 : 0),
-    0,
-  );
+  // Viewers have read-only access, so nothing is ever "theirs to action".
+  const canEditForecasts = permissionsFor(user).canSubmitForecasts;
+  const actionCount = canEditForecasts
+    ? work.reduce(
+        (s, w) =>
+          s +
+          w.needCommentary +
+          (w.returnedForUpdate ? 1 : 0) +
+          (w.submission.status === 'draft' ? 1 : 0),
+        0,
+      )
+    : 0;
 
   const recentActivity = useMemo(
     () =>
@@ -123,9 +127,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                 onOpenSubmission({ entity: work[0].entity, week, templateId: work[0].templateId })
               }
             >
-              {work[0].started && work[0].submission.status === 'draft'
-                ? 'Continue Forecast'
-                : 'Open Current Forecast'}
+              {!canEditForecasts
+                ? 'View Current Forecast'
+                : work[0].started && work[0].submission.status === 'draft'
+                  ? 'Continue Forecast'
+                  : 'Open Current Forecast'}
             </button>
           )
         }
@@ -148,10 +154,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
             <div className="kpi-sub text-dim">{myEntities.join(', ')}</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Needs My Action</div>
-            <div className="kpi-value">{actionCount}</div>
+            <div className="kpi-label">{canEditForecasts ? 'Needs My Action' : 'Access'}</div>
+            <div className="kpi-value">{canEditForecasts ? actionCount : 'View'}</div>
             <div className="kpi-sub text-dim">
-              {actionCount === 0 ? 'all caught up' : 'items to update, explain or submit'}
+              {!canEditForecasts
+                ? 'read-only forecast access'
+                : actionCount === 0
+                  ? 'all caught up'
+                  : 'items to update, explain or submit'}
             </div>
           </div>
         </div>
@@ -195,11 +205,13 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                     onOpenSubmission({ entity: w.entity, week, templateId: w.templateId })
                   }
                 >
-                  {!w.started
-                    ? 'Open Current Forecast'
-                    : w.submission.status === 'draft'
-                      ? 'Continue Forecast'
-                      : 'Open Forecast'}
+                  {!canEditForecasts
+                    ? 'View Forecast'
+                    : !w.started
+                      ? 'Open Current Forecast'
+                      : w.submission.status === 'draft'
+                        ? 'Continue Forecast'
+                        : 'Open Forecast'}
                 </button>
                 <button
                   className="btn btn-ghost"

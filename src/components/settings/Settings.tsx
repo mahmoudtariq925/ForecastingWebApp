@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
+import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
+import { currentUser, permissionsFor } from '../../data/session';
 import { loadSettings, saveSettings } from '../../storage/localStorage';
 import { DEFAULT_SETTINGS } from './defaults';
 import type { Settings as SettingsModel } from '../../types';
 
-/** Variance-threshold and cycle-rule configuration, persisted on change. */
+/** Variance-threshold, cycle-rule and access configuration, persisted on change. */
 export function Settings() {
   const [settings, setSettings] = useState<SettingsModel>(() => loadSettings(DEFAULT_SETTINGS));
+  const me = currentUser();
+  const permissions = permissionsFor(me, settings);
+  const canEdit = permissions.canManageSettings;
+  // Only an admin may delegate management rights to Treasury.
+  const canChangeToggle = permissions.canChangeTreasuryToggle;
 
   const update = <K extends keyof SettingsModel>(key: K, value: SettingsModel[K]) => {
     const next = { ...settings, [key]: value };
@@ -16,7 +23,11 @@ export function Settings() {
 
   return (
     <div className="view active">
-      <TopBar crumb="Administration" title="Settings" />
+      <TopBar
+        crumb="Administration"
+        title="Settings"
+        actions={canEdit ? undefined : <ViewOnlyBadge />}
+      />
       <div className="content">
         <div className="panel">
           <div className="panel-header">
@@ -29,6 +40,7 @@ export function Settings() {
                 <select
                   className="form-select"
                   value={settings.horizon}
+                  disabled={!canEdit}
                   onChange={(e) => update('horizon', e.target.value)}
                 >
                   <option>30 days</option>
@@ -41,6 +53,7 @@ export function Settings() {
                 <select
                   className="form-select"
                   value={settings.frequency}
+                  disabled={!canEdit}
                   onChange={(e) => update('frequency', e.target.value)}
                 >
                   <option>Weekly (Mon → Fri close)</option>
@@ -63,6 +76,7 @@ export function Settings() {
                 <input
                   className="form-input"
                   value={settings.varianceThreshold}
+                  disabled={!canEdit}
                   onChange={(e) => update('varianceThreshold', Number(e.target.value) || 0)}
                 />
                 <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
@@ -74,6 +88,7 @@ export function Settings() {
                 <input
                   className="form-input"
                   value={settings.minValueToTrigger}
+                  disabled={!canEdit}
                   onChange={(e) => update('minValueToTrigger', e.target.value)}
                 />
                 <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
@@ -86,11 +101,47 @@ export function Settings() {
               <select
                 className="form-select"
                 value={settings.exemptNewPeriods}
+                disabled={!canEdit}
                 onChange={(e) => update('exemptNewPeriods', e.target.value)}
               >
                 <option>Yes — never flag days outside prior cycle's horizon</option>
                 <option>No — always flag</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <h3>Access &amp; Delegation</h3>
+          </div>
+          <div className="panel-body">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={settings.treasuryManagementEnabled === true}
+                  disabled={!canChangeToggle}
+                  onChange={(e) => update('treasuryManagementEnabled', e.target.checked)}
+                />
+                <span className="toggle-text">
+                  <strong>Allow Treasury users to manage users and settings</strong>
+                  <span className="text-muted">
+                    When off, Treasury users can view User Management, Settings and Legal Entity
+                    Setup but cannot change them. When on, they can manage all three. Only
+                    administrators can change this setting.
+                  </span>
+                </span>
+                <span className={`status ${settings.treasuryManagementEnabled ? 'approved' : 'draft'}`}>
+                  <span className="dot" />
+                  {settings.treasuryManagementEnabled ? 'enabled' : 'disabled'}
+                </span>
+              </label>
+              {!canChangeToggle && (
+                <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>
+                  Only an administrator can change this setting.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -109,6 +160,7 @@ export function Settings() {
               <input
                 className="form-input"
                 value={settings.allowedDomains}
+                disabled={!canEdit}
                 onChange={(e) => update('allowedDomains', e.target.value)}
               />
             </div>
