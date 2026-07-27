@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
+import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
@@ -33,6 +34,7 @@ function formatDate(iso: string): string {
  */
 export function Templates() {
   const canManage = permissionsFor(currentUser()).canManageTemplates;
+  const { confirm, notify } = useDialog();
   const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);
   const [editName, setEditName] = useState('');
@@ -50,7 +52,11 @@ export function Templates() {
   const handleUpload = async (file: File) => {
     setUploadOpen(false);
     if (file.size > MAX_FILE_BYTES) {
-      alert('File is too large for browser storage (max 1 MB in Phase 1).');
+      await notify({
+        title: 'File too large',
+        tone: 'error',
+        message: 'This file exceeds the 1 MB browser-storage limit used in Phase 1.',
+      });
       return;
     }
     try {
@@ -72,7 +78,11 @@ export function Templates() {
       commit([...templates, template]);
       openEdit(template);
     } catch (err) {
-      alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      await notify({
+        title: 'Upload failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
@@ -81,7 +91,11 @@ export function Templates() {
     replaceTarget.current = null;
     if (!id) return;
     if (file.size > MAX_FILE_BYTES) {
-      alert('File is too large for browser storage (max 1 MB in Phase 1).');
+      await notify({
+        title: 'File too large',
+        tone: 'error',
+        message: 'This file exceeds the 1 MB browser-storage limit used in Phase 1.',
+      });
       return;
     }
     try {
@@ -102,11 +116,16 @@ export function Templates() {
             : t,
         ),
       );
-      alert(
-        `Template structure replaced from ${file.name} (${parsed.categories.length} line items).`,
-      );
+      await notify({
+        tone: 'success',
+        message: `Template structure replaced from ${file.name} (${parsed.categories.length} line items).`,
+      });
     } catch (err) {
-      alert(`Replace failed: ${err instanceof Error ? err.message : String(err)}`);
+      await notify({
+        title: 'Replace failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
@@ -118,17 +137,26 @@ export function Templates() {
       // its structure for the current forecast week.
       const week = currentWeekKey();
       exportTemplateXlsx(t, horizonDates(week), dayLabelsForWeek(week)).catch((err) =>
-        alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`),
+        notify({
+          title: 'Download failed',
+          tone: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        }),
       );
     }
   };
 
-  const remove = (t: ForecastTemplate) => {
-    const warning =
-      t.id === STANDARD_TEMPLATE_ID
-        ? `Remove the built-in "${t.name}" template? Entities without another assigned template will lose their default.`
-        : `Remove template "${t.name}"? Existing submissions made with it remain stored.`;
-    if (!confirm(warning)) return;
+  const remove = async (t: ForecastTemplate) => {
+    const confirmed = await confirm({
+      title: 'Remove template',
+      message:
+        t.id === STANDARD_TEMPLATE_ID
+          ? `Remove the built-in "${t.name}" template? Entities without another assigned template will lose their default.`
+          : `Remove template "${t.name}"? Existing submissions made with it remain stored.`,
+      confirmLabel: 'Remove Template',
+      danger: true,
+    });
+    if (!confirmed) return;
     commit(templates.filter((x) => x.id !== t.id));
   };
 

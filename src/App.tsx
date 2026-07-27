@@ -13,6 +13,7 @@ import { Templates } from './components/templates/Templates';
 import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
 import { AppModals } from './components/common/AppModals';
+import { useDialog } from './components/common/dialogContext';
 import { cycles as seedCycles } from './data/mockData';
 import {
   assignedEntitiesFor,
@@ -20,7 +21,7 @@ import {
   permissionsFor,
   setCurrentUser,
 } from './data/session';
-import { loadCycles, saveCycle } from './storage/localStorage';
+import { loadCycles, loadData, saveCycle, saveData } from './storage/localStorage';
 import type { Cycle } from './types';
 import { allowedViews, landingViewFor } from './types/nav';
 import type { ModalId, ViewId } from './types/nav';
@@ -29,6 +30,18 @@ export default function App() {
   // Mock session (Phase 3 swaps this for the Azure AD identity). Bumping the
   // version re-reads the user and remounts the screens.
   const [sessionVersion, setSessionVersion] = useState(0);
+  const { notify } = useDialog();
+  // Sidebar collapse is a local view preference (persisted, no backend).
+  const [navCollapsed, setNavCollapsed] = useState(() =>
+    loadData<boolean>('navCollapsed', false),
+  );
+
+  const toggleNavCollapsed = () => {
+    setNavCollapsed((prev) => {
+      saveData('navCollapsed', !prev);
+      return !prev;
+    });
+  };
   const user = useMemo(() => {
     void sessionVersion;
     return currentUser();
@@ -71,13 +84,15 @@ export default function App() {
     setMenuOpen(false);
   };
 
-  const createCycle = (cycle: Cycle) => {
+  const createCycle = async (cycle: Cycle) => {
     saveCycle(cycle, loadCycles(seedCycles));
     setModal(null);
     setDataVersion((n) => n + 1);
-    alert(
-      `Cycle ${cycle.id} opened. Notifications sent to submitters and approvers via Azure AD.`,
-    );
+    await notify({
+      tone: 'success',
+      title: 'Cycle opened',
+      message: `Cycle ${cycle.id} opened. Notifications sent to submitters and approvers via Azure AD.`,
+    });
   };
 
   const screens: Record<ViewId, JSX.Element> = {
@@ -115,7 +130,7 @@ export default function App() {
   const activeView = allowed.has(view) ? view : landingViewFor(permissions);
 
   return (
-    <div className="app">
+    <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
       <button
         className="menu-btn"
         aria-label="Open navigation"
@@ -144,6 +159,8 @@ export default function App() {
         onNavigate={navigate}
         onSwitchUser={switchUser}
         open={menuOpen}
+        collapsed={navCollapsed}
+        onToggleCollapsed={toggleNavCollapsed}
       />
       <main className="main" key={`${dataVersion}:${user.email}`}>
         {screens[activeView]}

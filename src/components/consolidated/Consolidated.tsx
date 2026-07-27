@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
+import { useDialog } from '../common/dialogContext';
 import { ForecastGrid } from '../submissions/ForecastGrid';
 import {
   dayInflows,
@@ -46,6 +47,7 @@ export function Consolidated() {
   const numDays = dayLabels.length;
   const numCats = template?.categories.length ?? 0;
   const [cycles, setCycles] = useState(() => loadCycles(seedCycles));
+  const { confirm, notify } = useDialog();
   const activeCycle = cycles.find((c) => c.status === 'submitted');
 
   const current = useMemo(
@@ -103,18 +105,26 @@ export function Consolidated() {
     </span>
   );
 
-  const closeCycle = () => {
+  const closeCycle = async () => {
     if (!activeCycle) {
-      alert('No open cycle to close.');
+      await notify({ message: 'No open cycle to close.', tone: 'error' });
       return;
     }
-    if (!confirm(`Close cycle ${activeCycle.id}? This will lock all submissions.`)) return;
+    const confirmed = await confirm({
+      title: 'Close forecast cycle',
+      message: `Close cycle ${activeCycle.id}? This will lock all submissions for the cycle.`,
+      confirmLabel: 'Close Cycle',
+    });
+    if (!confirmed) return;
     const next = cycles.map((c) =>
       c.id === activeCycle.id ? { ...c, status: 'consolidated' as const } : c,
     );
     setCycles(next);
     saveCycles(next);
-    alert(`Cycle ${activeCycle.id} closed. Final consolidated forecast archived.`);
+    await notify({
+      tone: 'success',
+      message: `Cycle ${activeCycle.id} closed. Final consolidated forecast archived.`,
+    });
   };
 
   const exportXlsx = () => {
@@ -129,7 +139,13 @@ export function Consolidated() {
       values: current.values,
       startingBalance: current.startingBalance,
       filename: `consolidated-${week}.xlsx`,
-    }).catch((err) => alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`));
+    }).catch((err) =>
+      notify({
+        title: 'Export failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
   };
 
   const emailSummary = () => {
