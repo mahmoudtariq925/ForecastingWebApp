@@ -7,6 +7,7 @@ import type {
   Cycle,
   Entity,
   ForecastTemplate,
+  LegalEntity,
   LineItemConfig,
   TemplateCategory,
   User,
@@ -27,6 +28,59 @@ export const entities: Entity[] = [
   { name: 'Portugal', region: 'Southern Europe', submitter: 'João Silva', approver: 'Ana Costa', total: 1900, delta: -3.4, status: 'pending' },
 ];
 
+/** Reporting currency per country (used by the legal-entity seed). */
+const CURRENCIES: Record<string, string> = {
+  'United Kingdom': 'GBP',
+  Poland: 'PLN',
+  Switzerland: 'CHF',
+};
+
+/**
+ * Seeded entity responsibilities, keyed by entity name. Only users that
+ * exist in `users` with the matching global role are seeded; every other
+ * entity starts unassigned and is configured in Legal Entity Setup.
+ */
+const SEED_ASSIGNMENTS: Record<
+  string,
+  { viewers?: string[]; approvers?: string[]; submitters?: string[] }
+> = {
+  Netherlands: {
+    submitters: ['jan.devries@contoso.com'],
+    approvers: ['pieter.bakker@contoso.com'],
+    viewers: ['tom.whitfield@contoso.com'],
+  },
+  Germany: {
+    submitters: ['anna.mueller@contoso.com'],
+    approvers: ['klaus.weber@contoso.com'],
+    viewers: ['tom.whitfield@contoso.com'],
+  },
+  'United Kingdom': { approvers: ['sarah.obrien@contoso.com'] },
+  Switzerland: { approvers: ['klaus.weber@contoso.com'] },
+};
+
+/**
+ * The configured legal entities, derived from the reporting entities above so
+ * the two never drift. This is the source of truth for entity ↔ user
+ * responsibilities and the per-entity forecast template.
+ */
+export function buildLegalEntities(): LegalEntity[] {
+  return entities.map((e) => {
+    const seeded = SEED_ASSIGNMENTS[e.name] ?? {};
+    return {
+      id: `le-${e.name.toLowerCase().replace(/\s+/g, '-')}`,
+      name: e.name,
+      country: e.name,
+      region: e.region,
+      currency: CURRENCIES[e.name] ?? 'EUR',
+      status: 'active' as const,
+      viewers: seeded.viewers ?? [],
+      approvers: seeded.approvers ?? [],
+      submitters: seeded.submitters ?? [],
+      forecastTemplateId: STANDARD_TEMPLATE_ID,
+    };
+  });
+}
+
 export const cycles: Cycle[] = [
   { id: 'CW-2026-21', start: 'May 18', closes: 'May 22 · 18:00', status: 'submitted', subs: '14 / 18', total: 184.2 },
   { id: 'CW-2026-20', start: 'May 11', closes: 'May 15 · 18:00', status: 'consolidated', subs: '18 / 18', total: 178.4 },
@@ -35,14 +89,21 @@ export const cycles: Cycle[] = [
   { id: 'CW-2026-17', start: 'Apr 20', closes: 'Apr 24 · 18:00', status: 'consolidated', subs: '17 / 17', total: 172.1 },
 ];
 
+/**
+ * Managed users: identity + GLOBAL role only. Which entities they are
+ * responsible for is configured in Legal Entity Setup (see `legalEntities`
+ * below) and derived from there wherever it is displayed.
+ */
 export const users: User[] = [
-  { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'admin', scope: 'All entities', last: 'Now' },
-  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', scope: '—', last: '2h ago', assignedEntities: ['Netherlands'] },
-  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', scope: 'NL Operations', last: '1h ago', assignedEntities: ['Netherlands'] },
-  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', scope: '—', last: '4h ago', assignedEntities: ['Germany'] },
-  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', scope: 'DE Sales, DE Manufacturing', last: '3h ago', assignedEntities: ['Germany', 'Switzerland'] },
-  { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', scope: 'UK Services, UK Support', last: 'Yesterday', assignedEntities: ['United Kingdom'] },
-  { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', scope: 'All entities', last: '20m ago' },
+  { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'admin', status: 'active', last: 'Now' },
+  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: '2h ago' },
+  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', status: 'active', last: '1h ago' },
+  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', status: 'active', last: '4h ago' },
+  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: '3h ago' },
+  { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', status: 'active', last: 'Yesterday' },
+  { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: '20m ago' },
+  { name: 'Tom Whitfield', email: 'tom.whitfield@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: '1d ago' },
+  { name: 'Sofia Almeida', email: 'sofia.almeida@contoso.com', team: 'Group Finance', role: 'viewer', status: 'inactive', last: '3w ago' },
 ];
 
 // ---------------------------------------------------------------------------

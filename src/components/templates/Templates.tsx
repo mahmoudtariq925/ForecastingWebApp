@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
+import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
-import { currentUser } from '../../data/session';
+import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates, saveTemplates } from '../../storage/localStorage';
 import { exportTemplateXlsx, parseTemplateFile } from '../../utils/excel';
 import { base64ToBlob, downloadBlob, fileToBase64, XLSX_MIME } from '../../utils/download';
@@ -31,6 +32,7 @@ function formatDate(iso: string): string {
  * entities, and view / update / replace / remove existing ones.
  */
 export function Templates() {
+  const canManage = permissionsFor(currentUser()).canManageTemplates;
   const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);
   const [editName, setEditName] = useState('');
@@ -165,9 +167,13 @@ export function Templates() {
         crumb="Administration"
         title="Forecast Templates"
         actions={
-          <button className="btn btn-primary" onClick={() => setUploadOpen(true)}>
-            + Upload Template
-          </button>
+          canManage ? (
+            <button className="btn btn-primary" onClick={() => setUploadOpen(true)}>
+              + Upload Template
+            </button>
+          ) : (
+            <ViewOnlyBadge />
+          )
         }
       />
       <div className="content">
@@ -230,23 +236,27 @@ export function Templates() {
                       </td>
                       <td>
                         <div className="row-flex">
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => openEdit(t)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => {
-                              replaceTarget.current = t.id;
-                              replaceInput.current?.click();
-                            }}
-                          >
-                            Replace
-                          </button>
+                          {canManage && (
+                            <>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                onClick={() => openEdit(t)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                onClick={() => {
+                                  replaceTarget.current = t.id;
+                                  replaceInput.current?.click();
+                                }}
+                              >
+                                Replace
+                              </button>
+                            </>
+                          )}
                           <button
                             className="btn btn-ghost"
                             style={{ padding: '4px 10px', fontSize: 11 }}
@@ -254,13 +264,15 @@ export function Templates() {
                           >
                             Download
                           </button>
-                          <button
-                            className="btn btn-danger"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => remove(t)}
-                          >
-                            Remove
-                          </button>
+                          {canManage && (
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => remove(t)}
+                            >
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

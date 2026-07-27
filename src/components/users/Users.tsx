@@ -1,32 +1,57 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
-import { entities, users as seedUsers } from '../../data/mockData';
-import { currentUser } from '../../data/session';
+import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
+import { users as seedUsers } from '../../data/mockData';
+import { currentUser, permissionsFor } from '../../data/session';
+import {
+  listLegalEntities,
+  responsibilitiesFor,
+  type Responsibility,
+} from '../../data/legalEntityService';
 import { loadSettings, loadUsers, saveUsers } from '../../storage/localStorage';
 import { appUrl, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
-import type { Role, User } from '../../types';
+import type { Role, User, UserStatus } from '../../types';
 
-const ROLES: Role[] = ['submitter', 'approver', 'treasury', 'admin'];
+const ROLES: Role[] = ['submitter', 'approver', 'viewer', 'treasury', 'admin'];
+
+const ROLE_HINTS: Record<Role, string> = {
+  admin: 'Manages users, settings, legal entities and templates.',
+  treasury: 'Full treasury oversight across all entities.',
+  approver: 'Reviews, approves and returns forecasts for assigned entities.',
+  submitter: 'Prepares and submits forecasts for assigned entities.',
+  viewer: 'Read-only access to assigned entity forecasts.',
+};
 
 const initials = (name: string) =>
   name
     .split(' ')
     .map((s) => s[0])
     .slice(0, 2)
-    .join('');
+    .join('')
+    .toUpperCase();
 
-const EMPTY_FORM = { name: '', email: '', team: entities[0]?.name ?? '', role: 'submitter' as Role };
+const EMPTY_FORM = {
+  name: '',
+  email: '',
+  team: '',
+  role: 'submitter' as Role,
+  status: 'active' as UserStatus,
+};
 
 /**
  * Opens the admin's desktop Outlook with a prefilled account-setup email for
  * `user`. Frontend-only: composing/sending stays in the mail client; the
  * signed-in admin is the sender context (Outlook sends from their account).
  */
-function openSetupEmail(user: User): void {
+function openSetupEmail(user: User, responsibilities: Responsibility[]): void {
   const admin = currentUser();
   const settings = loadSettings(DEFAULT_SETTINGS);
+  const scope =
+    responsibilities.length > 0
+      ? responsibilities.map((r) => `${r.entityName} (${r.responsibility})`).join(', ')
+      : 'no entities assigned yet — these are configured in Legal Entity Setup';
   openEmail({
     to: user.email,
     subject: `Your Liquid access — Cash Flow Forecasting (${user.role})`,
@@ -34,67 +59,142 @@ function openSetupEmail(user: User): void {
       `Hi ${user.name.split(' ')[0]},\n\n` +
       `An account has been set up for you in Liquid, our treasury cash flow forecasting tool.\n\n` +
       `Role: ${user.role}\n` +
-      `Entity / Team: ${user.team}\n` +
-      `Approval scope: ${user.scope}\n\n` +
+      `Entity responsibilities: ${scope}\n\n` +
       `Getting started:\n` +
       `1. Open ${appUrl()}\n` +
       `2. Sign in with your ${settings.allowedDomains.split(/[,\s]+/)[0] ?? '@contoso.com'} account (${settings.ssoProvider.split('·')[0].trim()})\n` +
-      `3. Go to "My Submissions" to enter your first forecast${user.role === 'approver' ? ', or "Approvals" to review your queue' : ''}\n\n` +
+      `3. Go to "My Forecasts" to see the entities assigned to you${user.role === 'approver' ? ', or "Approvals" to review your queue' : ''}\n\n` +
       `If anything looks wrong, just reply to this email.\n\n` +
       `Best regards,\n${admin.name}\n${admin.email}`,
   });
 }
 
-/** User management: add users, assign roles per entity, remove — all persisted. */
+/** The read-only responsibilities cell, derived from Legal Entity Setup. */
+function ResponsibilitiesCell({ items }: { items: Responsibility[] }) {
+  if (items.length === 0) {
+    return (
+      <span className="text-muted" style={{ fontSize: 12 }}>
+        No entity assignments
+      </span>
+    );
+  }
+  return (
+    <div className="responsibility-list">
+      {items.map((r) => (
+        <span key={`${r.entityId}-${r.responsibility}`} className="responsibility-chip">
+          <span className={`role-tag ${r.responsibility}`}>{r.responsibility}</span>
+          {r.entityName}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * User Management answers: who is the user, what is their GLOBAL role, and
+ * what are their current entity responsibilities? Entity assignments are
+ * read-only here — they are configured in Legal Entity Setup and derived
+ * live, so removing someone there removes the entity from this list too.
+ */
 export function Users() {
   const [users, setUsers] = useState<User[]>(() => loadUsers(seedUsers));
-  const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+
+  const me = currentUser();
+  const canManage = permissionsFor(me).canManageUsers;
+
+  // Responsibilities come from the legal entities, never from the user.
+  const legalEntities = useMemo(() => listLegalEntities(), []);
+  const responsibilities = useMemo(() => {
+    const map = new Map<string, Responsibility[]>();
+    for (const u of users) map.set(u.email, responsibilitiesFor(u, legalEntities));
+    return map;
+  }, [users, legalEntities]);
 
   const commit = (next: User[]) => {
     setUsers(next);
     saveUsers(next);
   };
 
-  const setRole = (email: string, role: Role) => {
-    commit(users.map((u) => (u.email === email ? { ...u, role } : u)));
+  const openAdd = () => {
+    setForm(EMPTY_FORM);
+    setEditingEmail(null);
+    setAdding(true);
   };
 
-  const removeUser = (u: User) => {
-    if (!confirm(`Remove ${u.name} (${u.email})?`)) return;
-    commit(users.filter((x) => x.email !== u.email));
-    setEditing(null);
+  const openEdit = (u: User) => {
+    setForm({
+      name: u.name,
+      email: u.email,
+      team: u.team ?? '',
+      role: u.role,
+      status: u.status ?? 'active',
+    });
+    setEditingEmail(u.email);
+    setAdding(true);
   };
 
-  const addUser = () => {
+  const closeModal = () => {
+    setAdding(false);
+    setEditingEmail(null);
+  };
+
+  const saveUser = () => {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
     if (!name || !email) {
       alert('Name and email are required.');
       return;
     }
-    if (users.some((u) => u.email.toLowerCase() === email)) {
+    const duplicate = users.some(
+      (u) => u.email.toLowerCase() === email && u.email !== editingEmail,
+    );
+    if (duplicate) {
       alert('A user with this email already exists.');
       return;
     }
+
+    if (editingEmail) {
+      commit(
+        users.map((u) =>
+          u.email === editingEmail
+            ? { ...u, name, email, team: form.team.trim(), role: form.role, status: form.status }
+            : u,
+        ),
+      );
+      closeModal();
+      return;
+    }
+
     const created: User = {
       name,
       email,
-      team: form.team,
+      team: form.team.trim(),
       role: form.role,
-      scope: form.role === 'approver' || form.role === 'treasury' ? form.team : '—',
+      status: form.status,
       last: 'Invited',
-      // Submitters/approvers work on the entity they were added under;
-      // admin/treasury see everything via permissions.
-      assignedEntities:
-        form.role === 'submitter' || form.role === 'approver' ? [form.team] : undefined,
     };
     commit([...users, created]);
-    setForm(EMPTY_FORM);
-    setAdding(false);
+    closeModal();
     // Hand the setup information straight to Outlook for the admin to send.
-    openSetupEmail(created);
+    openSetupEmail(created, []);
+  };
+
+  const toggleStatus = (u: User) => {
+    const next: UserStatus = u.status === 'inactive' ? 'active' : 'inactive';
+    commit(users.map((x) => (x.email === u.email ? { ...x, status: next } : x)));
+  };
+
+  const removeUser = (u: User) => {
+    const held = responsibilities.get(u.email) ?? [];
+    const warning =
+      held.length > 0
+        ? `Remove ${u.name} (${u.email})? They are still assigned to ${held.length} entit${held.length === 1 ? 'y' : 'ies'} in Legal Entity Setup.`
+        : `Remove ${u.name} (${u.email})?`;
+    if (!confirm(warning)) return;
+    commit(users.filter((x) => x.email !== u.email));
   };
 
   return (
@@ -103,83 +203,94 @@ export function Users() {
         crumb="Administration"
         title="User Management"
         actions={
-          <button className="btn btn-primary" onClick={() => setAdding(true)}>
-            + Add User
-          </button>
+          canManage ? (
+            <button className="btn btn-primary" onClick={openAdd}>
+              + Add User
+            </button>
+          ) : (
+            <ViewOnlyBadge />
+          )
         }
       />
       <div className="content">
         <div className="panel">
+          <div className="grid-toolbar">
+            <div className="grid-info">
+              <strong>{users.length} users</strong> ·{' '}
+              <span className="text-muted">
+                global roles only — entity responsibilities are configured in Legal Entity Setup
+                and shown here read-only
+              </span>
+            </div>
+          </div>
           <div className="panel-body no-pad">
             <table>
               <thead>
                 <tr>
                   <th>Name</th>
                   <th>Email</th>
-                  <th>Entity / Team</th>
-                  <th>Role</th>
-                  <th>Approval For</th>
+                  <th>Global Role</th>
+                  <th>Status</th>
+                  <th>Responsibilities</th>
                   <th>Last Active</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => {
-                  const isEditing = editing === u.email;
-                  return (
-                    <tr key={u.email}>
-                      <td>
-                        <div className="row-flex">
-                          <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>
-                            {initials(u.name)}
-                          </div>
-                          <strong>{u.name}</strong>
+                {users.map((u) => (
+                  <tr key={u.email} className={u.status === 'inactive' ? 'row-inactive' : undefined}>
+                    <td>
+                      <div className="row-flex">
+                        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>
+                          {initials(u.name)}
                         </div>
-                      </td>
-                      <td className="text-dim">{u.email}</td>
-                      <td className="text-dim">{u.team}</td>
-                      <td>
-                        {isEditing ? (
-                          <select
-                            className="form-select"
-                            style={{ width: 'auto', padding: '4px 8px' }}
-                            value={u.role}
-                            onChange={(e) => setRole(u.email, e.target.value as Role)}
-                          >
-                            {ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className={`role-tag ${u.role}`}>{u.role}</span>
-                        )}
-                      </td>
-                      <td className="text-dim" style={{ fontSize: 12 }}>
-                        {u.scope}
-                      </td>
-                      <td className="text-muted" style={{ fontSize: 12 }}>
-                        {u.last}
-                      </td>
-                      <td>
-                        <div className="row-flex">
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            title="Open a prefilled setup email in Outlook"
-                            onClick={() => openSetupEmail(u)}
-                          >
-                            Email Setup
-                          </button>
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => setEditing(isEditing ? null : u.email)}
-                          >
-                            {isEditing ? 'Done' : 'Edit'}
-                          </button>
-                          {isEditing && (
+                        <strong>{u.name}</strong>
+                      </div>
+                    </td>
+                    <td className="text-dim">{u.email}</td>
+                    <td>
+                      <span className={`role-tag ${u.role}`}>{u.role}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={`status ${u.status === 'inactive' ? 'rejected' : 'approved'}`}
+                      >
+                        <span className="dot" />
+                        {u.status ?? 'active'}
+                      </span>
+                    </td>
+                    <td style={{ maxWidth: 320 }}>
+                      <ResponsibilitiesCell items={responsibilities.get(u.email) ?? []} />
+                    </td>
+                    <td className="text-muted" style={{ fontSize: 12 }}>
+                      {u.last}
+                    </td>
+                    <td>
+                      <div className="row-flex">
+                        <button
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          title="Open a prefilled setup email in Outlook"
+                          onClick={() => openSetupEmail(u, responsibilities.get(u.email) ?? [])}
+                        >
+                          Email Setup
+                        </button>
+                        {canManage && (
+                          <>
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => openEdit(u)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-ghost"
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => toggleStatus(u)}
+                            >
+                              {u.status === 'inactive' ? 'Activate' : 'Deactivate'}
+                            </button>
                             <button
                               className="btn btn-danger"
                               style={{ padding: '4px 10px', fontSize: 11 }}
@@ -187,12 +298,12 @@ export function Users() {
                             >
                               Remove
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -201,15 +312,15 @@ export function Users() {
 
       <Modal
         open={adding}
-        title="Add User"
-        onClose={() => setAdding(false)}
+        title={editingEmail ? 'Edit User' : 'Add User'}
+        onClose={closeModal}
         footer={
           <>
-            <button className="btn btn-ghost" onClick={() => setAdding(false)}>
+            <button className="btn btn-ghost" onClick={closeModal}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={addUser}>
-              Add &amp; Compose Invite
+            <button className="btn btn-primary" onClick={saveUser}>
+              {editingEmail ? 'Save Changes' : 'Add & Compose Invite'}
             </button>
           </>
         }
@@ -235,22 +346,7 @@ export function Users() {
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Entity / Team</label>
-            <select
-              className="form-select"
-              value={form.team}
-              onChange={(e) => setForm({ ...form, team: e.target.value })}
-            >
-              {entities.map((en) => (
-                <option key={en.name} value={en.name}>
-                  {en.name}
-                </option>
-              ))}
-              <option>Treasury HQ</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Role</label>
+            <label className="form-label">Global Role</label>
             <select
               className="form-select"
               value={form.role}
@@ -262,6 +358,38 @@ export function Users() {
                 </option>
               ))}
             </select>
+            <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+              {ROLE_HINTS[form.role]}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Status</label>
+            <select
+              className="form-select"
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value as UserStatus })}
+            >
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Team (informational)</label>
+          <input
+            className="form-input"
+            placeholder="e.g. Treasury HQ"
+            value={form.team}
+            onChange={(e) => setForm({ ...form, team: e.target.value })}
+          />
+        </div>
+        <div className="variance-panel" style={{ marginBottom: 0 }}>
+          <h4>Entity responsibilities</h4>
+          <div className="row">
+            <span>
+              Which legal entities this user can view, submit or approve for is configured in
+              <strong> Legal Entity Setup</strong>, not here.
+            </span>
           </div>
         </div>
       </Modal>

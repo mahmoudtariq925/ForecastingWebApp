@@ -15,6 +15,7 @@ import {
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
+import { listLegalEntities } from './legalEntityService';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -200,13 +201,22 @@ export function isVariance(
   return pct > settings.varianceThreshold;
 }
 
-/** Templates assigned to an entity, falling back to all templates. */
+/**
+ * Templates available for an entity. Legal Entity Setup is authoritative:
+ * the template configured there comes first, then any template assigned to
+ * the entity on the Templates screen, then everything else as a fallback.
+ */
 export function templatesForEntity(
   templates: ForecastTemplate[],
   entity: string,
 ): ForecastTemplate[] {
-  const assigned = templates.filter((t) => t.assignedEntities.includes(entity));
-  return assigned.length > 0 ? assigned : templates;
+  const configuredId = listLegalEntities().find((e) => e.name === entity)?.forecastTemplateId;
+  const configured = configuredId ? templates.find((t) => t.id === configuredId) : undefined;
+  const assigned = templates.filter(
+    (t) => t.assignedEntities.includes(entity) && t.id !== configured?.id,
+  );
+  const ordered = [...(configured ? [configured] : []), ...assigned];
+  return ordered.length > 0 ? ordered : templates;
 }
 
 /** One cell-level week-over-week variance, computed from live data. */

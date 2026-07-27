@@ -8,7 +8,14 @@
 //
 // The generic saveData/loadData underpin the named, typed helpers below.
 // ============================================================================
-import type { Cycle, ForecastTemplate, Settings, Submission, User } from '../types';
+import type {
+  Cycle,
+  ForecastTemplate,
+  LegalEntity,
+  Settings,
+  Submission,
+  User,
+} from '../types';
 import { buildStandardTemplate } from '../data/mockData';
 
 const PREFIX = 'liquid:';
@@ -239,7 +246,32 @@ export function saveUsers(users: User[]): void {
 
 export function loadUsers(fallback: User[]): User[] {
   const users = objectEntries<User>(loadData<unknown>('users', null));
-  return users && users.length > 0 ? users : fallback;
+  if (!users || users.length === 0) return fallback;
+  // Users stored before the status field existed default to active.
+  return users.map((u) => ({ ...u, status: u.status === 'inactive' ? 'inactive' : 'active' }));
+}
+
+// ---------------------------------------------------------------------------
+// Legal entities — entity master data plus the users responsible for each
+// entity and its forecast template (configured in Legal Entity Setup).
+// ---------------------------------------------------------------------------
+export function saveLegalEntities(legalEntities: LegalEntity[]): void {
+  saveData('legalEntities', legalEntities);
+}
+
+export function loadLegalEntities(fallback: LegalEntity[]): LegalEntity[] {
+  const stored = objectEntries<LegalEntity>(loadData<unknown>('legalEntities', null));
+  if (!stored || stored.length === 0) return fallback;
+  // Guard the assignment lists: older/partial records must not break callers.
+  const emails = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((e): e is string => typeof e === 'string') : [];
+  return stored.map((e) => ({
+    ...e,
+    viewers: emails(e.viewers),
+    approvers: emails(e.approvers),
+    submitters: emails(e.submitters),
+    status: e.status === 'inactive' ? 'inactive' : 'active',
+  }));
 }
 
 // ---------------------------------------------------------------------------

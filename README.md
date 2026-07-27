@@ -19,8 +19,9 @@ later).
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector |
 | **Comments Review** | Admin triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
 | **Templates** | Upload .xlsx forecast templates (structure & orientation auto-detected), assign them to countries, edit / replace / download / remove |
-| **User Management** | Add users, assign roles (Treasury / Approver / Submitter / Admin), remove — all persisted — plus a prefilled Outlook setup email per user |
-| **Settings** | Variance threshold and cycle rules (drive the submission variance flags) |
+| **Legal Entity Setup** | Entity-first configuration: entity master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
+| **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Admin / Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
+| **Settings** | Variance threshold, cycle rules, and the "Allow Treasury users to manage users and settings" delegation toggle (admin-only) |
 
 ### Forecast templates
 
@@ -69,42 +70,64 @@ submitters then pick from their assigned templates in My Submissions. Each
 (entity, week, template) combination is stored separately, so previous
 weeks stay editable without affecting current ones.
 
-### Roles &amp; the three experiences
+### Global roles vs. entity responsibilities
 
-The app renders one of three experiences from the mock session (no real
-authentication yet — Phase 3 swaps this for Azure AD). Roles are seeded on
-`src/data/mockData.ts`'s `users` array and switched via the sidebar (see
-below):
+Two deliberately separate concepts:
 
-- **Treasury** (`treasury`): the full Treasury Manager experience — Treasury
-  Dashboard landing page (KPIs, a live *Requires Attention* list covering
-  missing submissions, forecasts awaiting approval, unresolved comments and
-  material week-over-week movements, plus a Region → Country cycle-progress
-  drill-down), all submissions, consolidated and comparison views, approvals,
-  comment review, and every system-configuration screen. This is the default
-  session on a fresh browser.
-- **Admin** (`admin`): a **system-configuration-only** role — just User
-  Management, Forecast Templates and Settings. No Dashboard, submissions,
-  approvals, consolidated/comparison views, or comments review; the sidebar
-  shows only those three pages, and the guard redirects even a direct deep
-  link elsewhere back to User Management.
-- **End user / Analyst** (`submitter`, `approver`): a focused workspace —
-  *My Dashboard* landing page (welcome, current cycle and deadline, forecast
-  week, assigned entities, needs-my-action count, per-forecast status with
-  one-click **Open / Continue Forecast**, Treasury feedback, recent
-  activity), *My Forecasts* scoped to their assigned entities and a
-  read-only *Comments / Feedback* view (approvers additionally get their
-  scoped approval queue). No treasury-wide data, config screens or other
-  entities are reachable.
+| | Answers | Configured in |
+| --- | --- | --- |
+| **Global role** | *What* may this user do? | User Management |
+| **Entity responsibility** | *Where* may they do it? | Legal Entity Setup |
 
-Role logic is centralised in `src/data/session.ts`: `currentUser()`,
-`permissionsFor(user)` (a flat capability map: `canViewTreasuryDashboard`,
-`canManageUsers`, `canSubmitForecasts`, …) and `assignedEntitiesFor(user)`.
-Navigation and the screen guard both derive from it (`navFor` /
-`allowedViews` / `landingViewFor` in `src/types/nav.ts`) — components never
-hardcode role checks. The sidebar user card doubles as a **dev-only user
-switcher** (click it to pick any seeded user) to preview each experience;
-the selection persists locally.
+Nothing about entity assignment is stored on the user object. A legal entity
+owns its own `viewers` / `approvers` / `submitters` lists plus its forecast
+template, and User Management renders a **read-only Responsibilities column**
+derived live from them — remove someone as an approver for Germany in Legal
+Entity Setup and Germany disappears from their responsibilities immediately.
+
+The five global roles:
+
+- **Admin** — system configuration only: User Management, Templates, Legal
+  Entity Setup and Settings. No dashboard or forecast workflow.
+- **Treasury** — the full Treasury Manager experience (Dashboard with the
+  *Requires Attention* list and Region → Country drill-down, submissions,
+  approvals, consolidated, comparisons, comment review) plus **view** access
+  to the configuration screens. Whether Treasury may *modify* those is
+  governed by the Settings toggle below. Default session on a fresh browser.
+- **Approver** — reviews, approves and returns forecasts for assigned
+  entities; scoped approval queue.
+- **Submitter** — edits, comments on and submits forecasts for assigned
+  entities.
+- **Viewer** — read-only forecast access for assigned entities: the grid
+  renders without inputs, and Save/Submit/Import/Reset are all absent.
+
+Approvers, submitters and viewers never see Users, Settings or Legal Entity
+Setup, and only ever the entities assigned to them.
+
+### Treasury management toggle
+
+Settings → *Access & Delegation* → **"Allow Treasury users to manage users and
+settings"**, off by default. While off, Treasury can view User Management,
+Settings and Legal Entity Setup but every control is disabled and a
+**View Only** badge is shown. Turning it on grants Treasury management of all
+three. Only an admin can change the toggle; Treasury sees it disabled.
+
+### Where the logic lives
+
+`src/data/session.ts` is the single source of role logic: `currentUser()`,
+`permissionsFor(user)` — a flat capability map (`canManageUsers`,
+`canManageSettings`, `canManageLegalEntities`, `canSubmitForecasts`,
+`canViewForecasts`, `canViewAllEntities`, `canChangeTreasuryToggle`, …) —
+and `assignedEntitiesFor(user)`. `src/data/legalEntityService.ts` owns the
+entity↔user relationships (`responsibilitiesFor`, `eligibleUsers`,
+`withAssignment`). Navigation and the screen guard derive from permissions
+(`navFor` / `allowedViews` / `landingViewFor` in `src/types/nav.ts`), so
+components never hardcode role checks and Phase 3 can swap in the Azure AD
+identity plus backend authorization in one place.
+
+The sidebar user card doubles as a **dev-only user switcher** (click it to
+pick any seeded user) to preview each experience; the selection persists
+locally.
 
 ### One source of truth
 

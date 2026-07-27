@@ -12,6 +12,7 @@ export type ViewId =
   | 'comparison'
   | 'review'
   | 'templates'
+  | 'legalEntities'
   | 'users'
   | 'settings';
 
@@ -46,24 +47,29 @@ export function navFor(p: Permissions): NavSections {
       admin: [
         { view: 'review', label: 'Comments Review' },
         { view: 'templates', label: 'Templates' },
+        { view: 'legalEntities', label: 'Legal Entity Setup' },
         { view: 'users', label: 'User Management' },
         { view: 'settings', label: 'Settings' },
       ],
     };
   }
 
-  // System-configuration-only role (e.g. admin without treasury duties):
-  // just the pages they manage, nothing financial.
-  const isConfigOnly = p.canManageUsers || p.canManageTemplates || p.canChangeSettings;
-  if (isConfigOnly && !p.canSubmitForecasts && !p.canApproveForecasts) {
-    const admin: NavEntry[] = [];
-    if (p.canManageUsers) admin.push({ view: 'users', label: 'User Management' });
-    if (p.canManageTemplates) admin.push({ view: 'templates', label: 'Templates' });
-    if (p.canChangeSettings) admin.push({ view: 'settings', label: 'Settings' });
-    return { workspace: [], admin };
+  // System-configuration-only role (admin): the configuration screens, no
+  // forecast workflow. Treasury reaches these too, but keeps its workspace.
+  if (p.canViewAdminScreens) {
+    return {
+      workspace: [],
+      admin: [
+        { view: 'users', label: 'User Management' },
+        { view: 'templates', label: 'Templates' },
+        { view: 'legalEntities', label: 'Legal Entity Setup' },
+        { view: 'settings', label: 'Settings' },
+      ],
+    };
   }
 
-  // Focused analyst / approver experience: just their own work.
+  // Focused analyst experience: submitters, approvers and viewers see only
+  // their own work — never users, settings or legal entity configuration.
   const workspace: NavEntry[] = [
     { view: 'analystHome', label: 'My Dashboard' },
     { view: 'submission', label: 'My Forecasts' },

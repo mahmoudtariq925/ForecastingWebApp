@@ -14,8 +14,15 @@ export type SubmissionStatus =
   | 'pending'
   | 'consolidated';
 
-/** Access role assigned to a user, optionally scoped to entities. */
-export type Role = 'admin' | 'treasury' | 'approver' | 'submitter';
+/** Access role assigned to a user. Global roles say WHAT a user may do;
+ * the Legal Entity Setup says WHERE (which entities) they may do it. */
+export type Role = 'admin' | 'treasury' | 'approver' | 'submitter' | 'viewer';
+
+/** Whether a managed user account is active. */
+export type UserStatus = 'active' | 'inactive';
+
+/** Entity-level responsibility a user can hold via Legal Entity Setup. */
+export type EntityResponsibility = 'viewer' | 'approver' | 'submitter';
 
 /** A reporting entity / country team that submits a forecast. */
 export interface Entity {
@@ -46,21 +53,48 @@ export interface Cycle {
   total: number;
 }
 
-/** A managed user and their role assignment. */
+/**
+ * A managed user: WHO they are and their GLOBAL role. Entity-specific
+ * responsibilities are NOT stored here — they live on the legal entities
+ * (see `LegalEntity`) and are configured in Legal Entity Setup, so this
+ * object never has to be rewritten when an entity assignment changes.
+ */
 export interface User {
   name: string;
   email: string;
+  /** Organisational team, informational only (not an entity assignment). */
   team: string;
   role: Role;
-  /** Entities this user can approve for, or "—". */
-  scope: string;
+  status: UserStatus;
+  /** Last login / activity label. */
   last: string;
-  /**
-   * Entities this user works on (submitters/approvers). Admin/treasury see
-   * everything regardless. Users without the field fall back to the entities
-   * that name them as submitter/approver.
-   */
+  /** @deprecated Legacy field from before Legal Entity Setup existed. */
+  scope?: string;
+  /** @deprecated Superseded by the legal-entity assignment lists. */
   assignedEntities?: string[];
+}
+
+/**
+ * A configured legal entity: its master data, the users responsible for it
+ * and the forecast template it uses. This is the single source of truth for
+ * "who can do what, where" — User Management only reads it.
+ */
+export interface LegalEntity {
+  id: string;
+  name: string;
+  country: string;
+  region: string;
+  /** ISO currency code, e.g. "EUR". */
+  currency: string;
+  status: 'active' | 'inactive';
+  /** Emails of users with the global `viewer` role. */
+  viewers: string[];
+  /** Emails of users with the global `approver` role. */
+  approvers: string[];
+  /** Emails of users with the global `submitter` role. */
+  submitters: string[];
+  /** Forecast template this entity submits on. */
+  forecastTemplateId: string;
 }
 
 /**
@@ -143,4 +177,9 @@ export interface Settings {
   exemptNewPeriods: string;
   ssoProvider: string;
   allowedDomains: string;
+  /**
+   * Whether Treasury users may manage users, settings and legal entities.
+   * Off by default (Treasury is view-only there); only admins can change it.
+   */
+  treasuryManagementEnabled: boolean;
 }
