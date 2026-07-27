@@ -1,4 +1,4 @@
-import type { ClipboardEvent } from 'react';
+import { useMemo, type ClipboardEvent } from 'react';
 import type { TemplateCategory, TemplateLayout } from '../../types';
 import type { DayLabel } from '../../data/periods';
 import {
@@ -14,6 +14,7 @@ import {
   subtotalValue,
   type GridValues,
 } from './gridMath';
+import { heatColor, NEUTRAL_SCALE, useHeatScale, type HeatScale } from './heatmap';
 
 const fmt = (v: number) => (v === 0 ? '—' : v.toLocaleString());
 
@@ -31,6 +32,85 @@ export interface ForecastGridProps {
   onPaste?: (catIdx: number, dayIdx: number, e: ClipboardEvent<HTMLInputElement>) => void;
   onCellClick?: (catIdx: number, dayIdx: number) => void;
   onChangeDayComment?: (dayIdx: number, comment: string) => void;
+  /** Diverging heatmap on the numeric cells (on by default). */
+  heatmap?: boolean;
+  /** Extra pinned row/column summing every line item per period. */
+  showColumnTotals?: boolean;
+}
+
+/**
+ * One scale per family of magnitudes. A single shared scale would be
+ * useless here: horizon totals are ~20x a daily cell and running balances
+ * bigger still, so one scale crushes every data cell to the minimum tint.
+ * Each family is normalised against its own visible range, all sharing the
+ * same fixed midpoint of 0.
+ */
+interface GridScales {
+  /** Line-item and subtotal cells. */
+  values: HeatScale;
+  /** Trailing Total column / Net row. */
+  totals: HeatScale;
+  /** Running-total (closing balance) column. */
+  balances: HeatScale;
+}
+
+/** Recompute the colour extremes from the cells currently on screen. */
+function useGridScales(props: ForecastGridProps): GridScales {
+  const { categories, values, startingBalance, dayLabels, heatmap = true } = props;
+  const numDays = dayLabels.length;
+  const numCats = categories.length;
+
+  const valueScale = useHeatScale(() => {
+    if (!heatmap) return [];
+    const out: number[] = [];
+    for (let c = 0; c < numCats; c++) {
+      for (let d = 0; d < numDays; d++) {
+        out.push(
+          categories[c]?.subtotal
+            ? subtotalValue(categories, values, c, d)
+            : catValue(values, c, d),
+        );
+      }
+    }
+    return out;
+  }, [heatmap, categories, values, numDays, numCats]);
+
+  const totalScale = useHeatScale(() => {
+    if (!heatmap) return [];
+    const out: number[] = [];
+    for (let c = 0; c < numCats; c++) {
+      out.push(
+        categories[c]?.subtotal
+          ? subtotalTotal(categories, values, c, numDays)
+          : catTotal(values, c, numDays),
+      );
+    }
+    for (let d = 0; d < numDays; d++) out.push(dayNet(numCats, values, d));
+    return out;
+  }, [heatmap, categories, values, numDays, numCats]);
+
+  const balanceScale = useHeatScale(() => {
+    if (!heatmap) return [];
+    const out: number[] = [];
+    for (let d = 0; d < numDays; d++) {
+      out.push(runningBalance(numCats, values, startingBalance, d));
+    }
+    return out;
+  }, [heatmap, values, numCats, numDays, startingBalance]);
+
+  return useMemo(
+    () =>
+      heatmap
+        ? { values: valueScale, totals: totalScale, balances: balanceScale }
+        : { values: NEUTRAL_SCALE, totals: NEUTRAL_SCALE, balances: NEUTRAL_SCALE },
+    [heatmap, valueScale, totalScale, balanceScale],
+  );
+}
+
+/** Inline background for a numeric cell, or undefined to leave it plain. */
+function fill(value: number, scale: HeatScale): { background: string } | undefined {
+  const background = heatColor(value, scale);
+  return background ? { background } : undefined;
 }
 
 /**
@@ -41,18 +121,25 @@ export interface ForecastGridProps {
  * Values are keyed `${catIdx}-${dayIdx}` in both layouts.
  */
 export function ForecastGrid(props: ForecastGridProps) {
-  return props.layout === 'grouped' ? <GroupedGrid {...props} /> : <DaysAcrossGrid {...props} />;
+  const scales = useGridScales(props);
+  return props.layout === 'grouped' ? (
+    <GroupedGrid {...props} scales={scales} />
+  ) : (
+    <DaysAcrossGrid {...props} scales={scales} />
+  );
 }
 
 function EditableCell({
   catIdx,
   dayIdx,
   props,
+  scale,
   extraClass = '',
 }: {
   catIdx: number;
   dayIdx: number;
   props: ForecastGridProps;
+  scale: HeatScale;
   extraClass?: string;
 }) {
   const { categories, values, flags, editable, onChangeCell, onPaste, onCellClick } = props;
@@ -61,21 +148,28 @@ function EditableCell({
 
   // Computed subtotal rows are never editable — the app derives them.
   if (categories[catIdx]?.subtotal) {
+    const sub = subtotalValue(categories, values, catIdx, dayIdx);
     return (
-      <td className={`cell subtotal-cell ${extraClass}`.trim()}>
-        {fmt(subtotalValue(categories, values, catIdx, dayIdx))}
+      <td className={`cell subtotal-cell ${extraClass}`.trim()} style={fill(sub, scale)}>
+        {fmt(sub)}
       </td>
     );
   }
 
   const val = catValue(values, catIdx, dayIdx);
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${extraClass}`.trim();
+  // A variance flag keeps its amber background — it outranks the heatmap.
+  const style = flagged ? undefined : fill(val, scale);
 
   if (!editable) {
-    return <td className={cls}>{fmt(val)}</td>;
+    return (
+      <td className={cls} style={style}>
+        {fmt(val)}
+      </td>
+    );
   }
   return (
-    <td className={cls} onClick={() => flagged && onCellClick?.(catIdx, dayIdx)}>
+    <td className={cls} style={style} onClick={() => flagged && onCellClick?.(catIdx, dayIdx)}>
       <input
         value={val === 0 ? '' : val}
         data-cat={catIdx}
@@ -93,9 +187,18 @@ function EditableCell({
 // ---------------------------------------------------------------------------
 // days-across: rows = line items, columns = days
 // ---------------------------------------------------------------------------
-function DaysAcrossGrid(props: ForecastGridProps) {
-  const { categories, dayLabels, values, startingBalance, dayComments, editable, onChangeDayComment } =
-    props;
+function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
+  const {
+    categories,
+    dayLabels,
+    values,
+    startingBalance,
+    dayComments,
+    editable,
+    onChangeDayComment,
+    showColumnTotals,
+    scales,
+  } = props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
@@ -131,8 +234,29 @@ function DaysAcrossGrid(props: ForecastGridProps) {
       </thead>
       <tbody>
         {groups.map((g, gi) => (
-          <GroupRows key={gi} group={g} props={props} />
+          <GroupRows
+            key={gi}
+            group={g}
+            props={props}
+            scale={scales.values}
+            totalScale={scales.totals}
+          />
         ))}
+        {showColumnTotals && (
+          <tr className="column-totals-row">
+            <td className="row-label total">Column Total</td>
+            {dayLabels.map((_dl, d) => (
+              <td key={d} className="cell total-cell">
+                {fmt(dayNet(numCats, values, d))}
+              </td>
+            ))}
+            <td className="cell total-cell">
+              {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
+                .reduce((a, b) => a + b, 0)
+                .toLocaleString()}
+            </td>
+          </tr>
+        )}
         {computedRows.map((row) => (
           <tr key={row.label}>
             <td className={`row-label ${row.kind}`}>{row.label}</td>
@@ -181,9 +305,13 @@ function DaysAcrossGrid(props: ForecastGridProps) {
 function GroupRows({
   group,
   props,
+  scale,
+  totalScale,
 }: {
   group: ReturnType<typeof categoryGroups>[number];
   props: ForecastGridProps;
+  scale: HeatScale;
+  totalScale: HeatScale;
 }) {
   const { categories, dayLabels, values } = props;
   const numDays = dayLabels.length;
@@ -205,14 +333,21 @@ function GroupRows({
               {categories[catIdx].label}
             </td>
             {dayLabels.map((_dl, d) => (
-              <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} />
+              <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} scale={scale} />
             ))}
-            <td className="cell" style={{ background: '#ebe9e0', fontWeight: 600 }}>
-              {(isSubtotal
+            {(() => {
+              const rowTotal = isSubtotal
                 ? subtotalTotal(categories, values, catIdx, numDays)
-                : catTotal(values, catIdx, numDays)
-              ).toLocaleString()}
-            </td>
+                : catTotal(values, catIdx, numDays);
+              return (
+                <td
+                  className="cell row-total-cell"
+                  style={{ fontWeight: 600, ...(fill(rowTotal, totalScale) ?? {}) }}
+                >
+                  {rowTotal.toLocaleString()}
+                </td>
+              );
+            })()}
           </tr>
         );
       })}
@@ -223,7 +358,7 @@ function GroupRows({
 // ---------------------------------------------------------------------------
 // grouped: rows = days, columns = categories (standard workbook layout)
 // ---------------------------------------------------------------------------
-function GroupedGrid(props: ForecastGridProps) {
+function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   const {
     categories,
     dayLabels,
@@ -232,10 +367,17 @@ function GroupedGrid(props: ForecastGridProps) {
     dayComments,
     editable,
     onChangeDayComment,
+    showColumnTotals,
+    scales,
   } = props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  // Only the final column of each band gets a vertical rule.
+  const groupEnds = useMemo(
+    () => new Set(groups.map((g) => g.idxs[g.idxs.length - 1])),
+    [groups],
+  );
 
   return (
     <table className="forecast-grid">
@@ -265,7 +407,7 @@ function GroupedGrid(props: ForecastGridProps) {
         </tr>
         <tr>
           {categories.map((cat, i) => (
-            <th key={i} className="day-h">
+            <th key={i} className={`day-h${groupEnds.has(i) ? ' group-end' : ''}`}>
               {cat.label}
             </th>
           ))}
@@ -286,7 +428,14 @@ function GroupedGrid(props: ForecastGridProps) {
               {dl.dow} · {dl.dm}
             </td>
             {categories.map((_cat, catIdx) => (
-              <EditableCell key={catIdx} catIdx={catIdx} dayIdx={dayIdx} props={props} />
+              <EditableCell
+                key={catIdx}
+                catIdx={catIdx}
+                dayIdx={dayIdx}
+                props={props}
+                scale={scales.values}
+                extraClass={groupEnds.has(catIdx) ? 'group-end' : ''}
+              />
             ))}
             <td className="cell comment-cell">
               {editable ? (
@@ -301,12 +450,45 @@ function GroupedGrid(props: ForecastGridProps) {
                 <span style={{ padding: '0 8px' }}>{dayComments?.[String(dayIdx)] ?? ''}</span>
               )}
             </td>
-            <td className="cell subtotal-cell">{fmt(dayNet(numCats, values, dayIdx))}</td>
-            <td className="cell total-cell">
-              {runningBalance(numCats, values, startingBalance, dayIdx).toLocaleString()}
-            </td>
+            {(() => {
+              const net = dayNet(numCats, values, dayIdx);
+              const bal = runningBalance(numCats, values, startingBalance, dayIdx);
+              return (
+                <>
+                  <td className="cell subtotal-cell" style={fill(net, scales.totals)}>
+                    {fmt(net)}
+                  </td>
+                  <td className="cell running-total-cell" style={fill(bal, scales.balances)}>
+                    {bal.toLocaleString()}
+                  </td>
+                </>
+              );
+            })()}
           </tr>
         ))}
+        {showColumnTotals && (
+          <tr className="column-totals-row">
+            <td className="row-label total">Column Total</td>
+            {categories.map((cat, catIdx) => (
+              <td key={catIdx} className="cell total-cell">
+                {fmt(
+                  cat.subtotal
+                    ? subtotalTotal(categories, values, catIdx, numDays)
+                    : catTotal(values, catIdx, numDays),
+                )}
+              </td>
+            ))}
+            <td className="cell total-cell" />
+            <td className="cell total-cell">
+              {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
+                .reduce((a, b) => a + b, 0)
+                .toLocaleString()}
+            </td>
+            <td className="cell total-cell">
+              {runningBalance(numCats, values, startingBalance, numDays - 1).toLocaleString()}
+            </td>
+          </tr>
+        )}
         <tr>
           <td className="row-label total">TOTAL</td>
           {categories.map((cat, catIdx) => (

@@ -167,6 +167,11 @@ export interface ForecastTemplate {
   defaultValues?: Record<string, number>;
   /** Free-text note shown in the template list and editor. */
   description?: string;
+  /**
+   * Show a pinned totals row (or right-most column, depending on the
+   * orientation) summing every line item per period. Persisted per template.
+   */
+  columnTotals?: boolean;
   /** True for templates authored in the browser rather than uploaded. */
   builtInEditor?: boolean;
 }
