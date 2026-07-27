@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
+import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
@@ -240,6 +241,7 @@ function SubmissionEditor({
   selectors,
 }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
+  const { confirm, notify } = useDialog();
   const dates = useMemo(() => horizonDates(week), [week]);
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
   const numCats = template.categories.length;
@@ -354,8 +356,17 @@ function SubmissionEditor({
     persist({ startingBalance: v });
   };
 
-  const reset = () => {
-    if (!confirm('Reset all values?')) return;
+  const reset = async () => {
+    const confirmed = await confirm({
+      title: 'Reset forecast',
+      message:
+        template.id === STANDARD_TEMPLATE_ID
+          ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
+          : 'Clear all values for this week? Your edits will be lost.',
+      confirmLabel: 'Reset Values',
+      danger: true,
+    });
+    if (!confirmed) return;
     if (template.id === STANDARD_TEMPLATE_ID) {
       const { values: v, flags: f } = generateGridValues(
         template.categories,
@@ -373,17 +384,18 @@ function SubmissionEditor({
     }
   };
 
-  const copyPrior = () => {
+  const copyPrior = async () => {
     const prevKey = prevWeekKey(week);
     const hasStored = loadSubmission(prevKey, entity, template.id) !== null;
     setValues({ ...prior });
     setFlags(new Set());
     persist({ values: { ...prior }, flags: new Set() });
-    alert(
-      hasStored
+    await notify({
+      tone: 'success',
+      message: hasStored
         ? `Copied your saved ${weekLabel(prevKey)} submission. Edit as needed.`
         : `Loaded prior-week values for ${weekLabel(prevKey)}. Edit as needed.`,
-    );
+    });
   };
 
   const handleImport = async (file: File) => {
@@ -403,12 +415,18 @@ function SubmissionEditor({
         dayComments: nextDayComments,
         startingBalance: nextBalance,
       });
-      alert(
-        `Imported ${imported.matched} line item${imported.matched === 1 ? '' : 's'} from ${file.name}` +
+      await notify({
+        tone: 'success',
+        message:
+          `Imported ${imported.matched} line item${imported.matched === 1 ? '' : 's'} from ${file.name}` +
           (imported.startingBalance !== undefined ? ' (incl. starting balance).' : '.'),
-      );
+      });
     } catch (err) {
-      alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      await notify({
+        title: 'Import failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
@@ -435,13 +453,15 @@ function SubmissionEditor({
 
   const uncommented = [...flags].filter((k) => !comments[k]?.trim());
 
-  const submit = () => {
+  const submit = async () => {
     if (uncommented.length > 0) {
-      if (
-        confirm(
-          `${uncommented.length} flagged cell${uncommented.length === 1 ? '' : 's'} still need commentary. Add it now?`,
-        )
-      ) {
+      const addNow = await confirm({
+        title: 'Commentary required',
+        message: `${uncommented.length} flagged cell${uncommented.length === 1 ? '' : 's'} still need commentary before this forecast can be closed. Add it now?`,
+        confirmLabel: 'Add Commentary',
+        cancelLabel: 'Submit Anyway',
+      });
+      if (addNow) {
         const [c, d] = uncommented[0].split('-').map(Number);
         openVariance(c, d);
         return;
@@ -449,12 +469,12 @@ function SubmissionEditor({
     }
     setStatus('submitted');
     persist({ status: 'submitted' });
-    alert('Forecast submitted for approval.');
+    await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
   };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     persist();
-    alert('Draft saved. All values are kept in this browser.');
+    await notify({ tone: 'success', message: 'Draft saved. All values are kept in this browser.' });
   };
 
   const exportGrid = () => {
@@ -470,7 +490,11 @@ function SubmissionEditor({
       dayComments,
       filename: `${entity.replace(/\s+/g, '-')}-${week}-forecast.xlsx`,
     }).catch((err) =>
-      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`),
+      notify({
+        title: 'Export failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      }),
     );
   };
 

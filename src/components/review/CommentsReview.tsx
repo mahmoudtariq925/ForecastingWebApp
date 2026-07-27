@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
+import { useDialog } from '../common/dialogContext';
 import {
   collectReviewGroups,
   resolveAllFlags,
@@ -53,6 +54,7 @@ export function CommentsReview({
   canResolve = true,
 }: CommentsReviewProps) {
   const templates = useMemo(() => loadTemplates(), []);
+  const { confirm } = useDialog();
   // Bumped after every write so the groups re-read from storage.
   const [version, setVersion] = useState(0);
   const groups = useMemo(() => {
@@ -150,9 +152,13 @@ export function CommentsReview({
     setVersion((v) => v + 1);
   };
 
-  const resolveGroup = (g: ReviewGroup) => {
-    if (!confirm(`Mark all ${g.unresolved} unresolved comments for ${g.entity} · ${weekLabelShort(g.period)} as reviewed?`))
-      return;
+  const resolveGroup = async (g: ReviewGroup) => {
+    const confirmed = await confirm({
+      title: 'Resolve all comments',
+      message: `Mark all ${g.unresolved} unresolved comment${g.unresolved === 1 ? '' : 's'} for ${g.entity} · ${weekLabelShort(g.period)} as reviewed?`,
+      confirmLabel: 'Resolve All',
+    });
+    if (!confirmed) return;
     resolveAllFlags(g.period, g.entity, g.templateId);
     setVersion((v) => v + 1);
   };

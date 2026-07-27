@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
+import { useDialog } from './dialogContext';
 import {
   cycles as seedCycles,
   entities,
@@ -73,11 +74,12 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
   const [format, setFormat] = useState<'xlsx' | 'csv' | 'json'>('xlsx');
   const [scope, setScope] = useState('consolidated');
   const [busy, setBusy] = useState(false);
+  const { notify } = useDialog();
 
-  const createCycle = () => {
+  const createCycle = async () => {
     const id = cycleId.trim();
     if (!id) {
-      alert('Please enter a cycle ID.');
+      await notify({ tone: 'error', message: 'Please enter a cycle ID.' });
       return;
     }
     onCreateCycle({
@@ -134,7 +136,11 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
       }
       onClose();
     } catch (err) {
-      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+      await notify({
+        title: 'Export failed',
+        tone: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }

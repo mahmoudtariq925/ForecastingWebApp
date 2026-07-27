@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
+import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { users as seedUsers } from '../../data/mockData';
 import { currentUser, permissionsFor } from '../../data/session';
@@ -63,6 +64,7 @@ function formatDate(iso: string): string {
 export function LegalEntitySetup() {
   const me = currentUser();
   const canManage = permissionsFor(me).canManageLegalEntities;
+  const { notify } = useDialog();
 
   const [entityList, setEntityList] = useState<LegalEntity[]>(() => listLegalEntities());
   const [selectedId, setSelectedId] = useState<string>(() => listLegalEntities()[0]?.id ?? '');
@@ -95,14 +97,14 @@ export function LegalEntitySetup() {
     applyEntity(withAssignment(selected, responsibility, email, assigned));
   };
 
-  const addEntity = () => {
+  const addEntity = async () => {
     const name = entityForm.name.trim();
     if (!name) {
-      alert('Legal entity name is required.');
+      await notify({ tone: 'error', message: 'Legal entity name is required.' });
       return;
     }
     if (entityList.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
-      alert('A legal entity with this name already exists.');
+      await notify({ tone: 'error', message: 'A legal entity with this name already exists.' });
       return;
     }
     const created: LegalEntity = {

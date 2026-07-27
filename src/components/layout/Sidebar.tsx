@@ -15,6 +15,9 @@ interface SidebarProps {
   onSwitchUser: (email: string) => void;
   /** Mobile drawer state — ignored on desktop widths. */
   open?: boolean;
+  /** Desktop: collapsed to an icon rail so the content area maximises. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 const initials = (name: string) =>
@@ -30,7 +33,15 @@ const initials = (name: string) =>
  * permissions (treasury manager vs focused analyst), and the user card
  * doubles as a mock-session switcher for testing each experience.
  */
-export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }: SidebarProps) {
+export function Sidebar({
+  active,
+  user,
+  onNavigate,
+  onSwitchUser,
+  open = false,
+  collapsed = false,
+  onToggleCollapsed,
+}: SidebarProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
   const sections = navFor(permissionsFor(user));
@@ -45,13 +56,31 @@ export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }
     return () => document.removeEventListener('mousedown', close);
   }, [switcherOpen]);
 
+  // Collapsing hides labels, so the switcher panel would have nowhere to sit.
+  const showSwitcher = switcherOpen && !collapsed;
+
   return (
-    <aside className={`sidebar${open ? ' open' : ''}`}>
+    <aside className={`sidebar${open ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}>
       <div className="brand">
-        <div className="brand-mark">
-          Liquid<span>·</span>
+        <div className="brand-text">
+          <div className="brand-mark">
+            Liquid<span>·</span>
+          </div>
+          <div className="brand-sub">Cash Flow Forecasting</div>
         </div>
-        <div className="brand-sub">Cash Flow Forecasting</div>
+        {onToggleCollapsed && (
+          <button
+            className="collapse-btn"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <polyline points={collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
+            </svg>
+          </button>
+        )}
       </div>
 
       {sections.workspace.length > 0 && (
@@ -62,9 +91,10 @@ export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }
               key={entry.view}
               className={`nav-item${active === entry.view ? ' active' : ''}`}
               onClick={() => onNavigate(entry.view)}
+              title={collapsed ? entry.label : undefined}
             >
               <NavIcon view={entry.view} />
-              {entry.label}
+              <span className="nav-item-label">{entry.label}</span>
             </button>
           ))}
         </div>
@@ -78,16 +108,17 @@ export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }
               key={entry.view}
               className={`nav-item${active === entry.view ? ' active' : ''}`}
               onClick={() => onNavigate(entry.view)}
+              title={collapsed ? entry.label : undefined}
             >
               <NavIcon view={entry.view} />
-              {entry.label}
+              <span className="nav-item-label">{entry.label}</span>
             </button>
           ))}
         </div>
       )}
 
       <div className="user-card-wrap" ref={switcherRef}>
-        {switcherOpen && (
+        {showSwitcher && (
           <div className="user-switcher" role="menu" aria-label="Switch mock user">
             <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
               Switch User (dev)
@@ -112,14 +143,19 @@ export function Sidebar({ active, user, onNavigate, onSwitchUser, open = false }
         )}
         <button
           className="user-card"
-          onClick={() => setSwitcherOpen((v) => !v)}
-          title="Switch mock user (no real sign-in yet)"
+          onClick={() => (collapsed ? onToggleCollapsed?.() : setSwitcherOpen((v) => !v))}
+          title={
+            collapsed
+              ? `${user.name} · ${user.role} — expand to switch user`
+              : 'Switch mock user (no real sign-in yet)'
+          }
         >
           <div className="avatar">{initials(user.name)}</div>
           <div className="user-info">
             <div className="user-name">{user.name}</div>
             <div className="user-role">
-              {user.team} · {user.role}
+              {user.team ? `${user.team} · ` : ''}
+              {user.role}
             </div>
           </div>
           <span className="user-caret">▴</span>

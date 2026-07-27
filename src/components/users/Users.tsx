@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
+import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { users as seedUsers } from '../../data/mockData';
 import { currentUser, permissionsFor } from '../../data/session';
@@ -104,6 +105,7 @@ export function Users() {
 
   const me = currentUser();
   const canManage = permissionsFor(me).canManageUsers;
+  const { confirm, notify } = useDialog();
 
   // Responsibilities come from the legal entities, never from the user.
   const legalEntities = useMemo(() => listLegalEntities(), []);
@@ -141,18 +143,18 @@ export function Users() {
     setEditingEmail(null);
   };
 
-  const saveUser = () => {
+  const saveUser = async () => {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
     if (!name || !email) {
-      alert('Name and email are required.');
+      await notify({ message: 'Name and email are required.', tone: 'error' });
       return;
     }
     const duplicate = users.some(
       (u) => u.email.toLowerCase() === email && u.email !== editingEmail,
     );
     if (duplicate) {
-      alert('A user with this email already exists.');
+      await notify({ message: 'A user with this email already exists.', tone: 'error' });
       return;
     }
 
@@ -187,13 +189,26 @@ export function Users() {
     commit(users.map((x) => (x.email === u.email ? { ...x, status: next } : x)));
   };
 
-  const removeUser = (u: User) => {
+  const removeUser = async (u: User) => {
     const held = responsibilities.get(u.email) ?? [];
-    const warning =
-      held.length > 0
-        ? `Remove ${u.name} (${u.email})? They are still assigned to ${held.length} entit${held.length === 1 ? 'y' : 'ies'} in Legal Entity Setup.`
-        : `Remove ${u.name} (${u.email})?`;
-    if (!confirm(warning)) return;
+    const confirmed = await confirm({
+      title: 'Remove user',
+      message: (
+        <>
+          Remove <strong>{u.name}</strong> ({u.email})?
+          {held.length > 0 && (
+            <>
+              {'\n\n'}They are still assigned to {held.length} entit
+              {held.length === 1 ? 'y' : 'ies'} in Legal Entity Setup:{' '}
+              {held.map((r) => r.entityName).join(', ')}.
+            </>
+          )}
+        </>
+      ),
+      confirmLabel: 'Remove User',
+      danger: true,
+    });
+    if (!confirmed) return;
     commit(users.filter((x) => x.email !== u.email));
   };
 
