@@ -10,6 +10,8 @@ import {
   dayNet,
   dayOutflows,
   runningBalance,
+  subtotalTotal,
+  subtotalValue,
   type GridValues,
 } from './gridMath';
 
@@ -53,10 +55,20 @@ function EditableCell({
   props: ForecastGridProps;
   extraClass?: string;
 }) {
-  const { values, flags, editable, onChangeCell, onPaste, onCellClick } = props;
+  const { categories, values, flags, editable, onChangeCell, onPaste, onCellClick } = props;
   const key = cellKey(catIdx, dayIdx);
-  const val = catValue(values, catIdx, dayIdx);
   const flagged = flags.has(key);
+
+  // Computed subtotal rows are never editable — the app derives them.
+  if (categories[catIdx]?.subtotal) {
+    return (
+      <td className={`cell subtotal-cell ${extraClass}`.trim()}>
+        {fmt(subtotalValue(categories, values, catIdx, dayIdx))}
+      </td>
+    );
+  }
+
+  const val = catValue(values, catIdx, dayIdx);
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${extraClass}`.trim();
 
   if (!editable) {
@@ -185,17 +197,25 @@ function GroupRows({
           ))}
         </tr>
       )}
-      {group.idxs.map((catIdx) => (
-        <tr key={catIdx}>
-          <td className="row-label indent">{categories[catIdx].label}</td>
-          {dayLabels.map((_dl, d) => (
-            <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} />
-          ))}
-          <td className="cell" style={{ background: '#ebe9e0', fontWeight: 600 }}>
-            {catTotal(values, catIdx, numDays).toLocaleString()}
-          </td>
-        </tr>
-      ))}
+      {group.idxs.map((catIdx) => {
+        const isSubtotal = categories[catIdx].subtotal === true;
+        return (
+          <tr key={catIdx}>
+            <td className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}`}>
+              {categories[catIdx].label}
+            </td>
+            {dayLabels.map((_dl, d) => (
+              <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} />
+            ))}
+            <td className="cell" style={{ background: '#ebe9e0', fontWeight: 600 }}>
+              {(isSubtotal
+                ? subtotalTotal(categories, values, catIdx, numDays)
+                : catTotal(values, catIdx, numDays)
+              ).toLocaleString()}
+            </td>
+          </tr>
+        );
+      })}
     </>
   );
 }
@@ -289,9 +309,13 @@ function GroupedGrid(props: ForecastGridProps) {
         ))}
         <tr>
           <td className="row-label total">TOTAL</td>
-          {categories.map((_cat, catIdx) => (
+          {categories.map((cat, catIdx) => (
             <td key={catIdx} className="cell total-cell">
-              {fmt(catTotal(values, catIdx, numDays))}
+              {fmt(
+                cat.subtotal
+                  ? subtotalTotal(categories, values, catIdx, numDays)
+                  : catTotal(values, catIdx, numDays),
+              )}
             </td>
           ))}
           <td className="cell total-cell" />

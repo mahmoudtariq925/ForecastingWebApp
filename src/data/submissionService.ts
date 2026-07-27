@@ -58,7 +58,8 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
   const isStandard = template.id === STANDARD_TEMPLATE_ID;
   const { values, flags } = isStandard
     ? generateGridValues(template.categories, week, seedFor(`${entity}:${week}`), true)
-    : { values: {}, flags: [] };
+    // Templates authored in the editor can carry starting values.
+    : { values: { ...(template.defaultValues ?? {}) }, flags: [] as string[] };
 
   return {
     period: week,

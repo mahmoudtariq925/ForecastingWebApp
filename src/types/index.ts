@@ -121,6 +121,21 @@ export type TemplateLayout = 'days-across' | 'grouped';
 export interface TemplateCategory {
   label: string;
   group?: string;
+  /**
+   * A computed subtotal row rather than an input line: the app sums the
+   * preceding line items of the same group into it, and it is excluded from
+   * the grand totals so nothing is double counted.
+   */
+  subtotal?: boolean;
+}
+
+/** How many forecast columns a template has, and how far apart they are. */
+export type PeriodGranularity = 'day' | 'week' | 'month';
+
+export interface TemplatePeriods {
+  /** Number of forecast periods (columns in days-across orientation). */
+  count: number;
+  granularity: PeriodGranularity;
 }
 
 /** An uploaded (or seeded) forecast template. */
@@ -139,6 +154,21 @@ export interface ForecastTemplate {
   categories: TemplateCategory[];
   /** Base64 of the original .xlsx for download/re-use (small files only). */
   fileData?: string;
+  /**
+   * Forecast columns. Omitted for templates built before the in-browser
+   * editor (and for uploaded workbooks), which keep the standard
+   * four-week / 20-working-day horizon.
+   */
+  periods?: TemplatePeriods;
+  /**
+   * Starting values seeded into a new submission, keyed `${catIdx}-${periodIdx}`
+   * exactly like `Submission.values`. Set in the template editor.
+   */
+  defaultValues?: Record<string, number>;
+  /** Free-text note shown in the template list and editor. */
+  description?: string;
+  /** True for templates authored in the browser rather than uploaded. */
+  builtInEditor?: boolean;
 }
 
 /**

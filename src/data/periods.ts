@@ -150,3 +150,69 @@ export function dayLabelsForWeek(key: string): DayLabel[] {
     iso: toIso(d),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Template-driven horizons. Templates authored in the in-browser editor can
+// declare their own number of forecast periods and granularity; templates
+// without a `periods` block (uploaded workbooks, the seeded standard one)
+// keep the classic four-week / 20-working-day horizon, so every existing
+// screen and stored submission behaves exactly as before.
+// ---------------------------------------------------------------------------
+import type { ForecastTemplate, TemplatePeriods } from '../types';
+
+/** The period config a template uses, defaulted to the standard horizon. */
+export function periodsOf(template?: Pick<ForecastTemplate, 'periods'> | null): TemplatePeriods {
+  const p = template?.periods;
+  if (!p || !Number.isFinite(p.count) || p.count < 1) {
+    return { count: HORIZON_DAYS, granularity: 'day' };
+  }
+  return { count: Math.min(Math.round(p.count), 120), granularity: p.granularity ?? 'day' };
+}
+
+/** Dates for a template's forecast columns, starting at `key`'s Monday. */
+export function templateDates(
+  template: Pick<ForecastTemplate, 'periods'> | null | undefined,
+  key: string,
+): Date[] {
+  const { count, granularity } = periodsOf(template);
+  if (granularity === 'day') {
+    const out: Date[] = [];
+    const d = fromKey(key);
+    while (out.length < count) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) out.push(new Date(d));
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  }
+  const out: Date[] = [];
+  const start = fromKey(key);
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start);
+    if (granularity === 'week') d.setDate(d.getDate() + i * 7);
+    else d.setMonth(d.getMonth() + i);
+    out.push(d);
+  }
+  return out;
+}
+
+/** Column headers for a template's forecast periods. */
+export function templateDayLabels(
+  template: Pick<ForecastTemplate, 'periods'> | null | undefined,
+  key: string,
+): DayLabel[] {
+  const { granularity } = periodsOf(template);
+  return templateDates(template, key).map((d) => ({
+    dm:
+      granularity === 'month'
+        ? `${MONTHS[d.getMonth()].slice(0, 3)} ${String(d.getFullYear()).slice(2)}`
+        : `${d.getDate()}/${d.getMonth() + 1}`,
+    dow:
+      granularity === 'day'
+        ? d.toLocaleDateString('en-US', { weekday: 'short' })
+        : granularity === 'week'
+          ? `Wk ${isoWeekNumber(d)}`
+          : MONTHS[d.getMonth()],
+    weekend: false,
+    iso: toIso(d),
+  }));
+}
