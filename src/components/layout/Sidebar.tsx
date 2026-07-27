@@ -13,6 +13,8 @@ interface SidebarProps {
   onNavigate: (view: ViewId) => void;
   /** Dev-only mock session switch (until real authentication exists). */
   onSwitchUser: (email: string) => void;
+  /** Re-run the guided walkthrough for the signed-in user. */
+  onReplayTour?: () => void;
   /** Mobile drawer state — ignored on desktop widths. */
   open?: boolean;
   /** Desktop: collapsed to an icon rail so the content area maximises. */
@@ -38,6 +40,7 @@ export function Sidebar({
   user,
   onNavigate,
   onSwitchUser,
+  onReplayTour,
   open = false,
   collapsed = false,
   onToggleCollapsed,
@@ -46,6 +49,10 @@ export function Sidebar({
   const switcherRef = useRef<HTMLDivElement>(null);
   const sections = navFor(permissionsFor(user));
   const allUsers = loadUsers(seedUsers);
+  // Brand-new joiners are grouped separately: picking one always replays
+  // that role's walkthrough, which is how each tour gets reviewed.
+  const existingUsers = allUsers.filter((u) => !u.alwaysTour);
+  const newJoiners = allUsers.filter((u) => u.alwaysTour);
 
   useEffect(() => {
     if (!switcherOpen) return;
@@ -92,6 +99,7 @@ export function Sidebar({
               className={`nav-item${active === entry.view ? ' active' : ''}`}
               onClick={() => onNavigate(entry.view)}
               title={collapsed ? entry.label : undefined}
+              data-tour={`nav-${entry.view}`}
             >
               <NavIcon view={entry.view} />
               <span className="nav-item-label">{entry.label}</span>
@@ -109,6 +117,7 @@ export function Sidebar({
               className={`nav-item${active === entry.view ? ' active' : ''}`}
               onClick={() => onNavigate(entry.view)}
               title={collapsed ? entry.label : undefined}
+              data-tour={`nav-${entry.view}`}
             >
               <NavIcon view={entry.view} />
               <span className="nav-item-label">{entry.label}</span>
@@ -119,11 +128,59 @@ export function Sidebar({
 
       <div className="user-card-wrap" ref={switcherRef}>
         {showSwitcher && (
-          <div className="user-switcher" role="menu" aria-label="Switch mock user">
+          <div className="user-switcher" role="menu" aria-label="User menu">
+            {onReplayTour && (
+              <>
+                <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
+                  Help
+                </div>
+                <button
+                  className="user-switch-item"
+                  data-tour="replay-walkthrough"
+                  onClick={() => {
+                    setSwitcherOpen(false);
+                    onReplayTour();
+                  }}
+                >
+                  <span className="tour-replay-icon" aria-hidden="true">
+                    ?
+                  </span>
+                  <span className="user-switch-name">Replay walkthrough</span>
+                </button>
+                <div className="user-switcher-divider" />
+              </>
+            )}
+            {newJoiners.length > 0 && (
+              <>
+                <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
+                  New joiners · runs the tour
+                </div>
+                {newJoiners.map((u) => (
+                  <button
+                    key={u.email}
+                    className={`user-switch-item joiner${u.email === user.email ? ' active' : ''}`}
+                    data-tour-demo={u.role}
+                    title={`Start the ${u.role} walkthrough as ${u.name}`}
+                    onClick={() => {
+                      setSwitcherOpen(false);
+                      if (u.email !== user.email) onSwitchUser(u.email);
+                      else onReplayTour?.();
+                    }}
+                  >
+                    <span className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
+                      {initials(u.name)}
+                    </span>
+                    <span className="user-switch-name">{u.name}</span>
+                    <span className={`role-tag ${u.role}`}>{u.role}</span>
+                  </button>
+                ))}
+                <div className="user-switcher-divider" />
+              </>
+            )}
             <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
               Switch User (dev)
             </div>
-            {allUsers.map((u) => (
+            {existingUsers.map((u) => (
               <button
                 key={u.email}
                 className={`user-switch-item${u.email === user.email ? ' active' : ''}`}

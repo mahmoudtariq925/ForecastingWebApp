@@ -164,6 +164,39 @@ from the same stored submissions the Submission screen edits, via
 back to deterministic demo data). Change a cell in My Submissions and the
 consolidated totals, comparison tabs, variance tables and charts all follow.
 
+### Guided walkthrough (onboarding)
+
+New users are shown a short, role-aware product tour the first time they sign
+in. Each role sees only the screens it actually has: a Submitter is walked
+through entering numbers and submitting, an Approver through the queue and the
+approve/reject decision, a Viewer through filtering and exporting, Treasury
+through the group dashboard, consolidation and comment triage, and an Admin
+through user management, Legal Entity Setup, the template builder and the
+delegation toggle. The tour navigates between screens on its own.
+
+- **Library:** [driver.js](https://driverjs.com) (~5 KB gzipped, zero
+  dependencies, TypeScript types, plain CSS selectors). Chosen over Shepherd.js
+  (larger, pulls in Floating UI) and reactour (React-portal based, heavier and
+  more opinionated about markup) because the highlighting is selector-driven,
+  which lets every step target a stable `data-tour` attribute instead of a
+  component. Nothing about the tour leaks into the screens themselves.
+- **All content lives in `src/onboarding/tourSteps.ts`** — one array per role,
+  each step a `{ selector, title, body, view, side }` object. Adding,
+  reordering or rewording a step is a change to that file only.
+- **`src/onboarding/useOnboardingTour.ts`** is the engine: it switches screens
+  between steps, waits for React to render the target, and **skips any step
+  whose element isn't there** (a hidden feature, a role variation, a narrow
+  screen) rather than breaking the sequence.
+- **When it runs:** automatically on a user's first sign-in (tracked per email
+  under `liquid:onboarding:seen:<email>`), or when an invite link carries
+  `?welcome=1` — the invite emails sent from User Management include it.
+  Afterwards it's available on demand from **your name → Replay walkthrough**.
+- **Trying each role:** the user switcher lists five demo joiners under
+  *New joiners · runs the tour* (Nina Brandt – Submitter, Omar Haddad –
+  Approver, Priya Raman – Viewer, Rasmus Nilsen – Treasury, Elena Fischer –
+  Admin). Picking one starts that role's walkthrough; picking the one you're
+  already signed in as replays it.
+
 ### Email actions (frontend-only)
 
 Buttons like **Email Approver**, **Send Chaser**, **Email Summary** and the
@@ -227,6 +260,9 @@ src/
     users/         User management
     settings/      Settings screen (+ defaults)
     common/        Modal, StatusPill, Chart (data-driven SVG), icons, AppModals
+  onboarding/
+    tourSteps.ts   Role-aware walkthrough content (the only file to edit)
+    useOnboardingTour.ts  Tour engine: screen changes, waiting, graceful skips
   data/
     mockData.ts    Seed data, the standard template, demo-value generation
     periods.ts     Reporting periods (month/year) and day labels
@@ -256,6 +292,7 @@ All reads and writes go through `src/storage/localStorage.ts`. It persists:
 - cycle statuses (`saveCycles` / `saveCycle`)
 - user roles (`saveUsers` / `loadUsers`)
 - settings (`saveSettings` / `loadSettings`)
+- whether each user has seen the walkthrough (`onboarding:seen:<email>`)
 
 Data loads on app start and saves on every change. Because no component talks
 to `localStorage` directly, swapping to a real API in Phase 2 is a change to

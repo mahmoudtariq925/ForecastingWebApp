@@ -62,7 +62,7 @@ function openSetupEmail(user: User, responsibilities: Responsibility[]): void {
       `Role: ${user.role}\n` +
       `Entity responsibilities: ${scope}\n\n` +
       `Getting started:\n` +
-      `1. Open ${appUrl()}\n` +
+      `1. Open ${appUrl()}?welcome=1\n` +
       `2. Sign in with your ${settings.allowedDomains.split(/[,\s]+/)[0] ?? '@contoso.com'} account (${settings.ssoProvider.split('·')[0].trim()})\n` +
       `3. Go to "My Forecasts" to see the entities assigned to you${user.role === 'approver' ? ', or "Approvals" to review your queue' : ''}\n\n` +
       `If anything looks wrong, just reply to this email.\n\n` +
@@ -219,7 +219,7 @@ export function Users() {
         title="User Management"
         actions={
           canManage ? (
-            <button className="btn btn-primary" onClick={openAdd}>
+            <button className="btn btn-primary" data-tour="add-user" onClick={openAdd}>
               + Add User
             </button>
           ) : (
@@ -239,7 +239,7 @@ export function Users() {
             </div>
           </div>
           <div className="panel-body no-pad">
-            <table>
+            <table data-tour="users-table">
               <thead>
                 <tr>
                   <th>Name</th>

@@ -95,7 +95,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                 <p>Nothing awaiting approval.</p>
               </div>
             ) : (
-              <table>
+              <table data-tour="approvals-table">
                 <thead>
                   <tr>
                     <th>Entity / Team</th>
@@ -151,6 +151,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                               <button
                                 className="btn btn-ghost"
                                 style={{ padding: '4px 10px', fontSize: 11 }}
+                                data-tour="approvals-review"
                                 onClick={() =>
                                   onOpenSubmission({
                                     entity: e.name,
@@ -171,6 +172,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                                 <button
                                   className="btn btn-success"
                                   style={{ padding: '4px 10px', fontSize: 11 }}
+                                  data-tour="approvals-decide"
                                   onClick={() => decide(e.name, 'approved')}
                                 >
                                   Approve

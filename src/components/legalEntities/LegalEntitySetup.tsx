@@ -159,6 +159,7 @@ export function LegalEntitySetup() {
                 value={selected?.id ?? ''}
                 onChange={(e) => setSelectedId(e.target.value)}
                 aria-label="Select legal entity"
+                data-tour="entity-selector"
               >
                 {entityList.map((e) => (
                   <option key={e.id} value={e.id}>
@@ -371,7 +372,7 @@ export function LegalEntitySetup() {
 
             {/* ---------- Forecast template ---------- */}
             <div className="section-header">
-              <h2>Forecast Template</h2>
+              <h2 data-tour="entity-template">Forecast Template</h2>
               <span className="tag">used for this entity’s submissions</span>
             </div>
             <div className="panel">

@@ -137,7 +137,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         }
       />
       <div className="content">
-        <div className="kpi-grid">
+        <div className="kpi-grid" data-tour="analyst-kpis">
           <div className="kpi-card">
             <div className="kpi-label">Current Cycle</div>
             <div className="kpi-value">{activeCycle?.id ?? '—'}</div>
@@ -192,7 +192,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   </span>
                 )}
               </div>
-              <div className="row-flex">
+              <div className="row-flex" data-tour="analyst-forecast-actions">
                 {w.needCommentary > 0 && (
                   <span className="badge-num warn">
                     {w.needCommentary} variance{w.needCommentary === 1 ? '' : 's'} to explain

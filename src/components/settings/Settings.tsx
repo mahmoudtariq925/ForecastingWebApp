@@ -117,7 +117,7 @@ export function Settings() {
           </div>
           <div className="panel-body">
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="toggle-row">
+              <label className="toggle-row" data-tour="treasury-toggle">
                 <input
                   type="checkbox"
                   checked={settings.treasuryManagementEnabled === true}

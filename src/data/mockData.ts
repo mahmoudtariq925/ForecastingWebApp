@@ -45,14 +45,14 @@ const SEED_ASSIGNMENTS: Record<
   { viewers?: string[]; approvers?: string[]; submitters?: string[] }
 > = {
   Netherlands: {
-    submitters: ['jan.devries@contoso.com'],
+    submitters: ['jan.devries@contoso.com', 'nina.brandt@contoso.com'],
     approvers: ['pieter.bakker@contoso.com'],
-    viewers: ['tom.whitfield@contoso.com'],
+    viewers: ['tom.whitfield@contoso.com', 'priya.raman@contoso.com'],
   },
   Germany: {
     submitters: ['anna.mueller@contoso.com'],
-    approvers: ['klaus.weber@contoso.com'],
-    viewers: ['tom.whitfield@contoso.com'],
+    approvers: ['klaus.weber@contoso.com', 'omar.haddad@contoso.com'],
+    viewers: ['tom.whitfield@contoso.com', 'priya.raman@contoso.com'],
   },
   'United Kingdom': { approvers: ['sarah.obrien@contoso.com'] },
   Switzerland: { approvers: ['klaus.weber@contoso.com'] },
@@ -104,6 +104,17 @@ export const users: User[] = [
   { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: '20m ago' },
   { name: 'Tom Whitfield', email: 'tom.whitfield@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: '1d ago' },
   { name: 'Sofia Almeida', email: 'sofia.almeida@contoso.com', team: 'Group Finance', role: 'viewer', status: 'inactive', last: '3w ago' },
+
+  // ---------------------------------------------------------------------
+  // Brand-new joiners, one per role. They have never signed in, so picking
+  // one from the user switcher always runs that role's guided walkthrough
+  // — the quickest way to review every tour end to end.
+  // ---------------------------------------------------------------------
+  { name: 'Nina Brandt', email: 'nina.brandt@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: 'Never', alwaysTour: true },
+  { name: 'Omar Haddad', email: 'omar.haddad@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: 'Never', alwaysTour: true },
+  { name: 'Priya Raman', email: 'priya.raman@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: 'Never', alwaysTour: true },
+  { name: 'Rasmus Nilsen', email: 'rasmus.nilsen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Never', alwaysTour: true },
+  { name: 'Elena Fischer', email: 'elena.fischer@contoso.com', team: 'Treasury HQ', role: 'admin', status: 'active', last: 'Never', alwaysTour: true },
 ];
 
 // ---------------------------------------------------------------------------

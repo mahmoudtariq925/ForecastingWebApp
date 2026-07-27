@@ -582,7 +582,7 @@ function SubmissionEditor({
                 <button className="btn btn-ghost" onClick={saveDraft}>
                   Save Draft
                 </button>
-                <button className="btn btn-primary" onClick={submit}>
+                <button className="btn btn-primary" data-tour="submit-forecast" onClick={submit}>
                   Submit for Approval
                 </button>
               </>
@@ -592,7 +592,7 @@ function SubmissionEditor({
       />
       <div className="content">
         {flags.size > 0 && (
-          <div className="variance-panel">
+          <div className="variance-panel" data-tour="variance-panel">
             <h4>⚠ Variance Flags Detected</h4>
             <div className="row">
               <span>
@@ -608,14 +608,18 @@ function SubmissionEditor({
 
         <div className="panel">
           <div className="grid-toolbar">
-            <div className="grid-toolbar-left">{selectors}</div>
+            <div className="grid-toolbar-left" data-tour="submission-filters">{selectors}</div>
             <div className="row-flex">
               {!readOnly && (
-                <button className="btn btn-ghost" onClick={() => importInput.current?.click()}>
+                <button
+                  className="btn btn-ghost"
+                  data-tour="import-excel"
+                  onClick={() => importInput.current?.click()}
+                >
                   Import Excel
                 </button>
               )}
-              <button className="btn btn-ghost" onClick={exportGrid}>
+              <button className="btn btn-ghost" data-tour="export-excel" onClick={exportGrid}>
                 Export Excel
               </button>
               <button className="btn btn-ghost" onClick={emailApprover}>
@@ -656,7 +660,7 @@ function SubmissionEditor({
                   · inflows +, outflows −
                 </span>
               </div>
-              <div className="seg-toggle" role="group" aria-label="Grid orientation">
+              <div className="seg-toggle" role="group" aria-label="Grid orientation" data-tour="orientation-toggle">
                 <button
                   className={orientation === 'days-across' ? 'active' : ''}
                   onClick={() => onChangeOrientation('days-across')}
@@ -691,7 +695,7 @@ function SubmissionEditor({
               />
             </div>
           </div>
-          <div className="forecast-grid-wrap">
+          <div className="forecast-grid-wrap" data-tour="forecast-grid">
             <ForecastGrid
               categories={template.categories}
               layout={orientation}
