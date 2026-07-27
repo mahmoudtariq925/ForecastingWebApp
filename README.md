@@ -18,7 +18,7 @@ later).
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector |
 | **Comments Review** | Admin triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
-| **Templates** | Upload .xlsx forecast templates (structure & orientation auto-detected), assign them to countries, edit / replace / download / remove |
+| **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
 | **Legal Entity Setup** | Entity-first configuration: entity master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Admin / Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
 | **Settings** | Variance threshold, cycle rules, and the "Allow Treasury users to manage users and settings" delegation toggle (admin-only) |
@@ -46,6 +46,32 @@ The built-in default template mirrors the standard treasury workbook
 Securities, CAPEX, IC Settlements, Other) with a per-submission **starting
 balance** and running-balance calculation. Sign convention: inflows positive,
 outflows negative.
+
+### Building a template in the browser
+
+Templates no longer have to come from Excel. **Templates → + Create Template**
+opens a spreadsheet-style builder where the grid *is* the template:
+
+- **Rows** are the forecast structure — each row is a *section* band, an
+  input *line item*, or a computed *subtotal* (which sums the line items
+  above it inside its section and is never typed into). Rows can be renamed
+  inline, retyped between the three kinds, reordered, inserted (Enter adds a
+  row below and focuses it) and deleted.
+- **Columns** are the forecast periods: add or remove individual columns, or
+  set a count and granularity (working days / weeks / months). Templates
+  without a period block — every uploaded workbook and the seeded standard
+  one — keep the classic 4-week, 20-working-day horizon, so existing
+  forecasts are unaffected.
+- **Cells** hold optional starting values that new submissions are seeded
+  with.
+- **Preview** renders the real forecast grid, read-only, exactly as
+  submitters will see it, then **Save Template** stores it. Any template can
+  be reopened later with **Edit Structure** and editing continued.
+
+Both routes produce the same `ForecastTemplate` — the same
+`categories` / `layout` contract — so an editor-built template is
+interchangeable with an uploaded one everywhere: entity assignment,
+submission entry, variance flags, Excel export and the comparison screens.
 
 ### Forecast periods
 

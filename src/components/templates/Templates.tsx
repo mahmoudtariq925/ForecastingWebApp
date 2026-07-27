@@ -3,6 +3,7 @@ import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
+import { TemplateEditor } from './TemplateEditor';
 import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
 import { currentUser, permissionsFor } from '../../data/session';
@@ -40,6 +41,10 @@ export function Templates() {
   const [editName, setEditName] = useState('');
   const [editEntities, setEditEntities] = useState<Set<string>>(new Set());
   const [uploadOpen, setUploadOpen] = useState(false);
+  // null = editor closed; { template: null } = authoring a new template.
+  const [editorTarget, setEditorTarget] = useState<{ template: ForecastTemplate | null } | null>(
+    null,
+  );
   const uploadInput = useRef<HTMLInputElement>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<string | null>(null);
@@ -182,12 +187,29 @@ export function Templates() {
     setEditing(null);
   };
 
+  /** Persist a template authored in the in-browser editor. */
+  const saveFromEditor = (next: ForecastTemplate) => {
+    const exists = templates.some((t) => t.id === next.id);
+    commit(exists ? templates.map((t) => (t.id === next.id ? next : t)) : [...templates, next]);
+    setEditorTarget(null);
+  };
+
   const toggleEntity = (name: string) => {
     const next = new Set(editEntities);
     if (next.has(name)) next.delete(name);
     else next.add(name);
     setEditEntities(next);
   };
+
+  if (editorTarget) {
+    return (
+      <TemplateEditor
+        template={editorTarget.template}
+        onSave={saveFromEditor}
+        onCancel={() => setEditorTarget(null)}
+      />
+    );
+  }
 
   return (
     <div className="view active">
@@ -196,9 +218,17 @@ export function Templates() {
         title="Forecast Templates"
         actions={
           canManage ? (
-            <button className="btn btn-primary" onClick={() => setUploadOpen(true)}>
-              + Upload Template
-            </button>
+            <>
+              <button className="btn btn-ghost" onClick={() => setUploadOpen(true)}>
+                Upload .xlsx
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => setEditorTarget({ template: null })}
+              >
+                + Create Template
+              </button>
+            </>
           ) : (
             <ViewOnlyBadge />
           )
@@ -213,7 +243,7 @@ export function Templates() {
               </strong>{' '}
               ·{' '}
               <span className="text-muted">
-                .xlsx · structure is derived from the workbook · both layouts supported
+                build one in the browser or upload an .xlsx — both produce the same structure
               </span>
             </div>
           </div>
@@ -250,7 +280,11 @@ export function Templates() {
                       <td>
                         <span className="role-tag submitter">{LAYOUT_LABELS[t.layout]}</span>
                       </td>
-                      <td className="text-dim">{t.fileName ?? '—'}</td>
+                      <td className="text-dim">
+                        {t.fileName ?? (
+                          <span className="role-tag treasury">built in editor</span>
+                        )}
+                      </td>
                       <td className="text-dim">{t.categories.length} items</td>
                       <td className="text-dim" style={{ fontSize: 12, maxWidth: 240 }}>
                         {t.assignedEntities.length === 0
@@ -269,9 +303,17 @@ export function Templates() {
                               <button
                                 className="btn btn-ghost"
                                 style={{ padding: '4px 10px', fontSize: 11 }}
+                                onClick={() => setEditorTarget({ template: t })}
+                                title="Open the spreadsheet editor"
+                              >
+                                Edit Structure
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
                                 onClick={() => openEdit(t)}
                               >
-                                Edit
+                                Name &amp; Entities
                               </button>
                               <button
                                 className="btn btn-ghost"

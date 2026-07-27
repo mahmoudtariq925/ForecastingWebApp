@@ -71,3 +71,40 @@ export function categoryGroups(categories: TemplateCategory[]): CategoryGroup[] 
   });
   return out;
 }
+
+/**
+ * Value of a computed subtotal row: the sum of the input line items above it
+ * that share its group (or, for ungrouped subtotals, everything above it
+ * since the previous subtotal). Subtotal rows never hold stored values, so
+ * they contribute 0 to the day/grand totals and can never double count.
+ */
+export function subtotalValue(
+  categories: TemplateCategory[],
+  values: GridValues,
+  catIdx: number,
+  dayIdx: number,
+): number {
+  const target = categories[catIdx];
+  if (!target?.subtotal) return 0;
+  let sum = 0;
+  for (let i = catIdx - 1; i >= 0; i--) {
+    const cat = categories[i];
+    if (!cat) break;
+    if (cat.subtotal) break; // stop at the previous subtotal
+    if (cat.group !== target.group) break; // stay inside the band
+    sum += catValue(values, i, dayIdx);
+  }
+  return sum;
+}
+
+/** Total across the horizon for a computed subtotal row. */
+export function subtotalTotal(
+  categories: TemplateCategory[],
+  values: GridValues,
+  catIdx: number,
+  numDays: number,
+): number {
+  let s = 0;
+  for (let d = 0; d < numDays; d++) s += subtotalValue(categories, values, catIdx, d);
+  return s;
+}

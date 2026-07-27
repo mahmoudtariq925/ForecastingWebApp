@@ -23,10 +23,11 @@ import {
 } from '../../data/mockData';
 import {
   currentWeekKey,
-  dayLabelsForWeek,
-  horizonDates,
   HORIZON_DAYS,
   HORIZON_WEEKS,
+  periodsOf,
+  templateDates,
+  templateDayLabels,
   listYears,
   monthName,
   prevWeekKey,
@@ -242,8 +243,12 @@ function SubmissionEditor({
 }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
   const { confirm, notify } = useDialog();
-  const dates = useMemo(() => horizonDates(week), [week]);
-  const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
+  // Column set comes from the template (editor-authored ones can define
+  // their own periods); templates without a `periods` block keep the
+  // standard 20-working-day horizon.
+  const dates = useMemo(() => templateDates(template, week), [template, week]);
+  const dayLabels = useMemo(() => templateDayLabels(template, week), [template, week]);
+  const numPeriods = dates.length;
   const numCats = template.categories.length;
 
   const prior = useMemo(() => getPriorValues(entity, week, template), [entity, week, template]);
@@ -330,7 +335,7 @@ function SubmissionEditor({
         // Pasted rows/cols follow the on-screen orientation.
         const catIdx = orientation === 'grouped' ? startCat + ci : startCat + ri;
         const dayIdx = orientation === 'grouped' ? startDay + ri : startDay + ci;
-        if (catIdx >= numCats || dayIdx >= HORIZON_DAYS) return;
+        if (catIdx >= numCats || dayIdx >= numPeriods) return;
         const n = Number(raw.replace(/[€$,\s]/g, ''));
         if (!Number.isFinite(n)) return;
         const key = cellKey(catIdx, dayIdx);
@@ -644,8 +649,11 @@ function SubmissionEditor({
               <div className="grid-info">
                 <strong>{template.name}</strong> ·{' '}
                 <span className="text-muted">
-                  EUR thousands · {HORIZON_WEEKS}-week horizon · {HORIZON_DAYS} working days ·
-                  inflows +, outflows −
+                  EUR thousands ·{' '}
+                  {template.periods
+                    ? `${numPeriods} ${periodsOf(template).granularity} period${numPeriods === 1 ? '' : 's'}`
+                    : `${HORIZON_WEEKS}-week horizon · ${HORIZON_DAYS} working days`}{' '}
+                  · inflows +, outflows −
                 </span>
               </div>
               <div className="seg-toggle" role="group" aria-label="Grid orientation">
