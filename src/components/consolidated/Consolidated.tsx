@@ -252,6 +252,7 @@ export function Consolidated() {
               flags={EMPTY_FLAGS}
               startingBalance={current.startingBalance}
               editable={false}
+              showColumnTotals={template.columnTotals === true}
             />
           </div>
         </div>

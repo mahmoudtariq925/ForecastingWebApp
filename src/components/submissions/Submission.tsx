@@ -705,6 +705,7 @@ function SubmissionEditor({
               onPaste={handlePaste}
               onCellClick={openVariance}
               onChangeDayComment={setDayComment}
+              showColumnTotals={template.columnTotals === true}
             />
           </div>
         </div>

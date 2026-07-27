@@ -74,6 +74,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   const [values, setValues] = useState<Record<string, number>>(
     () => ({ ...(template?.defaultValues ?? {}) }),
   );
+  const [columnTotals, setColumnTotals] = useState(template?.columnTotals === true);
   const [preview, setPreview] = useState(false);
   const labelRefs = useRef(new Map<string, HTMLInputElement>());
 
@@ -89,9 +90,10 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
       periods: { count: periodCount, granularity },
       defaultValues: values,
       description: description.trim() || undefined,
+      columnTotals,
       builtInEditor: true,
     }),
-    [template, name, layout, rows, periodCount, granularity, values, description],
+    [template, name, layout, rows, periodCount, granularity, values, description, columnTotals],
   );
 
   const dayLabels = useMemo(
@@ -99,6 +101,28 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
     [previewTemplate, week],
   );
   const catIdxByRow = useMemo(() => categoryIndexByRow(rows), [rows]);
+  // The canvas mirrors the chosen orientation, so what you edit is laid out
+  // the way submitters will see it: structure down the rows for
+  // dates-across, or periods down the rows (structure across) for grouped.
+  const transposed = layout === 'grouped';
+
+  /** Per-period column total of the entered starting values. */
+  const periodTotal = (periodIdx: number): number => {
+    let sum = 0;
+    rows.forEach((row, i) => {
+      const c = catIdxByRow[i];
+      if (row.kind !== 'item' || c === null) return;
+      sum += values[`${c}-${periodIdx}`] ?? 0;
+    });
+    return sum;
+  };
+
+  /** Row total across every period for one line item. */
+  const rowTotal = (catIdx: number): number => {
+    let sum = 0;
+    for (let p = 0; p < periodCount; p++) sum += values[`${catIdx}-${p}`] ?? 0;
+    return sum;
+  };
 
   // ---- Row operations -----------------------------------------------------
   const updateRow = (id: string, patch: Partial<EditorRow>) =>
@@ -305,6 +329,18 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                 <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
                   Columns run from the Monday of the forecast week.
                 </div>
+                <label className="series-check" style={{ marginTop: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={columnTotals}
+                    onChange={(e) => setColumnTotals(e.target.checked)}
+                    aria-label="Show column totals"
+                  />
+                  Show column totals
+                  <span className="text-muted" style={{ fontSize: 11 }}>
+                    — pinned {transposed ? 'right-most column' : 'row'}, bold, no heatmap
+                  </span>
+                </label>
               </div>
             </div>
           </div>
@@ -335,6 +371,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                   flags={EMPTY_FLAGS}
                   startingBalance={0}
                   editable={false}
+                  showColumnTotals={columnTotals}
                 />
               </div>
             </div>
@@ -349,79 +386,23 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
             </div>
             <div className="panel">
               <div className="forecast-grid-wrap">
-                <table className="forecast-grid sheet-grid">
-                  <thead>
-                    <tr>
-                      <th className="sheet-gutter-h" />
-                      <th className="row-label-h">Row Label</th>
-                      {Array.from({ length: periodCount }, (_v, i) => (
-                        <th key={i} className="day-h">
-                          <div className="sheet-col-head">
-                            <span>
-                              P{i + 1}
-                              <span className="dow">{dayLabels[i]?.dm ?? ''}</span>
-                            </span>
-                            {periodCount > 1 && (
-                              <button
-                                className="chip-remove"
-                                title={`Remove period ${i + 1}`}
-                                aria-label={`Remove period ${i + 1}`}
-                                onClick={() => removePeriod(i)}
-                              >
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        </th>
-                      ))}
-                      <th className="day-h">
-                        <button className="sheet-add-col" onClick={addPeriod} title="Add a period">
-                          + Period
-                        </button>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, index) => {
-                      const catIdx = catIdxByRow[index];
-                      const isSection = row.kind === 'section';
-                      const isSubtotal = row.kind === 'subtotal';
-                      return (
-                        <tr key={row.id} className={isSection ? 'section-row' : undefined}>
-                          <td className="sheet-gutter">
-                            <div className="sheet-row-actions">
-                              <button
-                                title="Move up"
-                                aria-label="Move row up"
-                                disabled={index === 0}
-                                onClick={() => moveRow(index, -1)}
-                              >
-                                ↑
-                              </button>
-                              <button
-                                title="Move down"
-                                aria-label="Move row down"
-                                disabled={index === rows.length - 1}
-                                onClick={() => moveRow(index, 1)}
-                              >
-                                ↓
-                              </button>
-                              <button
-                                title="Delete row"
-                                aria-label="Delete row"
-                                className="danger"
-                                onClick={() => removeRow(index)}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          </td>
-                          <td className={`row-label ${isSubtotal ? 'subtotal' : ''}`}>
-                            <div className="sheet-label-cell">
+                {transposed ? (
+                  /* Dates down rows: periods are the rows, structure across the
+                     columns — the same shape submitters get in this orientation. */
+                  <table className="forecast-grid sheet-grid">
+                    <thead>
+                      <tr>
+                        <th className="row-label-h">Period</th>
+                        {rows.map((row, index) => (
+                          <th
+                            key={row.id}
+                            className={`day-h sheet-col-item${row.kind === 'section' ? ' section' : ''}`}
+                          >
+                            <div className="sheet-col-item-head">
                               <select
                                 className="sheet-kind"
                                 value={row.kind}
-                                aria-label={`Row ${index + 1} type`}
+                                aria-label={`Column ${index + 1} type`}
                                 onChange={(e) =>
                                   updateRow(row.id, { kind: e.target.value as EditorRowKind })
                                 }
@@ -440,44 +421,275 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                 className="sheet-label-input"
                                 value={row.label}
                                 placeholder={
-                                  isSection
-                                    ? 'Section name…'
-                                    : isSubtotal
-                                      ? 'Subtotal name…'
-                                      : 'Line item name…'
+                                  row.kind === 'section'
+                                    ? 'Section…'
+                                    : row.kind === 'subtotal'
+                                      ? 'Subtotal…'
+                                      : 'Line item…'
                                 }
                                 onChange={(e) => updateRow(row.id, { label: e.target.value })}
                                 onKeyDown={(e) => onLabelKeyDown(e, index)}
                               />
+                              <div className="sheet-row-actions">
+                                <button
+                                  title="Move left"
+                                  aria-label="Move column left"
+                                  disabled={index === 0}
+                                  onClick={() => moveRow(index, -1)}
+                                >
+                                  ←
+                                </button>
+                                <button
+                                  title="Move right"
+                                  aria-label="Move column right"
+                                  disabled={index === rows.length - 1}
+                                  onClick={() => moveRow(index, 1)}
+                                >
+                                  →
+                                </button>
+                                <button
+                                  title="Delete column"
+                                  aria-label="Delete column"
+                                  className="danger"
+                                  onClick={() => removeRow(index)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+                          </th>
+                        ))}
+                        {columnTotals && <th className="day-h totals-head">Total</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: periodCount }, (_v, p) => (
+                        <tr key={p}>
+                          <td className="row-label">
+                            <div className="sheet-period-cell">
+                              <span>
+                                P{p + 1} · {dayLabels[p]?.dm ?? ''}
+                              </span>
+                              {periodCount > 1 && (
+                                <button
+                                  className="chip-remove"
+                                  title={`Remove period ${p + 1}`}
+                                  aria-label={`Remove period ${p + 1}`}
+                                  onClick={() => removePeriod(p)}
+                                >
+                                  ×
+                                </button>
+                              )}
                             </div>
                           </td>
-                          {Array.from({ length: periodCount }, (_v, p) => {
-                            if (isSection) return <td key={p} className="cell" />;
-                            if (isSubtotal || catIdx === null) {
+                          {rows.map((row, index) => {
+                            const catIdx = catIdxByRow[index];
+                            if (row.kind === 'section') return <td key={row.id} className="cell" />;
+                            if (row.kind === 'subtotal' || catIdx === null) {
                               return (
-                                <td key={p} className="cell subtotal-cell">
-                                  {isSubtotal ? 'auto' : '—'}
+                                <td key={row.id} className="cell subtotal-cell">
+                                  {row.kind === 'subtotal' ? 'auto' : '—'}
                                 </td>
                               );
                             }
                             const val = values[`${catIdx}-${p}`];
                             return (
-                              <td key={p} className="cell">
+                              <td key={row.id} className="cell">
                                 <input
                                   value={val === undefined ? '' : val}
                                   placeholder="0"
-                                  aria-label={`${row.label || `Row ${index + 1}`} period ${p + 1}`}
+                                  aria-label={`${row.label || `Column ${index + 1}`} period ${p + 1}`}
                                   onChange={(e) => setCell(catIdx, p, e.target.value)}
                                 />
                               </td>
                             );
                           })}
+                          {columnTotals && (
+                            <td className="cell totals-cell">{periodTotal(p).toLocaleString()}</td>
+                          )}
+                        </tr>
+                      ))}
+                      <tr>
+                        <td className="row-label">
+                          <button className="sheet-add-col" onClick={addPeriod} title="Add a period">
+                            + Period
+                          </button>
+                        </td>
+                        {rows.map((row) => (
+                          <td key={row.id} className="cell" />
+                        ))}
+                        {columnTotals && <td className="cell" />}
+                      </tr>
+                      {columnTotals && (
+                        <tr className="column-totals-row">
+                          <td className="row-label total">Column Total</td>
+                          {rows.map((row, index) => {
+                            const catIdx = catIdxByRow[index];
+                            return (
+                              <td key={row.id} className="cell totals-cell">
+                                {row.kind === 'item' && catIdx !== null
+                                  ? rowTotal(catIdx).toLocaleString()
+                                  : ''}
+                              </td>
+                            );
+                          })}
+                          <td className="cell totals-cell" />
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="forecast-grid sheet-grid">
+                    <thead>
+                      <tr>
+                        <th className="sheet-gutter-h" />
+                        <th className="row-label-h">Row Label</th>
+                        {Array.from({ length: periodCount }, (_v, i) => (
+                          <th key={i} className="day-h">
+                            <div className="sheet-col-head">
+                              <span>
+                                P{i + 1}
+                                <span className="dow">{dayLabels[i]?.dm ?? ''}</span>
+                              </span>
+                              {periodCount > 1 && (
+                                <button
+                                  className="chip-remove"
+                                  title={`Remove period ${i + 1}`}
+                                  aria-label={`Remove period ${i + 1}`}
+                                  onClick={() => removePeriod(i)}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </th>
+                        ))}
+                        {columnTotals && <th className="day-h totals-head">Total</th>}
+                        <th className="day-h">
+                          <button className="sheet-add-col" onClick={addPeriod} title="Add a period">
+                            + Period
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, index) => {
+                        const catIdx = catIdxByRow[index];
+                        const isSection = row.kind === 'section';
+                        const isSubtotal = row.kind === 'subtotal';
+                        return (
+                          <tr key={row.id} className={isSection ? 'section-row' : undefined}>
+                            <td className="sheet-gutter">
+                              <div className="sheet-row-actions">
+                                <button
+                                  title="Move up"
+                                  aria-label="Move row up"
+                                  disabled={index === 0}
+                                  onClick={() => moveRow(index, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  title="Move down"
+                                  aria-label="Move row down"
+                                  disabled={index === rows.length - 1}
+                                  onClick={() => moveRow(index, 1)}
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  title="Delete row"
+                                  aria-label="Delete row"
+                                  className="danger"
+                                  onClick={() => removeRow(index)}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </td>
+                            <td className={`row-label ${isSubtotal ? 'subtotal' : ''}`}>
+                              <div className="sheet-label-cell">
+                                <select
+                                  className="sheet-kind"
+                                  value={row.kind}
+                                  aria-label={`Row ${index + 1} type`}
+                                  onChange={(e) =>
+                                    updateRow(row.id, { kind: e.target.value as EditorRowKind })
+                                  }
+                                >
+                                  {(Object.keys(ROW_KIND_LABELS) as EditorRowKind[]).map((k) => (
+                                    <option key={k} value={k}>
+                                      {ROW_KIND_LABELS[k]}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  ref={(el) => {
+                                    if (el) labelRefs.current.set(row.id, el);
+                                    else labelRefs.current.delete(row.id);
+                                  }}
+                                  className="sheet-label-input"
+                                  value={row.label}
+                                  placeholder={
+                                    isSection
+                                      ? 'Section name…'
+                                      : isSubtotal
+                                        ? 'Subtotal name…'
+                                        : 'Line item name…'
+                                  }
+                                  onChange={(e) => updateRow(row.id, { label: e.target.value })}
+                                  onKeyDown={(e) => onLabelKeyDown(e, index)}
+                                />
+                              </div>
+                            </td>
+                            {Array.from({ length: periodCount }, (_v, p) => {
+                              if (isSection) return <td key={p} className="cell" />;
+                              if (isSubtotal || catIdx === null) {
+                                return (
+                                  <td key={p} className="cell subtotal-cell">
+                                    {isSubtotal ? 'auto' : '—'}
+                                  </td>
+                                );
+                              }
+                              const val = values[`${catIdx}-${p}`];
+                              return (
+                                <td key={p} className="cell">
+                                  <input
+                                    value={val === undefined ? '' : val}
+                                    placeholder="0"
+                                    aria-label={`${row.label || `Row ${index + 1}`} period ${p + 1}`}
+                                    onChange={(e) => setCell(catIdx, p, e.target.value)}
+                                  />
+                                </td>
+                              );
+                            })}
+                            {columnTotals && (
+                              <td className="cell totals-cell">
+                                {row.kind === 'item' && catIdx !== null
+                                  ? rowTotal(catIdx).toLocaleString()
+                                  : ''}
+                              </td>
+                            )}
+                            <td className="cell" />
+                          </tr>
+                        );
+                      })}
+                      {columnTotals && (
+                        <tr className="column-totals-row">
+                          <td className="sheet-gutter" />
+                          <td className="row-label total">Column Total</td>
+                          {Array.from({ length: periodCount }, (_v, p) => (
+                            <td key={p} className="cell totals-cell">
+                              {periodTotal(p).toLocaleString()}
+                            </td>
+                          ))}
+                          <td className="cell totals-cell" />
                           <td className="cell" />
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      )}
+                    </tbody>
+                  </table>
+                )}
               </div>
               <div className="grid-toolbar" style={{ borderTop: '1px solid var(--border)' }}>
                 <div className="row-flex">
