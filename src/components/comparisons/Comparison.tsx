@@ -232,7 +232,7 @@ export function Comparison() {
       />
       <div className="content">
         <div className="panel">
-          <div className="comparison-tabs">
+          <div className="comparison-tabs" data-tour="comparison-tabs">
             {TABS.map((label, i) => (
               <div
                 key={label}

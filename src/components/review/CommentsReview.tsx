@@ -200,7 +200,7 @@ export function CommentsReview({
         </div>
 
         <div className="panel">
-          <div className="grid-toolbar">
+          <div className="grid-toolbar" data-tour="review-filters">
             <div className="grid-toolbar-left">
               <input
                 className="form-input"

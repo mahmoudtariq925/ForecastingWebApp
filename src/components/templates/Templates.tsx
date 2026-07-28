@@ -224,6 +224,7 @@ export function Templates() {
               </button>
               <button
                 className="btn btn-primary"
+                data-tour="create-template"
                 onClick={() => setEditorTarget({ template: null })}
               >
                 + Create Template

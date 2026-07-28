@@ -14,6 +14,7 @@ import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
 import { AppModals } from './components/common/AppModals';
 import { useDialog } from './components/common/dialogContext';
+import { useOnboardingTour } from './onboarding/useOnboardingTour';
 import { cycles as seedCycles } from './data/mockData';
 import {
   assignedEntitiesFor,
@@ -129,6 +130,10 @@ export default function App() {
   const allowed = allowedViews(permissions);
   const activeView = allowed.has(view) ? view : landingViewFor(permissions);
 
+  // Guided walkthrough: auto-starts the first time a user signs in (or when
+  // they follow an invite link), and can be replayed from the user menu.
+  const { replay: replayTour } = useOnboardingTour({ user, onNavigate: navigate });
+
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
       <button
@@ -158,6 +163,7 @@ export default function App() {
         user={user}
         onNavigate={navigate}
         onSwitchUser={switchUser}
+        onReplayTour={replayTour}
         open={menuOpen}
         collapsed={navCollapsed}
         onToggleCollapsed={toggleNavCollapsed}

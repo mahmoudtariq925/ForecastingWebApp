@@ -207,7 +207,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         }
       />
       <div className="content">
-        <div className="kpi-grid">
+        <div className="kpi-grid" data-tour="dashboard-kpis">
           <div className="kpi-card">
             <div className="kpi-label">Total Forecast · 4wk</div>
             <div className="kpi-value">€ {totalForecast.toFixed(1)}M</div>
@@ -235,7 +235,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         </div>
 
         <div className="section-header">
-          <h2>Requires Attention</h2>
+          <h2 data-tour="requires-attention">Requires Attention</h2>
           <span className="tag">live across all entities</span>
         </div>
         <div className="panel">
@@ -334,7 +334,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         </div>
 
         <div className="section-header">
-          <h2>Cycle Progress · Region → Country</h2>
+          <h2 data-tour="cycle-progress">Cycle Progress · Region → Country</h2>
           <span className="tag">
             {activeCycle?.id ?? '—'} · Closes {activeCycle?.closes ?? '—'}
           </span>

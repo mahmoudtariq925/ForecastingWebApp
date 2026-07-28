@@ -72,6 +72,12 @@ export interface User {
   scope?: string;
   /** @deprecated Superseded by the legal-entity assignment lists. */
   assignedEntities?: string[];
+  /**
+   * Demo accounts that stand in for a brand-new joiner: selecting one always
+   * replays the onboarding walkthrough, so each role's tour can be reviewed
+   * without clearing browser storage.
+   */
+  alwaysTour?: boolean;
 }
 
 /**
