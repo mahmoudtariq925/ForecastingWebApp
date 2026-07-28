@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ClipboardEvent } from 'react';
+import { useMemo, useState, type ClipboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
@@ -48,7 +48,7 @@ import {
   periodsWithSubmissions,
   saveSubmission,
 } from '../../storage/localStorage';
-import { exportSubmissionXlsx, parseValuesFile } from '../../utils/excel';
+import { exportSubmissionXlsx, exportTemplateXlsx } from '../../utils/excel';
 import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { ForecastTemplate, SubmissionStatus, TemplateLayout } from '../../types';
@@ -272,7 +272,6 @@ function SubmissionEditor({
     outflows: false,
   });
   const [balanceStyle, setBalanceStyle] = useState<'solid' | 'dashed' | 'area'>('solid');
-  const importInput = useRef<HTMLInputElement>(null);
 
   interface Snapshot {
     values?: GridValues;
@@ -401,36 +400,15 @@ function SubmissionEditor({
     });
   };
 
-  const handleImport = async (file: File) => {
-    try {
-      const imported = await parseValuesFile(file, template, dates);
-      const nextValues = { ...values, ...imported.values };
-      const nextFlags = reflag(nextValues, Object.keys(imported.values), flags);
-      const nextDayComments = { ...dayComments, ...imported.dayComments };
-      const nextBalance = imported.startingBalance ?? startingBalance;
-      setValues(nextValues);
-      setFlags(nextFlags);
-      setDayComments(nextDayComments);
-      setStartingBalance(nextBalance);
-      persist({
-        values: nextValues,
-        flags: nextFlags,
-        dayComments: nextDayComments,
-        startingBalance: nextBalance,
-      });
-      await notify({
-        tone: 'success',
-        message:
-          `Imported ${imported.matched} line item${imported.matched === 1 ? '' : 's'} from ${file.name}` +
-          (imported.startingBalance !== undefined ? ' (incl. starting balance).' : '.'),
-      });
-    } catch (err) {
-      await notify({
-        title: 'Import failed',
+  /** Download this template's empty structure so it can be filled in offline. */
+  const exportBlankTemplate = () => {
+    exportTemplateXlsx(template, dates, dayLabels).catch((err) =>
+      notify({
+        title: 'Export failed',
         tone: 'error',
         message: err instanceof Error ? err.message : String(err),
-      });
-    }
+      }),
+    );
   };
 
   const openVariance = (catIdx: number, dayIdx: number) => {
@@ -608,15 +586,14 @@ function SubmissionEditor({
           <div className="grid-toolbar">
             <div className="grid-toolbar-left" data-tour="submission-filters">{selectors}</div>
             <div className="row-flex">
-              {!readOnly && (
-                <button
-                  className="btn btn-ghost"
-                  data-tour="import-excel"
-                  onClick={() => importInput.current?.click()}
-                >
-                  Import Excel
-                </button>
-              )}
+              <button
+                className="btn btn-ghost"
+                data-tour="export-template"
+                title="Download this template as a blank workbook to fill in offline"
+                onClick={exportBlankTemplate}
+              >
+                Export Template
+              </button>
               <button className="btn btn-ghost" data-tour="export-excel" onClick={exportGrid}>
                 Export Excel
               </button>
@@ -633,17 +610,6 @@ function SubmissionEditor({
                   </button>
                 </>
               )}
-              <input
-                ref={importInput}
-                type="file"
-                accept=".xlsx"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImport(file);
-                  e.target.value = '';
-                }}
-              />
             </div>
           </div>
           <div className="grid-toolbar" style={{ borderTop: 'none' }}>

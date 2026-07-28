@@ -58,21 +58,6 @@ export function navFor(p: Permissions): NavSections {
     };
   }
 
-  // System-configuration-only role (admin): the configuration screens, no
-  // forecast workflow. Treasury reaches these too, but keeps its workspace.
-  if (p.canViewAdminScreens) {
-    return {
-      workspace: [],
-      admin: [
-        { view: 'users', label: 'User Management' },
-        { view: 'templates', label: 'Templates' },
-        { view: 'legalEntities', label: 'Legal Entity Setup' },
-        ...(IS_LIVE ? [{ view: 'dataImport', label: 'Data Import' } as NavEntry] : []),
-        { view: 'settings', label: 'Settings' },
-      ],
-    };
-  }
-
   // Focused analyst experience: submitters, approvers and viewers see only
   // their own work — never users, settings or legal entity configuration.
   const workspace: NavEntry[] = [

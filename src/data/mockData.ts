@@ -95,7 +95,7 @@ export const cycles: Cycle[] = [
  * below) and derived from there wherever it is displayed.
  */
 export const users: User[] = [
-  { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'admin', status: 'active', last: 'Now' },
+  { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Now' },
   { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: '2h ago' },
   { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', status: 'active', last: '1h ago' },
   { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', status: 'active', last: '4h ago' },
@@ -114,7 +114,7 @@ export const users: User[] = [
   { name: 'Omar Haddad', email: 'omar.haddad@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: 'Never', alwaysTour: true },
   { name: 'Priya Raman', email: 'priya.raman@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: 'Never', alwaysTour: true },
   { name: 'Rasmus Nilsen', email: 'rasmus.nilsen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Never', alwaysTour: true },
-  { name: 'Elena Fischer', email: 'elena.fischer@contoso.com', team: 'Treasury HQ', role: 'admin', status: 'active', last: 'Never', alwaysTour: true },
+  
 ];
 
 // ---------------------------------------------------------------------------

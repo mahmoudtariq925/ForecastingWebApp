@@ -96,41 +96,45 @@ export function Sidebar({
         )}
       </div>
 
-      {sections.workspace.length > 0 && (
-        <div className="nav-section">
-          <div className="nav-label">Workspace</div>
-          {sections.workspace.map((entry) => (
-            <button
-              key={entry.view}
-              className={`nav-item${active === entry.view ? ' active' : ''}`}
-              onClick={() => onNavigate(entry.view)}
-              title={collapsed ? entry.label : undefined}
-              data-tour={`nav-${entry.view}`}
-            >
-              <NavIcon view={entry.view} />
-              <span className="nav-item-label">{entry.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* The nav list is the only part that scrolls, so the brand above
+          and the user card below stay reachable at any zoom level. */}
+      <div className="nav-scroll">
+        {sections.workspace.length > 0 && (
+          <div className="nav-section">
+            <div className="nav-label">Workspace</div>
+            {sections.workspace.map((entry) => (
+              <button
+                key={entry.view}
+                className={`nav-item${active === entry.view ? ' active' : ''}`}
+                onClick={() => onNavigate(entry.view)}
+                title={collapsed ? entry.label : undefined}
+                data-tour={`nav-${entry.view}`}
+              >
+                <NavIcon view={entry.view} />
+                <span className="nav-item-label">{entry.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
-      {sections.admin.length > 0 && (
-        <div className="nav-section">
-          <div className="nav-label">{sections.workspace.length > 0 ? 'Admin' : 'Administration'}</div>
-          {sections.admin.map((entry) => (
-            <button
-              key={entry.view}
-              className={`nav-item${active === entry.view ? ' active' : ''}`}
-              onClick={() => onNavigate(entry.view)}
-              title={collapsed ? entry.label : undefined}
-              data-tour={`nav-${entry.view}`}
-            >
-              <NavIcon view={entry.view} />
-              <span className="nav-item-label">{entry.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+        {sections.admin.length > 0 && (
+          <div className="nav-section">
+            <div className="nav-label">{sections.workspace.length > 0 ? 'Admin' : 'Administration'}</div>
+            {sections.admin.map((entry) => (
+              <button
+                key={entry.view}
+                className={`nav-item${active === entry.view ? ' active' : ''}`}
+                onClick={() => onNavigate(entry.view)}
+                title={collapsed ? entry.label : undefined}
+                data-tour={`nav-${entry.view}`}
+              >
+                <NavIcon view={entry.view} />
+                <span className="nav-item-label">{entry.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="user-card-wrap" ref={switcherRef}>
         {showSwitcher && (

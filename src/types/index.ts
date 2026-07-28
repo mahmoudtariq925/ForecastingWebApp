@@ -15,8 +15,9 @@ export type SubmissionStatus =
   | 'consolidated';
 
 /** Access role assigned to a user. Global roles say WHAT a user may do;
- * the Legal Entity Setup says WHERE (which entities) they may do it. */
-export type Role = 'admin' | 'treasury' | 'approver' | 'submitter' | 'viewer';
+ * the Legal Entity Setup says WHERE (which entities) they may do it.
+ * Treasury is the full role: forecast oversight AND system configuration. */
+export type Role = 'treasury' | 'approver' | 'submitter' | 'viewer';
 
 /** Whether a managed user account is active. */
 export type UserStatus = 'active' | 'inactive';
@@ -218,9 +219,4 @@ export interface Settings {
   exemptNewPeriods: string;
   ssoProvider: string;
   allowedDomains: string;
-  /**
-   * Whether Treasury users may manage users, settings and legal entities.
-   * Off by default (Treasury is view-only there); only admins can change it.
-   */
-  treasuryManagementEnabled: boolean;
 }

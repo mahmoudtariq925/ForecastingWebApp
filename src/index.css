@@ -67,7 +67,13 @@ textarea {
 /* === LAYOUT === */
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  /* Relative sidebar column: shrinks on narrow/zoomed-in viewports rather
+     than eating a fixed 240px of a smaller effective screen. */
+  grid-template-columns: clamp(11.25rem, 18vw, 15rem) 1fr;
+  /* Implicit grid rows size to their CONTENT by default, so a tall sidebar
+     grew past the container's height instead of scrolling inside it — which
+     pushed the user card off the bottom of the screen at high zoom. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   /* Mobile browsers: track the *visible* viewport so the bottom of the page
      is reachable behind collapsing browser chrome. */
@@ -82,6 +88,9 @@ textarea {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Pair with the grid row above: lets the nav list scroll rather than
+     stretching the sidebar beyond the viewport. */
+  min-height: 0;
 }
 .brand {
   padding: 0 16px 28px 24px;
@@ -120,7 +129,7 @@ textarea {
 
 /* --- Collapsed rail: icons only, content area gets the space back --- */
 .app.nav-collapsed {
-  grid-template-columns: 68px 1fr;
+  grid-template-columns: 4.25rem 1fr;
 }
 .sidebar.collapsed .brand {
   padding: 0 0 20px;
@@ -1896,4 +1905,74 @@ tbody tr.row-inactive td {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 1px;
+}
+
+/* ============================================================
+   Zoom / small-viewport resilience.
+
+   The sidebar is a fixed-height flex column, so at high browser zoom (or on
+   a short window) its content used to overflow: the brand was pushed up out
+   of view and the user card — the only way to reach the user menu — was
+   clipped below the fold with no way to scroll to it. Pinning the brand and
+   the user card and letting only the nav list scroll keeps both corners
+   reachable at every zoom level.
+   ============================================================ */
+.brand {
+  flex: 0 0 auto;
+}
+.nav-scroll {
+  flex: 1 1 auto;
+  /* Flex children default to min-height:auto, which would let the nav list
+     grow past the viewport instead of scrolling inside it. */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Thin, unobtrusive scrollbar — only visible when it is actually needed. */
+  scrollbar-width: thin;
+}
+.nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.nav-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+.user-card-wrap {
+  flex: 0 0 auto;
+}
+/* The switcher opens upward from the user card; cap it to the visible
+   viewport so it can never extend past the top of a zoomed-in window. */
+.user-switcher {
+  max-height: min(320px, 60vh);
+}
+
+/* Very short viewports (heavy zoom, small laptops): reclaim vertical space
+   from the paddings so more of the nav list is visible before it scrolls. */
+@media (max-height: 620px) {
+  .sidebar {
+    padding: 0.75rem 0;
+  }
+  .brand {
+    padding-bottom: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .nav-section {
+    margin-bottom: 0.5rem;
+  }
+  .user-card {
+    padding: 0.5rem 0;
+  }
+}
+
+/* ============================================================
+   Guided walkthrough: mark the destination page in the nav while a step
+   is showing, so it's clear which screen the tour moved you to.
+   ============================================================ */
+.nav-item.tour-nav-active {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.nav-item.tour-nav-active .icon {
+  color: var(--accent);
 }

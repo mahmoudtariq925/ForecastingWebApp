@@ -154,7 +154,7 @@ export function Consolidated() {
     const me = currentUser();
     // Treasury colleagues (excluding the sender) get the summary.
     const recipients = loadUsers(seedUsers())
-      .filter((u) => (u.role === 'treasury' || u.role === 'admin') && u.email !== me.email)
+      .filter((u) => u.role === 'treasury' && u.email !== me.email)
       .map((u) => u.email);
     openEmail({
       to: recipients,

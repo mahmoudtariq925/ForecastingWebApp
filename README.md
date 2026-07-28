@@ -17,11 +17,11 @@ later).
 | **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector |
-| **Comments Review** | Admin triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
+| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
 | **Legal Entity Setup** | Entity-first configuration: entity master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
-| **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Admin / Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
-| **Settings** | Variance threshold, cycle rules, and the "Allow Treasury users to manage users and settings" delegation toggle (admin-only) |
+| **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
+| **Settings** | Forecast horizon and cycle frequency, variance threshold rules, and the SSO / allowed-domain configuration |
 
 ### Forecast templates
 
@@ -91,10 +91,14 @@ against the same calendar date in the prior week's stored submission.
   label, aligns grouped files by date, and picks up per-day comments and the
   starting balance.
 
-Admins assign each template to one or more countries in the Templates screen;
-submitters then pick from their assigned templates in My Submissions. Each
-(entity, week, template) combination is stored separately, so previous
-weeks stay editable without affecting current ones.
+Which template an entity submits on is set **only** in Legal Entity Setup —
+the Templates screen reports it in a read-only *Used By* column but never
+assigns it, so there is exactly one place to change it. Each (entity, week,
+template) combination is stored separately, so previous weeks stay editable
+without affecting current ones.
+
+The forecast screen also offers **Export Template**, which downloads the
+current template as a blank workbook to fill in offline.
 
 ### Global roles vs. entity responsibilities
 
@@ -111,39 +115,33 @@ template, and User Management renders a **read-only Responsibilities column**
 derived live from them — remove someone as an approver for Germany in Legal
 Entity Setup and Germany disappears from their responsibilities immediately.
 
-The five global roles:
+The four global roles:
 
-- **Admin** — system configuration only: User Management, Templates, Legal
-  Entity Setup and Settings. No dashboard or forecast workflow.
-- **Treasury** — the full Treasury Manager experience (Dashboard with the
-  *Requires Attention* list and Region → Country drill-down, submissions,
-  approvals, consolidated, comparisons, comment review) plus **view** access
-  to the configuration screens. Whether Treasury may *modify* those is
-  governed by the Settings toggle below. Default session on a fresh browser.
+- **Treasury** — the complete experience: the Treasury Manager workflow
+  (Dashboard with the *Requires Attention* list and Region → Country
+  drill-down, forecast cycles, submissions, approvals, consolidated,
+  comparisons, comment review) **and** full management of the configuration
+  screens (User Management, Templates, Legal Entity Setup, Settings). The
+  separate Administrator role was merged into Treasury, so there is one
+  role that owns the system rather than two overlapping ones. Default
+  session on a fresh browser; users stored under the old `admin` role are
+  migrated to Treasury on load.
 - **Approver** — reviews, approves and returns forecasts for assigned
   entities; scoped approval queue.
 - **Submitter** — edits, comments on and submits forecasts for assigned
   entities.
 - **Viewer** — read-only forecast access for assigned entities: the grid
-  renders without inputs, and Save/Submit/Import/Reset are all absent.
+  renders without inputs, and Save/Submit/Reset are all absent.
 
 Approvers, submitters and viewers never see Users, Settings or Legal Entity
 Setup, and only ever the entities assigned to them.
-
-### Treasury management toggle
-
-Settings → *Access & Delegation* → **"Allow Treasury users to manage users and
-settings"**, off by default. While off, Treasury can view User Management,
-Settings and Legal Entity Setup but every control is disabled and a
-**View Only** badge is shown. Turning it on grants Treasury management of all
-three. Only an admin can change the toggle; Treasury sees it disabled.
 
 ### Where the logic lives
 
 `src/data/session.ts` is the single source of role logic: `currentUser()`,
 `permissionsFor(user)` — a flat capability map (`canManageUsers`,
 `canManageSettings`, `canManageLegalEntities`, `canSubmitForecasts`,
-`canViewForecasts`, `canViewAllEntities`, `canChangeTreasuryToggle`, …) —
+`canViewForecasts`, `canViewAllEntities`, …) —
 and `assignedEntitiesFor(user)`. `src/data/legalEntityService.ts` owns the
 entity↔user relationships (`responsibilitiesFor`, `eligibleUsers`,
 `withAssignment`). Navigation and the screen guard derive from permissions
@@ -167,12 +165,18 @@ consolidated totals, comparison tabs, variance tables and charts all follow.
 ### Guided walkthrough (onboarding)
 
 New users are shown a short, role-aware product tour the first time they sign
-in. Each role sees only the screens it actually has: a Submitter is walked
-through entering numbers and submitting, an Approver through the queue and the
-approve/reject decision, a Viewer through filtering and exporting, Treasury
-through the group dashboard, consolidation and comment triage, and an Admin
-through user management, Legal Entity Setup, the template builder and the
-delegation toggle. The tour navigates between screens on its own.
+in. **Every screen in a role's navigation gets at least one step**: a Submitter
+is walked through entering numbers and submitting, an Approver through the
+queue and the approve/reject decision, a Viewer through filtering and
+exporting, and Treasury through the whole thing — dashboard, forecast cycles,
+submissions, approvals, consolidation, comparisons, comment triage, then the
+configuration screens (templates, Legal Entity Setup, users, settings) it
+absorbed with the Administrator role.
+
+The tour navigates between screens itself, **highlights the destination page in
+the sidebar** so it's clear where it took you, and **scrolls each target into
+view** before showing its popup, so a step near the bottom of a long page is
+never left below the fold.
 
 - **Library:** [driver.js](https://driverjs.com) (~5 KB gzipped, zero
   dependencies, TypeScript types, plain CSS selectors). Chosen over Shepherd.js
@@ -184,18 +188,21 @@ delegation toggle. The tour navigates between screens on its own.
   each step a `{ selector, title, body, view, side }` object. Adding,
   reordering or rewording a step is a change to that file only.
 - **`src/onboarding/useOnboardingTour.ts`** is the engine: it switches screens
-  between steps, waits for React to render the target, and **skips any step
-  whose element isn't there** (a hidden feature, a role variation, a narrow
-  screen) rather than breaking the sequence.
+  between steps, marks the destination in the nav, waits for React to render
+  the target, scrolls it into view, and **skips any step whose element isn't
+  there** (a hidden feature, a role variation, a narrow screen) rather than
+  breaking the sequence. Steps on a screen the user can't open are dropped
+  instantly rather than navigating and waiting for an element that will
+  never appear.
 - **When it runs:** automatically on a user's first sign-in (tracked per email
   under `liquid:onboarding:seen:<email>`), or when an invite link carries
   `?welcome=1` — the invite emails sent from User Management include it.
   Afterwards it's available on demand from **your name → Replay walkthrough**.
-- **Trying each role:** the user switcher lists five demo joiners under
+- **Trying each role:** the user switcher lists four demo joiners under
   *New joiners · runs the tour* (Nina Brandt – Submitter, Omar Haddad –
-  Approver, Priya Raman – Viewer, Rasmus Nilsen – Treasury, Elena Fischer –
-  Admin). Picking one starts that role's walkthrough; picking the one you're
-  already signed in as replays it.
+  Approver, Priya Raman – Viewer, Rasmus Nilsen – Treasury). Picking one
+  starts that role's walkthrough; picking the one you're already signed in
+  as replays it.
 
 ### Email actions (frontend-only)
 
@@ -207,6 +214,16 @@ by the app itself and there is no backend involved.
 
 The app is responsive: below ~900px the sidebar becomes a drawer and wide
 tables scroll inside their panels.
+
+### Zoom and short viewports
+
+The sidebar is laid out so its two corners are always reachable: the brand is
+pinned to the top, the user card (and its menu) to the bottom, and only the
+nav list between them scrolls. The sidebar column is sized in relative units
+(`clamp`) rather than a fixed 240px, and the app's grid row is explicitly
+constrained so a tall sidebar scrolls inside the viewport instead of growing
+past it. Verified at 80 / 90 / 110 / 125 / 150% browser zoom: the user menu
+opens fully on screen and nothing critical is clipped or pushed off-screen.
 
 ## Run locally
 
@@ -293,7 +310,7 @@ src/
     approvals/     Approvals screen
     consolidated/  Treasury consolidated (read-only) view
     comparisons/   Forecast vs forecast
-    review/        Comments Review (admin comment triage)
+    review/        Comments Review (treasury comment triage)
     templates/     Forecast template upload / assignment management
     users/         User management
     settings/      Settings screen (+ defaults)
@@ -307,7 +324,7 @@ src/
     appData.ts     Data access layer: entities/cycles/users per data source
     mockData.ts    Seed data, the standard template, demo-value generation
     periods.ts     Reporting periods (month/year) and day labels
-    session.ts     The signed-in user (seeded admin until Phase 3 SSO)
+    session.ts     The signed-in user + permissions (until Phase 3 SSO)
     submissionService.ts  Submissions, consolidation, variances, review groups
   storage/
     localStorage.ts  saveData()/loadData() + named helpers (saveSubmission, ...)

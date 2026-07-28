@@ -134,7 +134,11 @@ export default function App() {
 
   // Guided walkthrough: auto-starts the first time a user signs in (or when
   // they follow an invite link), and can be replayed from the user menu.
-  const { replay: replayTour } = useOnboardingTour({ user, onNavigate: navigate });
+  const { replay: replayTour } = useOnboardingTour({
+    user,
+    onNavigate: navigate,
+    reachableViews: allowed,
+  });
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>

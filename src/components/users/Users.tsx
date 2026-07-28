@@ -15,11 +15,11 @@ import { appUrl, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { Role, User, UserStatus } from '../../types';
 
-const ROLES: Role[] = ['submitter', 'approver', 'viewer', 'treasury', 'admin'];
+const ROLES: Role[] = ['submitter', 'approver', 'viewer', 'treasury'];
 
 const ROLE_HINTS: Record<Role, string> = {
-  admin: 'Manages users, settings, legal entities and templates.',
-  treasury: 'Full treasury oversight across all entities.',
+  treasury:
+    'Full treasury oversight across all entities, plus user, template, legal entity and settings management.',
   approver: 'Reviews, approves and returns forecasts for assigned entities.',
   submitter: 'Prepares and submits forecasts for assigned entities.',
   viewer: 'Read-only access to assigned entity forecasts.',

@@ -251,8 +251,18 @@ export function saveUsers(users: User[]): void {
 export function loadUsers(fallback: User[]): User[] {
   const users = objectEntries<User>(loadData<unknown>('users', null));
   if (!users || users.length === 0) return fallback;
-  // Users stored before the status field existed default to active.
-  return users.map((u) => ({ ...u, status: u.status === 'inactive' ? 'inactive' : 'active' }));
+  const migrated = users.map((u) => ({
+    ...u,
+    // Users stored before the status field existed default to active.
+    status: u.status === 'inactive' ? ('inactive' as const) : ('active' as const),
+    // The separate administrator role was merged into Treasury, which now
+    // holds every permission it had. Anyone stored as an admin becomes a
+    // treasury user so no account is left pointing at a role that is gone.
+    role: (u.role as string) === 'admin' ? ('treasury' as const) : u.role,
+  }));
+  // Persist the migration so it runs once rather than on every read.
+  if (migrated.some((u, i) => u.role !== users[i].role)) saveUsers(migrated);
+  return migrated;
 }
 
 // ---------------------------------------------------------------------------
