@@ -17,8 +17,12 @@ import type {
   User,
 } from '../types';
 import { buildStandardTemplate } from '../data/mockData';
+import { IS_LIVE } from '../data/dataSource';
 
-const PREFIX = 'liquid:';
+// The static demo and the live instance are served from the SAME browser
+// origin (github.io), so each gets its own namespace — demo data and real
+// uploaded data can never touch each other's keys.
+const PREFIX = IS_LIVE ? 'liquid-live:' : 'liquid:';
 
 /** Low-level: persist any JSON-serialisable value under a namespaced key. */
 export function saveData<T>(key: string, value: T): void {

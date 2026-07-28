@@ -12,10 +12,11 @@ import { LegalEntitySetup } from './components/legalEntities/LegalEntitySetup';
 import { Templates } from './components/templates/Templates';
 import { Users } from './components/users/Users';
 import { Settings } from './components/settings/Settings';
+import { DataImport } from './components/dataImport/DataImport';
 import { AppModals } from './components/common/AppModals';
 import { useDialog } from './components/common/dialogContext';
 import { useOnboardingTour } from './onboarding/useOnboardingTour';
-import { cycles as seedCycles } from './data/mockData';
+import { listCycles } from './data/appData';
 import {
   assignedEntitiesFor,
   currentUser,
@@ -86,7 +87,7 @@ export default function App() {
   };
 
   const createCycle = async (cycle: Cycle) => {
-    saveCycle(cycle, loadCycles(seedCycles));
+    saveCycle(cycle, loadCycles(listCycles()));
     setModal(null);
     setDataVersion((n) => n + 1);
     await notify({
@@ -124,6 +125,7 @@ export default function App() {
     legalEntities: <LegalEntitySetup />,
     users: <Users />,
     settings: <Settings />,
+    dataImport: <DataImport onNavigate={navigate} />,
   };
 
   // A role never renders a screen its navigation doesn't grant.

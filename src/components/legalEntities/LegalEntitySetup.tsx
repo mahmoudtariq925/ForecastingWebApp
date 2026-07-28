@@ -3,7 +3,7 @@ import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
-import { users as seedUsers } from '../../data/mockData';
+import { seedUsers } from '../../data/appData';
 import { currentUser, permissionsFor } from '../../data/session';
 import {
   assignmentList,
@@ -72,7 +72,7 @@ export function LegalEntitySetup() {
   const [entityForm, setEntityForm] = useState(EMPTY_ENTITY);
   const [assigning, setAssigning] = useState<EntityResponsibility | null>(null);
 
-  const users = useMemo(() => loadUsers(seedUsers), []);
+  const users = useMemo(() => loadUsers(seedUsers()), []);
   const templates = useMemo(() => loadTemplates(), []);
 
   const selected = entityList.find((e) => e.id === selectedId) ?? entityList[0] ?? null;

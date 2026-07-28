@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { cycles as seedCycles } from '../../data/mockData';
+import { listCycles } from '../../data/appData';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
 import {
   currentWeekKey,
@@ -58,7 +58,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const week = currentWeekKey();
   const templates = useMemo(() => loadTemplates(), []);
   const myEntities = useMemo(() => assignedEntitiesFor(user), [user]);
-  const cycles = loadCycles(seedCycles);
+  const cycles = loadCycles(listCycles());
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
 
   const work: EntityWork[] = useMemo(

@@ -1,6 +1,7 @@
 // Navigation identifiers and the modal registry, kept separate from the domain
 // types so UI wiring doesn't leak into the data contracts.
 import type { Permissions } from '../data/session';
+import { IS_LIVE } from '../data/dataSource';
 
 export type ViewId =
   | 'dashboard'
@@ -14,7 +15,8 @@ export type ViewId =
   | 'templates'
   | 'legalEntities'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'dataImport';
 
 export type ModalId = 'newCycle' | 'export' | null;
 
@@ -46,6 +48,8 @@ export function navFor(p: Permissions): NavSections {
       ],
       admin: [
         { view: 'review', label: 'Comments Review' },
+        // The live instance is populated by importing real workbooks.
+        ...(IS_LIVE ? [{ view: 'dataImport', label: 'Data Import' } as NavEntry] : []),
         { view: 'templates', label: 'Templates' },
         { view: 'legalEntities', label: 'Legal Entity Setup' },
         { view: 'users', label: 'User Management' },
@@ -63,6 +67,7 @@ export function navFor(p: Permissions): NavSections {
         { view: 'users', label: 'User Management' },
         { view: 'templates', label: 'Templates' },
         { view: 'legalEntities', label: 'Legal Entity Setup' },
+        ...(IS_LIVE ? [{ view: 'dataImport', label: 'Data Import' } as NavEntry] : []),
         { view: 'settings', label: 'Settings' },
       ],
     };

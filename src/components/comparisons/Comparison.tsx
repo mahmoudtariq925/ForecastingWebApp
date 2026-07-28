@@ -9,7 +9,8 @@ import {
   runningBalance,
   type GridValues,
 } from '../submissions/gridMath';
-import { cycles as seedCycles, entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listCycles, listEntities } from '../../data/appData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -94,7 +95,7 @@ export function Comparison() {
   const pair = pairs[Math.min(pairIdx, pairs.length - 1)];
 
   const activeCycleId = useMemo(() => {
-    const cycles = loadCycles(seedCycles);
+    const cycles = loadCycles(listCycles());
     return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
   }, []);
   const overrides = useMemo(() => loadApprovals(activeCycleId), [activeCycleId]);
@@ -158,7 +159,7 @@ export function Comparison() {
   // ---- By Entity: full-horizon net totals per entity, current vs prior. ----
   const entityRows = useMemo(() => {
     if (!template) return [];
-    return entities.map((e) => {
+    return listEntities().map((e) => {
       const cur = horizonTotal(peekSubmission(e.name, pair.current, template).values, numCats);
       const prev = horizonTotal(peekSubmission(e.name, pair.prior, template).values, numCats);
       const pct = ((cur - prev) / Math.max(Math.abs(prev), 1)) * 100;

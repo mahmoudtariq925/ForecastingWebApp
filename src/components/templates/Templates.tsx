@@ -4,7 +4,8 @@ import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { TemplateEditor } from './TemplateEditor';
-import { entities, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listEntities } from '../../data/appData';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates, saveTemplates } from '../../storage/localStorage';
@@ -35,6 +36,7 @@ function formatDate(iso: string): string {
  */
 export function Templates() {
   const canManage = permissionsFor(currentUser()).canManageTemplates;
+  const entities = listEntities();
   const { confirm, notify } = useDialog();
   const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);

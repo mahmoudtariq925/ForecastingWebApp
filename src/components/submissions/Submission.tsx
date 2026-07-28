@@ -14,13 +14,9 @@ import {
   runningBalance,
   type GridValues,
 } from './gridMath';
-import {
-  entities,
-  generateGridValues,
-  seedFor,
-  STANDARD_TEMPLATE_ID,
-  users as seedUsers,
-} from '../../data/mockData';
+import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listEntities, seedUsers } from '../../data/appData';
+import { DEMO_DATA } from '../../data/dataSource';
 import {
   currentWeekKey,
   HORIZON_DAYS,
@@ -74,9 +70,10 @@ interface SubmissionProps {
 
 export function Submission({ initial, allowedEntities, readOnly = false }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
+  const entities = useMemo(() => listEntities(), []);
   const selectableEntities = useMemo(
     () => (allowedEntities ? entities.filter((e) => allowedEntities.includes(e.name)) : entities),
-    [allowedEntities],
+    [allowedEntities, entities],
   );
   const [entity, setEntity] = useState(() =>
     initial?.entity && selectableEntities.some((e) => e.name === initial.entity)
@@ -362,17 +359,18 @@ function SubmissionEditor({
   };
 
   const reset = async () => {
+    // The live instance never fabricates numbers: reset always means clear.
+    const reseed = DEMO_DATA && template.id === STANDARD_TEMPLATE_ID;
     const confirmed = await confirm({
       title: 'Reset forecast',
-      message:
-        template.id === STANDARD_TEMPLATE_ID
-          ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
-          : 'Clear all values for this week? Your edits will be lost.',
+      message: reseed
+        ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
+        : 'Clear all values for this week? Your edits will be lost.',
       confirmLabel: 'Reset Values',
       danger: true,
     });
     if (!confirmed) return;
-    if (template.id === STANDARD_TEMPLATE_ID) {
+    if (reseed) {
       const { values: v, flags: f } = generateGridValues(
         template.categories,
         week,
@@ -536,10 +534,10 @@ function SubmissionEditor({
   const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
   const emailApprover = () => {
-    const ent = entities.find((e) => e.name === entity);
+    const ent = listEntities().find((e) => e.name === entity);
     const me = currentUser();
     const domain = mailDomain(settings);
-    const users = loadUsers(seedUsers);
+    const users = loadUsers(seedUsers());
     const to = ent ? emailForName(ent.approver, users, domain) : '';
     openEmail({
       to,

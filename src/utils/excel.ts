@@ -365,7 +365,95 @@ export async function parseValuesFile(
   await wb.xlsx.load(await file.arrayBuffer());
   const ws = wb.worksheets[0] as unknown as Worksheet;
   if (!ws) throw new Error('The workbook has no worksheets.');
+  return parseValuesWorksheet(ws, template, dates);
+}
 
+/**
+ * Import values from a .csv. The rows are loaded into an in-memory worksheet
+ * and parsed by the exact same matcher as .xlsx files, so both formats
+ * support both layouts and identical label matching.
+ */
+export async function parseValuesCsv(
+  file: File,
+  template: ForecastTemplate,
+  dates: Date[],
+): Promise<ImportedValues> {
+  const ExcelJS = await getExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet('Import');
+  for (const row of parseCsvText(await file.text())) {
+    sheet.addRow(row.map(coerceCsvCell));
+  }
+  return parseValuesWorksheet(sheet as unknown as Worksheet, template, dates);
+}
+
+/** Route an uploaded values file to the right parser by extension. */
+export async function parseValuesUpload(
+  file: File,
+  template: ForecastTemplate,
+  dates: Date[],
+): Promise<ImportedValues> {
+  return file.name.toLowerCase().endsWith('.csv')
+    ? parseValuesCsv(file, template, dates)
+    : parseValuesFile(file, template, dates);
+}
+
+/** Minimal CSV reader: quoted fields, embedded commas/quotes/newlines. */
+function parseCsvText(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  const push = () => {
+    row.push(field);
+    field = '';
+  };
+  const endRow = () => {
+    push();
+    if (row.some((f) => f.trim() !== '')) rows.push(row);
+    row = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') inQuotes = false;
+      else field += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ',') push();
+    else if (ch === '\n') endRow();
+    else if (ch !== '\r') field += ch;
+  }
+  if (field !== '' || row.length > 0) endRow();
+  return rows;
+}
+
+/** CSV cells arrive as text: recover numbers and dates so the worksheet
+ * matcher treats them exactly like their .xlsx equivalents. */
+function coerceCsvCell(raw: string): string | number | Date | null {
+  const s = raw.trim();
+  if (s === '') return null;
+  // 1,234.56 / (500) negative / plain numbers
+  const negative = /^\(.*\)$/.test(s);
+  const numText = s.replace(/^\((.*)\)$/, '$1').replace(/[,\s€£$]/g, '');
+  if (numText !== '' && !isNaN(Number(numText))) {
+    return negative ? -Number(numText) : Number(numText);
+  }
+  // ISO (2026-07-27) and European (27/07/2026) dates
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  const euMatch = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/.exec(s);
+  if (euMatch) return new Date(Number(euMatch[3]), Number(euMatch[2]) - 1, Number(euMatch[1]));
+  return s;
+}
+
+function parseValuesWorksheet(
+  ws: Worksheet,
+  template: ForecastTemplate,
+  dates: Date[],
+): ImportedValues {
   const catIdxByLabel = new Map<string, number>();
   template.categories.forEach((cat, i) => catIdxByLabel.set(norm(cat.label), i));
 

@@ -11,7 +11,7 @@
 //   LEGAL ENTITY SETUP (service)  — WHERE they may do it.
 // ============================================================================
 import type { Role, Settings, User } from '../types';
-import { users as seedUsers } from './mockData';
+import { seedUsers } from './appData';
 import { entityNamesFor, listLegalEntities } from './legalEntityService';
 import { loadData, loadSettings, loadUsers, saveData } from '../storage/localStorage';
 import { DEFAULT_SETTINGS } from '../components/settings/defaults';
@@ -118,20 +118,24 @@ const CURRENT_USER_KEY = 'currentUserEmail';
 
 /** The signed-in user: the locally persisted switcher choice, falling back
  * to the first treasury user (the fullest experience) so a fresh session
- * shows the main app rather than the narrower admin-configuration screens. */
+ * shows the main app rather than the narrower admin-configuration screens.
+ * The fallback is persisted immediately so the session stays with the same
+ * person as users are added — creating a treasury user must never silently
+ * reassign an anonymous admin session mid-flight. */
 export function currentUser(): User {
-  const users = loadUsers(seedUsers);
+  const users = loadUsers(seedUsers());
   const email = loadData<string | null>(CURRENT_USER_KEY, null);
   const selected = email
     ? users.find((u) => u.email.toLowerCase() === email.toLowerCase())
     : undefined;
-  return (
-    selected ??
+  if (selected) return selected;
+  const fallback =
     users.find((u) => u.role === 'treasury') ??
     users.find((u) => u.role === 'admin') ??
     users[0] ??
-    seedUsers[0]
-  );
+    seedUsers()[0];
+  if (fallback) saveData(CURRENT_USER_KEY, fallback.email);
+  return fallback;
 }
 
 /** Persist the mock-session choice (dev-only user switcher). */

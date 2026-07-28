@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { cycles as seedCycles } from '../../data/mockData';
+import { listCycles } from '../../data/appData';
 import { loadCycles, saveCycles } from '../../storage/localStorage';
 import type { Cycle } from '../../types';
 import type { ModalId } from '../../types/nav';
@@ -12,7 +12,7 @@ interface CyclesProps {
 
 /** Weekly forecast cycles with open/close actions persisted to storage. */
 export function Cycles({ onOpenModal }: CyclesProps) {
-  const [cycles, setCycles] = useState<Cycle[]>(() => loadCycles(seedCycles));
+  const [cycles, setCycles] = useState<Cycle[]>(() => loadCycles(listCycles()));
 
   // "submitted" here means the cycle is open for entry; "consolidated" = closed.
   const toggleCycle = (id: string) => {

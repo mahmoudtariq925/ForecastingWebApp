@@ -1823,3 +1823,77 @@ tbody tr.row-inactive td {
     font-size: 22px;
   }
 }
+
+/* ============================================================
+   Live instance (second deployment): environment badge and the
+   Data Import setup screen. None of this renders in the demo.
+   ============================================================ */
+/* Two classes so this outranks the `.brand-mark span` accent colour. */
+.sidebar .live-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px 1px;
+  margin-left: 8px;
+  vertical-align: 3px;
+}
+.sidebar.collapsed .live-badge {
+  display: none;
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.setup-step:last-child {
+  border-bottom: none;
+}
+.setup-step-mark {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.setup-step.done .setup-step-mark {
+  background: rgba(47, 138, 92, 0.12);
+  border-color: rgba(47, 138, 92, 0.4);
+  color: rgb(36, 110, 73);
+}
+.setup-step-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.setup-step-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.setup-step.done .setup-step-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.setup-step-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}

@@ -9,12 +9,12 @@
 // removes that entity from their responsibilities everywhere.
 // ============================================================================
 import type { EntityResponsibility, LegalEntity, Role, User } from '../types';
-import { buildLegalEntities } from './mockData';
+import { seedLegalEntities } from './appData';
 import { loadLegalEntities, saveLegalEntities } from '../storage/localStorage';
 
-/** All configured legal entities (seeded on first use). */
+/** All configured legal entities (seeded on first use; empty when live). */
 export function listLegalEntities(): LegalEntity[] {
-  return loadLegalEntities(buildLegalEntities());
+  return loadLegalEntities(seedLegalEntities());
 }
 
 /** Persist the full set (callers pass the edited array). */

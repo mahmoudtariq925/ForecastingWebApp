@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { cycles as seedCycles, entities, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listCycles, listEntities } from '../../data/appData';
 import { currentWeekKey } from '../../data/periods';
 import { peekSubmission } from '../../data/submissionService';
 import {
@@ -31,7 +32,7 @@ interface ApprovalsProps {
 export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
   const week = currentWeekKey();
   const activeCycleId = useMemo(() => {
-    const cycles = loadCycles(seedCycles);
+    const cycles = loadCycles(listCycles());
     return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
   }, []);
   const [overrides, setOverrides] = useState<ApprovalMap>(() => loadApprovals(activeCycleId));
@@ -39,6 +40,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
   // In the queue: entities whose seed status needs a decision, plus any
   // entity whose stored submission was submitted this week — limited to the
   // approver's scoped entities when set.
+  const entities = listEntities();
   const queue = entities.filter((e) => {
     if (scopeEntities && !scopeEntities.includes(e.name)) return false;
     const stored = loadSubmission(week, e.name, STANDARD_TEMPLATE_ID);
