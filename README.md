@@ -100,6 +100,26 @@ without affecting current ones.
 The forecast screen also offers **Export Template**, which downloads the
 current template as a blank workbook to fill in offline.
 
+### Entering numbers
+
+Cells hold the text you type while you're typing it and commit the parsed
+number alongside — binding the input straight to a number meant "-" and "1."
+were parsed away mid-keystroke, so `-500` stored `500` and `1.5` stored `15`.
+
+One parser (`parseCellNumber` in `gridMath.ts`) handles typing, pasting and
+the starting balance, so anything Excel produces lands correctly: accounting
+negatives `(500)`, currency prefixes `£900` / `€ 250`, thousands separators
+(comma, space, non-breaking space), European decimal commas `1.234,56`,
+trailing-minus `500-` and the Unicode minus Excel emits. Text that isn't a
+number (a header caught inside a copied range) is skipped rather than
+written as a zero, and a paste that skips anything says so instead of
+silently dropping cells.
+
+**Undo/redo** covers the whole forecast — `Ctrl+Z` / `Ctrl+Shift+Z` (or
+`Ctrl+Y`), plus toolbar buttons. One step undoes a whole pasted block or a
+Reset, not just a keystroke; a run of typing in one cell is a single step.
+Free-text commentary boxes keep the browser's own undo.
+
 ### Global roles vs. entity responsibilities
 
 Two deliberately separate concepts:

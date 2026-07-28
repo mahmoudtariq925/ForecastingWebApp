@@ -1,4 +1,4 @@
-import { useMemo, useState, type ClipboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
@@ -11,6 +11,7 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
+  parseCellNumber,
   runningBalance,
   type GridValues,
 } from './gridMath';
@@ -222,6 +223,18 @@ interface EditorProps {
   selectors: React.ReactNode;
 }
 
+/** Everything one Ctrl+Z restores: the full editable state of a forecast. */
+interface EditState {
+  values: GridValues;
+  flags: Set<string>;
+  comments: Record<string, string>;
+  dayComments: Record<string, string>;
+  startingBalance: number;
+}
+
+/** Plenty for a working session; keeps the stack from growing unbounded. */
+const UNDO_LIMIT = 100;
+
 interface ChartOptions {
   balance: boolean;
   net: boolean;
@@ -272,6 +285,84 @@ function SubmissionEditor({
     outflows: false,
   });
   const [balanceStyle, setBalanceStyle] = useState<'solid' | 'dashed' | 'area'>('solid');
+  // Text held while the starting balance is being typed (see NumberCell).
+  const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
+
+  // ---- Undo / redo -------------------------------------------------------
+  // A spreadsheet is expected to undo. The browser's native input undo only
+  // ever knew about one text box, so Ctrl+Z inside a cell restored a stray
+  // keystroke and could not touch a paste at all. These stacks hold whole
+  // editable states, so one Ctrl+Z reverses an edit, a paste or a reset.
+  // Which cell the current run of keystrokes belongs to, so typing "1250"
+  // is one undo step rather than four.
+  const lastEditedCell = useRef<string | null>(null);
+  const undoStack = useRef<EditState[]>([]);
+  const redoStack = useRef<EditState[]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  // Bumped only by undo/redo. Cells hold the text being typed, so restoring
+  // an earlier state has to discard those drafts or the old text would stay
+  // on screen over the restored value; remounting the grid clears them.
+  const [restoreVersion, setRestoreVersion] = useState(0);
+  // Re-read the stacks whenever history changes so the buttons enable/disable.
+  const canUndo = useMemo(() => {
+    void historyVersion;
+    return undoStack.current.length > 0;
+  }, [historyVersion]);
+  const canRedo = useMemo(() => {
+    void historyVersion;
+    return redoStack.current.length > 0;
+  }, [historyVersion]);
+
+  const snapshot = useCallback(
+    (): EditState => ({
+      values,
+      flags: new Set(flags),
+      comments: { ...comments },
+      dayComments: { ...dayComments },
+      startingBalance,
+    }),
+    [values, flags, comments, dayComments, startingBalance],
+  );
+
+  /** Record the state a mutating action is about to replace. */
+  const pushUndo = useCallback(() => {
+    undoStack.current.push(snapshot());
+    if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
+    redoStack.current = [];
+    setHistoryVersion((n) => n + 1);
+  }, [snapshot]);
+
+  const applyState = (next: EditState) => {
+    lastEditedCell.current = null;
+    setRestoreVersion((n) => n + 1);
+    setValues(next.values);
+    setFlags(next.flags);
+    setComments(next.comments);
+    setDayComments(next.dayComments);
+    setStartingBalance(next.startingBalance);
+    persist({
+      values: next.values,
+      flags: next.flags,
+      comments: next.comments,
+      dayComments: next.dayComments,
+      startingBalance: next.startingBalance,
+    });
+    setHistoryVersion((n) => n + 1);
+  };
+
+  const undo = () => {
+    const previous = undoStack.current.pop();
+    if (!previous) return;
+    redoStack.current.push(snapshot());
+    applyState(previous);
+  };
+
+  const redo = () => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    undoStack.current.push(snapshot());
+    applyState(next);
+  };
 
   interface Snapshot {
     values?: GridValues;
@@ -297,6 +388,29 @@ function SubmissionEditor({
     });
   };
 
+  // Ctrl/Cmd+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo — anywhere on the screen,
+  // so it works whether or not a cell has focus. Bound on the document
+  // because the grid's own inputs would otherwise swallow the keystroke.
+  useEffect(() => {
+    if (readOnly) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      // Leave free-text fields (commentary, day notes) to the browser.
+      const el = document.activeElement;
+      const isText =
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLInputElement && el.dataset.cat === undefined);
+      if (isText) return;
+      e.preventDefault();
+      if (key === 'y' || e.shiftKey) redo();
+      else undo();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  });
+
   const reflag = (v: GridValues, keys: Iterable<string>, base: Set<string>): Set<string> => {
     const next = new Set(base);
     for (const key of keys) {
@@ -309,6 +423,12 @@ function SubmissionEditor({
 
   const setCell = (catIdx: number, dayIdx: number, value: number) => {
     const key = cellKey(catIdx, dayIdx);
+    // Typing streams a value per keystroke; coalesce a run of edits to the
+    // same cell so one Ctrl+Z doesn't just remove one digit.
+    if (lastEditedCell.current !== key) {
+      pushUndo();
+      lastEditedCell.current = key;
+    }
     const nextValues = { ...values, [key]: value };
     const nextFlags = reflag(nextValues, [key], flags);
     setValues(nextValues);
@@ -323,29 +443,60 @@ function SubmissionEditor({
   ) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text');
-    const grid = text.trim().split(/\r?\n/).map((r) => r.split(/\t/));
+    // Only trailing newlines are stripped: trimming the whole block would
+    // swallow a leading empty cell and shift the paste by a column. Excel
+    // emits bare CR on some platforms, so all three endings are split.
+    const grid = text
+      .replace(/[\r\n]+$/, '')
+      .split(/\r\n|\r|\n/)
+      .map((row) => row.split('\t'));
+
     const nextValues = { ...values };
     const touched: string[] = [];
+    let clipped = 0;
+    let unparsed = 0;
     grid.forEach((cols, ri) => {
       cols.forEach((raw, ci) => {
         // Pasted rows/cols follow the on-screen orientation.
         const catIdx = orientation === 'grouped' ? startCat + ci : startCat + ri;
         const dayIdx = orientation === 'grouped' ? startDay + ri : startDay + ci;
-        if (catIdx >= numCats || dayIdx >= numPeriods) return;
-        const n = Number(raw.replace(/[€$,\s]/g, ''));
-        if (!Number.isFinite(n)) return;
+        if (catIdx >= numCats || dayIdx >= numPeriods) {
+          clipped++;
+          return;
+        }
+        const n = parseCellNumber(raw);
+        if (n === null) {
+          unparsed++; // a header or label caught inside the copied range
+          return;
+        }
         const key = cellKey(catIdx, dayIdx);
         nextValues[key] = n;
         touched.push(key);
       });
     });
+
+    pushUndo();
+    lastEditedCell.current = null;
     const nextFlags = reflag(nextValues, touched, flags);
     setValues(nextValues);
     setFlags(nextFlags);
     persist({ values: nextValues, flags: nextFlags });
+
+    // Dropped cells used to vanish without a word — which is exactly how a
+    // pasted block looked like it "didn't paste all of them".
+    if (clipped > 0 || unparsed > 0) {
+      const why: string[] = [];
+      if (clipped > 0) why.push(`${clipped} fell outside the grid`);
+      if (unparsed > 0) why.push(`${unparsed} weren't numbers`);
+      void notify({
+        title: 'Pasted, with some cells skipped',
+        message: `Filled ${touched.length} cell${touched.length === 1 ? '' : 's'} — ${why.join(' and ')}.`,
+      });
+    }
   };
 
   const setDayComment = (dayIdx: number, comment: string) => {
+    lastEditedCell.current = null;
     const next = { ...dayComments, [String(dayIdx)]: comment };
     if (!comment) delete next[String(dayIdx)];
     setDayComments(next);
@@ -353,6 +504,10 @@ function SubmissionEditor({
   };
 
   const setBalance = (v: number) => {
+    if (lastEditedCell.current !== 'starting-balance') {
+      pushUndo();
+      lastEditedCell.current = 'starting-balance';
+    }
     setStartingBalance(v);
     persist({ startingBalance: v });
   };
@@ -369,6 +524,8 @@ function SubmissionEditor({
       danger: true,
     });
     if (!confirmed) return;
+    pushUndo();
+    lastEditedCell.current = null;
     if (reseed) {
       const { values: v, flags: f } = generateGridValues(
         template.categories,
@@ -389,9 +546,11 @@ function SubmissionEditor({
   const copyPrior = async () => {
     const prevKey = prevWeekKey(week);
     const hasStored = loadSubmission(prevKey, entity, template.id) !== null;
+    pushUndo();
     setValues({ ...prior });
     setFlags(new Set());
     persist({ values: { ...prior }, flags: new Set() });
+    lastEditedCell.current = null;
     await notify({
       tone: 'success',
       message: hasStored
@@ -586,6 +745,28 @@ function SubmissionEditor({
           <div className="grid-toolbar">
             <div className="grid-toolbar-left" data-tour="submission-filters">{selectors}</div>
             <div className="row-flex">
+              {!readOnly && (
+                <>
+                  <button
+                    className="btn btn-ghost"
+                    data-tour="undo"
+                    title="Undo (Ctrl+Z)"
+                    disabled={!canUndo}
+                    onClick={undo}
+                  >
+                    ↶ Undo
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    data-tour="redo"
+                    title="Redo (Ctrl+Shift+Z)"
+                    disabled={!canRedo}
+                    onClick={redo}
+                  >
+                    ↷ Redo
+                  </button>
+                </>
+              )}
               <button
                 className="btn btn-ghost"
                 data-tour="export-template"
@@ -649,11 +830,19 @@ function SubmissionEditor({
               <input
                 className="form-input"
                 style={{ width: 120, textAlign: 'right', fontFamily: 'var(--mono)' }}
-                value={startingBalance}
+                // Same draft-while-typing treatment as a grid cell, so a
+                // negative opening balance can actually be typed.
+                value={balanceDraft ?? String(startingBalance)}
                 disabled={readOnly}
                 onChange={(e) => {
-                  const n = Number(e.target.value.replace(/[€$,\s]/g, ''));
-                  setBalance(Number.isFinite(n) ? n : 0);
+                  const raw = e.target.value;
+                  setBalanceDraft(raw);
+                  const parsed = parseCellNumber(raw);
+                  if (parsed !== null) setBalance(parsed);
+                }}
+                onBlur={() => {
+                  if (balanceDraft !== null) setBalance(parseCellNumber(balanceDraft) ?? 0);
+                  setBalanceDraft(null);
                 }}
                 aria-label="Starting balance"
               />
@@ -661,6 +850,7 @@ function SubmissionEditor({
           </div>
           <div className="forecast-grid-wrap" data-tour="forecast-grid">
             <ForecastGrid
+              key={restoreVersion}
               categories={template.categories}
               layout={orientation}
               dayLabels={dayLabels}
