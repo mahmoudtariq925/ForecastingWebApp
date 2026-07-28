@@ -9,7 +9,4 @@ export const DEFAULT_SETTINGS: Settings = {
   exemptNewPeriods: "Yes — never flag days outside prior cycle's horizon",
   ssoProvider: 'Azure Active Directory · Tenant: contoso.onmicrosoft.com',
   allowedDomains: '@contoso.com',
-  // Treasury is read-only across the configuration screens until an admin
-  // opts in. Only admins can change this.
-  treasuryManagementEnabled: false,
 };

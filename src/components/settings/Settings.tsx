@@ -6,14 +6,10 @@ import { loadSettings, saveSettings } from '../../storage/localStorage';
 import { DEFAULT_SETTINGS } from './defaults';
 import type { Settings as SettingsModel } from '../../types';
 
-/** Variance-threshold, cycle-rule and access configuration, persisted on change. */
+/** Variance-threshold, cycle-rule and authentication configuration, persisted on change. */
 export function Settings() {
   const [settings, setSettings] = useState<SettingsModel>(() => loadSettings(DEFAULT_SETTINGS));
-  const me = currentUser();
-  const permissions = permissionsFor(me, settings);
-  const canEdit = permissions.canManageSettings;
-  // Only an admin may delegate management rights to Treasury.
-  const canChangeToggle = permissions.canChangeTreasuryToggle;
+  const canEdit = permissionsFor(currentUser()).canManageSettings;
 
   const update = <K extends keyof SettingsModel>(key: K, value: SettingsModel[K]) => {
     const next = { ...settings, [key]: value };
@@ -65,7 +61,7 @@ export function Settings() {
           </div>
         </div>
 
-        <div className="panel">
+        <div className="panel" data-tour="settings-variance">
           <div className="panel-header">
             <h3>Variance Rules</h3>
           </div>
@@ -107,41 +103,6 @@ export function Settings() {
                 <option>Yes — never flag days outside prior cycle's horizon</option>
                 <option>No — always flag</option>
               </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Access &amp; Delegation</h3>
-          </div>
-          <div className="panel-body">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="toggle-row" data-tour="treasury-toggle">
-                <input
-                  type="checkbox"
-                  checked={settings.treasuryManagementEnabled === true}
-                  disabled={!canChangeToggle}
-                  onChange={(e) => update('treasuryManagementEnabled', e.target.checked)}
-                />
-                <span className="toggle-text">
-                  <strong>Allow Treasury users to manage users and settings</strong>
-                  <span className="text-muted">
-                    When off, Treasury users can view User Management, Settings and Legal Entity
-                    Setup but cannot change them. When on, they can manage all three. Only
-                    administrators can change this setting.
-                  </span>
-                </span>
-                <span className={`status ${settings.treasuryManagementEnabled ? 'approved' : 'draft'}`}>
-                  <span className="dot" />
-                  {settings.treasuryManagementEnabled ? 'enabled' : 'disabled'}
-                </span>
-              </label>
-              {!canChangeToggle && (
-                <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>
-                  Only an administrator can change this setting.
-                </div>
-              )}
             </div>
           </div>
         </div>

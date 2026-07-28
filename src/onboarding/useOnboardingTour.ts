@@ -69,10 +69,82 @@ function waitForElement(selector: string, timeoutMs = 900): Promise<Element | nu
   });
 }
 
+/**
+ * Mark the destination page in the sidebar while a step is showing, so it is
+ * obvious WHERE the tour has just navigated to — not only which control it is
+ * pointing at. Cleared when the tour ends.
+ */
+const NAV_CLASS = 'tour-nav-active';
+
+function markNav(view?: ViewId): void {
+  document.querySelectorAll(`.${NAV_CLASS}`).forEach((el) => el.classList.remove(NAV_CLASS));
+  if (!view) return;
+  document.querySelector(`[data-tour="nav-${view}"]`)?.classList.add(NAV_CLASS);
+}
+
+/** Nearest ancestor that actually scrolls — screens scroll inside `.content`,
+ * not the window, so that box is the real viewport for a step's element. */
+function scrollParent(el: Element): Element | null {
+  let node = el.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Bring a step's element into view before driver.js measures it. An element
+ * near the bottom of a long page would otherwise be highlighted below the
+ * fold with its popover pushed off-screen. Elements that fit are centred;
+ * anything taller than the scrolling box is aligned to its top, which is the
+ * only way its start and its popover can both be visible.
+ */
+/** Breathing room so the highlight ring around the element isn't clipped. */
+const SCROLL_PAD = 12;
+
+function scrollIntoView(el: Element): Promise<void> {
+  const rect = el.getBoundingClientRect();
+  const parent = scrollParent(el);
+  const view = parent
+    ? parent.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight || document.documentElement.clientHeight };
+  const viewHeight = view.bottom - view.top;
+  const fits = rect.height <= viewHeight;
+  const alreadyUsable = fits
+    ? rect.top >= view.top && rect.bottom <= view.bottom
+    : rect.top >= view.top && rect.top < view.top + viewHeight * 0.5;
+  if (alreadyUsable) return Promise.resolve();
+
+  if (parent) {
+    // Scroll the container by an exact delta. `scrollIntoView` rounds, which
+    // left tall elements a few pixels above the top edge with their highlight
+    // ring clipped.
+    const target = fits
+      ? rect.top - view.top - (viewHeight - rect.height) / 2 // centre it
+      : rect.top - view.top - SCROLL_PAD; // top-align, just below the edge
+    parent.scrollTop += target;
+  } else {
+    el.scrollIntoView({ block: fits ? 'center' : 'start', inline: 'nearest', behavior: 'auto' });
+  }
+  // One frame for the scroll to land, so driver.js highlights the final spot.
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 interface TourOptions {
   user: User;
   /** Switch screens between steps. */
   onNavigate: (view: ViewId) => void;
+  /**
+   * Views this user can actually open. A step on any other screen is dropped
+   * instantly instead of navigating to a screen the app will refuse and then
+   * waiting for an element that can never appear — which left the popover
+   * stranded on the previous step, unhighlighted, for about a second.
+   */
+  reachableViews?: Set<ViewId>;
   /** Whether the app is ready (screens mounted) for the tour to start. */
   enabled?: boolean;
 }
@@ -85,6 +157,7 @@ export interface TourController {
 export function useOnboardingTour({
   user,
   onNavigate,
+  reachableViews,
   enabled = true,
 }: TourOptions): TourController {
   const driverRef = useRef<Driver | null>(null);
@@ -92,23 +165,40 @@ export function useOnboardingTour({
   // Keep the latest navigate callback without restarting the tour.
   const navigateRef = useRef(onNavigate);
   navigateRef.current = onNavigate;
+  const reachableRef = useRef(reachableViews);
+  reachableRef.current = reachableViews;
+  // A step change is asynchronous (navigate → render → scroll). Without this
+  // guard a second click during that window starts a competing transition and
+  // the tour appears to skip or repeat a step.
+  const movingRef = useRef(false);
 
   const run = useCallback(
     async (steps: TourStep[]) => {
       driverRef.current?.destroy();
+      movingRef.current = false;
 
       /**
        * Prepare one step: move to its screen, then wait for the element.
        * Returns false when the element never appears, so the caller can skip.
        */
       const prepare = async (step: TourStep): Promise<boolean> => {
+        if (step.view && reachableRef.current && !reachableRef.current.has(step.view)) {
+          return false; // screen this user/build doesn't have — skip at once
+        }
         if (step.view) {
           navigateRef.current(step.view);
           // Let React commit the new screen before we look for the element.
           await new Promise((r) => requestAnimationFrame(() => r(null)));
         }
-        if (!step.selector) return true; // centred card, nothing to find
-        return (await waitForElement(step.selector)) !== null;
+        if (!step.selector) {
+          markNav(step.view);
+          return true; // centred card, nothing to find
+        }
+        const el = await waitForElement(step.selector);
+        if (!el) return false;
+        markNav(step.view);
+        await scrollIntoView(el);
+        return true;
       };
 
       /** First usable step at or after `from`, walking in `dir`. */
@@ -140,17 +230,30 @@ export function useOnboardingTour({
             // Taking over the buttons lets us navigate screens and skip
             // steps whose element isn't on this page.
             onNextClick: async () => {
-              const target = await findUsable(instance.getActiveIndex()! + 1, 1);
-              if (target === -1) instance.destroy();
-              else instance.moveTo(target);
+              if (movingRef.current) return;
+              movingRef.current = true;
+              try {
+                const target = await findUsable(instance.getActiveIndex()! + 1, 1);
+                if (target === -1) instance.destroy();
+                else instance.moveTo(target);
+              } finally {
+                movingRef.current = false;
+              }
             },
             onPrevClick: async () => {
-              const target = await findUsable(instance.getActiveIndex()! - 1, -1);
-              if (target !== -1) instance.moveTo(target);
+              if (movingRef.current) return;
+              movingRef.current = true;
+              try {
+                const target = await findUsable(instance.getActiveIndex()! - 1, -1);
+                if (target !== -1) instance.moveTo(target);
+              } finally {
+                movingRef.current = false;
+              }
             },
           },
         })),
         onDestroyed: () => {
+          markNav(undefined);
           markTourSeen(user.email);
           driverRef.current = null;
         },
@@ -160,6 +263,7 @@ export function useOnboardingTour({
       const first = await findUsable(0, 1);
       if (first === -1) {
         // Nothing to show (very unusual) — don't nag the user again.
+        markNav(undefined);
         markTourSeen(user.email);
         driverRef.current = null;
         return;
@@ -191,7 +295,13 @@ export function useOnboardingTour({
   }, [enabled, user.email, user.alwaysTour, replay]);
 
   // Tear the tour down if the component unmounts mid-walkthrough.
-  useEffect(() => () => driverRef.current?.destroy(), []);
+  useEffect(
+    () => () => {
+      markNav(undefined);
+      driverRef.current?.destroy();
+    },
+    [],
+  );
 
   return { replay };
 }

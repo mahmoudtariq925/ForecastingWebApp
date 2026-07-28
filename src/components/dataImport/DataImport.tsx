@@ -206,7 +206,7 @@ export function DataImport({ onNavigate }: DataImportProps) {
           </div>
         </div>
 
-        <div className="panel">
+        <div className="panel" data-tour="data-import">
           <div className="panel-header">
             <h3>Import a workbook</h3>
             <span className="tag">.xlsx or .csv · same importer as My Submissions</span>

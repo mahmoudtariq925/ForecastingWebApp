@@ -37,7 +37,7 @@ export function Cycles({ onOpenModal }: CyclesProps) {
         }
       />
       <div className="content">
-        <div className="panel">
+        <div className="panel" data-tour="cycles-table">
           <div className="panel-body no-pad">
             <table>
               <thead>

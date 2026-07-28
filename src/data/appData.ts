@@ -30,16 +30,17 @@ import { listSubmissions, loadLegalEntities, loadUsers } from '../storage/localS
 // ---------------------------------------------------------------------------
 
 /**
- * The live instance boots with one administrator (identity set at build time
+ * The live instance boots with one treasury user (identity set at build time
  * via VITE_ADMIN_NAME / VITE_ADMIN_EMAIL) who then creates the real users in
- * User Management. No demo people, no demo joiners.
+ * User Management. Treasury is the full role, so this single account can
+ * configure everything. No demo people, no demo joiners.
  */
 function liveBootstrapAdmin(): User {
   return {
     name: import.meta.env.VITE_ADMIN_NAME || 'Administrator',
     email: import.meta.env.VITE_ADMIN_EMAIL || 'admin@example.com',
-    team: 'Administration',
-    role: 'admin',
+    team: 'Treasury HQ',
+    role: 'treasury',
     status: 'active',
     last: 'Now',
   };

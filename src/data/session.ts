@@ -10,13 +10,12 @@
 //   GLOBAL ROLE (here)            — WHAT a user may do.
 //   LEGAL ENTITY SETUP (service)  — WHERE they may do it.
 // ============================================================================
-import type { Role, Settings, User } from '../types';
+import type { Role, User } from '../types';
 import { seedUsers } from './appData';
 import { entityNamesFor, listLegalEntities } from './legalEntityService';
-import { loadData, loadSettings, loadUsers, saveData } from '../storage/localStorage';
-import { DEFAULT_SETTINGS } from '../components/settings/defaults';
+import { loadData, loadUsers, saveData } from '../storage/localStorage';
 
-/** Central permission model derived from the user's role (+ admin settings). */
+/** Central permission model derived from the user's global role. */
 export interface Permissions {
   canViewTreasuryDashboard: boolean;
   /** Read the configuration screens (Users / Settings / Legal Entity Setup). */
@@ -33,8 +32,6 @@ export interface Permissions {
   canViewConsolidated: boolean;
   /** Read forecasts for the entities they are assigned to. */
   canViewForecasts: boolean;
-  /** Only an admin may flip the "Treasury can manage" setting. */
-  canChangeTreasuryToggle: boolean;
 }
 
 const NO_ACCESS: Permissions = {
@@ -51,39 +48,24 @@ const NO_ACCESS: Permissions = {
   canReviewComments: false,
   canViewConsolidated: false,
   canViewForecasts: false,
-  canChangeTreasuryToggle: false,
 };
 
 /**
- * Permissions for a role. `treasuryManagementEnabled` is the admin setting
- * that decides whether Treasury may modify the configuration screens or only
- * view them.
+ * Permissions for a role. Treasury is the full role — forecast oversight plus
+ * system configuration (users, templates, legal entities, settings); the
+ * separate administrator role it absorbed no longer exists.
  */
-function permissionsForRole(role: Role, treasuryManagementEnabled: boolean): Permissions {
+function permissionsForRole(role: Role): Permissions {
   switch (role) {
-    // Full system administrator: configuration only, no forecast workflow.
-    case 'admin':
+    // Global treasury: the complete experience, financial and configuration.
+    case 'treasury':
       return {
-        ...NO_ACCESS,
+        canViewTreasuryDashboard: true,
         canViewAdminScreens: true,
         canManageUsers: true,
         canManageSettings: true,
         canManageLegalEntities: true,
         canManageTemplates: true,
-        canViewAllEntities: true,
-        canChangeTreasuryToggle: true,
-      };
-    // Global treasury: the full financial experience; management of the
-    // configuration screens is gated on the admin setting.
-    case 'treasury':
-      return {
-        ...NO_ACCESS,
-        canViewTreasuryDashboard: true,
-        canViewAdminScreens: true,
-        canManageUsers: treasuryManagementEnabled,
-        canManageSettings: treasuryManagementEnabled,
-        canManageLegalEntities: treasuryManagementEnabled,
-        canManageTemplates: treasuryManagementEnabled,
         canManageCycles: true,
         canApproveForecasts: true,
         canSubmitForecasts: true,
@@ -109,9 +91,8 @@ function permissionsForRole(role: Role, treasuryManagementEnabled: boolean): Per
   }
 }
 
-export function permissionsFor(user: User, settings?: Settings): Permissions {
-  const resolved = settings ?? loadSettings(DEFAULT_SETTINGS);
-  return permissionsForRole(user.role, resolved.treasuryManagementEnabled === true);
+export function permissionsFor(user: User): Permissions {
+  return permissionsForRole(user.role);
 }
 
 const CURRENT_USER_KEY = 'currentUserEmail';
@@ -131,7 +112,6 @@ export function currentUser(): User {
   if (selected) return selected;
   const fallback =
     users.find((u) => u.role === 'treasury') ??
-    users.find((u) => u.role === 'admin') ??
     users[0] ??
     seedUsers()[0];
   if (fallback) saveData(CURRENT_USER_KEY, fallback.email);

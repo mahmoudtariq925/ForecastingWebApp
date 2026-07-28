@@ -83,9 +83,9 @@ const SUBMITTER_STEPS: TourStep[] = [
   },
   {
     view: 'submission',
-    selector: '[data-tour="import-excel"]',
-    title: 'Import from Excel',
-    body: 'Already have the numbers in a spreadsheet? Upload it and the grid fills in automatically, matching your line items by name.',
+    selector: '[data-tour="export-template"]',
+    title: 'Working offline',
+    body: 'Download this template as a blank workbook, fill it in outside Liquid, and keep it for your own records.',
     side: 'bottom',
   },
   {
@@ -134,6 +134,13 @@ const APPROVER_STEPS: TourStep[] = [
     body: 'Approve when you’re happy. Rejecting returns it to the submitter to update and resubmit.',
     side: 'left',
   },
+  {
+    view: 'submission',
+    selector: '[data-tour="forecast-grid"]',
+    title: 'My Forecasts',
+    body: 'You can prepare and submit forecasts for your own entities here too — the same grid your submitters use.',
+    side: 'top',
+  },
   COMMENTS_STEP,
 ];
 
@@ -169,6 +176,9 @@ const VIEWER_STEPS: TourStep[] = [
   COMMENTS_STEP,
 ];
 
+// Treasury is the full role: the whole forecast cycle AND the configuration
+// screens the separate administrator role used to own. Its tour therefore
+// covers every screen in its navigation, workspace first then admin.
 const TREASURY_STEPS: TourStep[] = [
   {
     view: 'dashboard',
@@ -192,6 +202,27 @@ const TREASURY_STEPS: TourStep[] = [
     side: 'top',
   },
   {
+    view: 'cycles',
+    selector: '[data-tour="cycles-table"]',
+    title: 'Forecast cycles',
+    body: 'Every weekly cycle, what it collected and where it got to. Open a new cycle to start collecting, and close one when the numbers are final.',
+    side: 'top',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="forecast-grid"]',
+    title: 'Any entity’s forecast',
+    body: 'You can open and edit any entity’s grid — useful for fixing a number yourself rather than sending it back.',
+    side: 'top',
+  },
+  {
+    view: 'approvals',
+    selector: '[data-tour="approvals-table"]',
+    title: 'Approvals',
+    body: 'Everything submitted across the group, so you can approve or return a forecast without waiting for its local approver.',
+    side: 'top',
+  },
+  {
     view: 'consolidated',
     selector: '[data-tour="nav-consolidated"]',
     title: 'Consolidated view',
@@ -212,22 +243,19 @@ const TREASURY_STEPS: TourStep[] = [
     body: 'Search and filter every outstanding comment, then mark them reviewed. A forecast stops blocking the cycle once its comments are cleared.',
     side: 'bottom',
   },
-  CLOSING,
-];
-
-const ADMIN_STEPS: TourStep[] = [
+  // --- Configuration (previously the separate administrator role) ---
   {
-    view: 'users',
-    selector: '[data-tour="users-table"]',
-    title: 'The people list',
-    body: 'Everyone with access, their role, and which entities they’re responsible for. Responsibilities are read-only here — they come from Legal Entity Setup.',
+    view: 'dataImport',
+    selector: '[data-tour="data-import"]',
+    title: 'Loading real data',
+    body: 'Upload an Excel or CSV workbook per entity and week to populate the forecasts. Everything else on this screen updates from what you import.',
     side: 'top',
   },
   {
-    view: 'users',
-    selector: '[data-tour="add-user"]',
-    title: 'Adding someone',
-    body: 'Set their name, email and role. Their role decides what they can do; where they can do it is set up next. Saving opens a ready-to-send invite email.',
+    view: 'templates',
+    selector: '[data-tour="create-template"]',
+    title: 'Building a template',
+    body: 'Design a forecast in the browser — rows for your line items, sections and subtotals, columns for the periods — or upload an existing Excel file instead.',
     side: 'left',
   },
   {
@@ -241,21 +269,28 @@ const ADMIN_STEPS: TourStep[] = [
     view: 'legalEntities',
     selector: '[data-tour="entity-template"]',
     title: 'Which template each entity uses',
-    body: 'Set the forecast template an entity submits on. The same template can serve as many entities as you like.',
+    body: 'Set the forecast template an entity submits on. This is the only place that is decided — the Templates screen just reports it.',
     side: 'top',
   },
   {
-    view: 'templates',
-    selector: '[data-tour="create-template"]',
-    title: 'Building a template',
-    body: 'Design a forecast in the browser — rows for your line items, sections and subtotals, columns for the periods — or upload an existing Excel file instead.',
+    view: 'users',
+    selector: '[data-tour="users-table"]',
+    title: 'The people list',
+    body: 'Everyone with access, their role, and which entities they’re responsible for. Responsibilities are read-only here — they come from Legal Entity Setup.',
+    side: 'top',
+  },
+  {
+    view: 'users',
+    selector: '[data-tour="add-user"]',
+    title: 'Adding someone',
+    body: 'Set their name, email and role. Their role decides what they can do; where they can do it is set in Legal Entity Setup. Saving opens a ready-to-send invite email.',
     side: 'left',
   },
   {
     view: 'settings',
-    selector: '[data-tour="treasury-toggle"]',
-    title: 'Delegating admin work',
-    body: 'Off by default, Treasury can look at these settings but not change them. Turn it on to let them manage users and configuration too.',
+    selector: '[data-tour="settings-variance"]',
+    title: 'Cycle and variance rules',
+    body: 'Set how far the forecast looks ahead and how big a change has to be before it is flagged for commentary. These rules apply to every entity.',
     side: 'top',
   },
   CLOSING,
@@ -266,7 +301,6 @@ const BY_ROLE: Record<Role, TourStep[]> = {
   approver: APPROVER_STEPS,
   viewer: VIEWER_STEPS,
   treasury: TREASURY_STEPS,
-  admin: ADMIN_STEPS,
 };
 
 const ROLE_TITLE: Record<Role, string> = {
@@ -274,7 +308,6 @@ const ROLE_TITLE: Record<Role, string> = {
   approver: 'Approver',
   viewer: 'Viewer',
   treasury: 'Treasury user',
-  admin: 'Administrator',
 };
 
 /** The full step list for a user, welcome card included. */

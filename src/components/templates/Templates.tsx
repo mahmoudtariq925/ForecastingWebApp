@@ -6,6 +6,7 @@ import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { TemplateEditor } from './TemplateEditor';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities } from '../../data/appData';
+import { listLegalEntities } from '../../data/legalEntityService';
 import { currentWeekKey, dayLabelsForWeek, horizonDates } from '../../data/periods';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates, saveTemplates } from '../../storage/localStorage';
@@ -31,17 +32,25 @@ function formatDate(iso: string): string {
 
 /**
  * Admin screen for forecast templates: upload .xlsx files (structure is
- * derived from the workbook itself), choose the layout, assign templates to
- * entities, and view / update / replace / remove existing ones.
+ * derived from the workbook itself) or author them in the browser, then
+ * view / rename / replace / remove them. Which entity uses which template is
+ * NOT set here — that lives in Legal Entity Setup, so it has one home.
  */
 export function Templates() {
   const canManage = permissionsFor(currentUser()).canManageTemplates;
   const entities = listEntities();
+  // Entity ↔ template assignment is owned by Legal Entity Setup; this screen
+  // only reports it, exactly as User Management reports responsibilities.
+  const legalEntities = listLegalEntities();
+  const usedBy = (templateId: string): string => {
+    const names = legalEntities.filter((e) => e.forecastTemplateId === templateId).map((e) => e.name);
+    if (names.length === 0) return '—';
+    return names.length === entities.length ? 'All entities' : names.join(', ');
+  };
   const { confirm, notify } = useDialog();
   const [templates, setTemplates] = useState<ForecastTemplate[]>(() => loadTemplates());
   const [editing, setEditing] = useState<ForecastTemplate | null>(null);
   const [editName, setEditName] = useState('');
-  const [editEntities, setEditEntities] = useState<Set<string>>(new Set());
   const [uploadOpen, setUploadOpen] = useState(false);
   // null = editor closed; { template: null } = authoring a new template.
   const [editorTarget, setEditorTarget] = useState<{ template: ForecastTemplate | null } | null>(
@@ -170,21 +179,12 @@ export function Templates() {
   const openEdit = (t: ForecastTemplate) => {
     setEditing(t);
     setEditName(t.name);
-    setEditEntities(new Set(t.assignedEntities));
   };
 
   const saveEdit = () => {
     if (!editing) return;
     commit(
-      templates.map((t) =>
-        t.id === editing.id
-          ? {
-              ...t,
-              name: editName.trim() || t.name,
-              assignedEntities: [...editEntities],
-            }
-          : t,
-      ),
+      templates.map((t) => (t.id === editing.id ? { ...t, name: editName.trim() || t.name } : t)),
     );
     setEditing(null);
   };
@@ -194,13 +194,6 @@ export function Templates() {
     const exists = templates.some((t) => t.id === next.id);
     commit(exists ? templates.map((t) => (t.id === next.id ? next : t)) : [...templates, next]);
     setEditorTarget(null);
-  };
-
-  const toggleEntity = (name: string) => {
-    const next = new Set(editEntities);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    setEditEntities(next);
   };
 
   if (editorTarget) {
@@ -264,7 +257,7 @@ export function Templates() {
                     <th>Layout</th>
                     <th>Source File</th>
                     <th>Line Items</th>
-                    <th>Assigned To</th>
+                    <th>Used By (from Legal Entity Setup)</th>
                     <th>Updated</th>
                     <th></th>
                   </tr>
@@ -290,11 +283,7 @@ export function Templates() {
                       </td>
                       <td className="text-dim">{t.categories.length} items</td>
                       <td className="text-dim" style={{ fontSize: 12, maxWidth: 240 }}>
-                        {t.assignedEntities.length === 0
-                          ? '—'
-                          : t.assignedEntities.length === entities.length
-                            ? 'All entities'
-                            : t.assignedEntities.join(', ')}
+                        {usedBy(t.id)}
                       </td>
                       <td className="text-muted" style={{ fontSize: 12 }}>
                         {formatDate(t.uploadedAt)}
@@ -316,7 +305,7 @@ export function Templates() {
                                 style={{ padding: '4px 10px', fontSize: 11 }}
                                 onClick={() => openEdit(t)}
                               >
-                                Name &amp; Entities
+                                Rename
                               </button>
                               <button
                                 className="btn btn-ghost"
@@ -410,7 +399,7 @@ export function Templates() {
 
       <Modal
         open={editing !== null}
-        title="Edit Template"
+        title="Rename Template"
         onClose={() => setEditing(null)}
         footer={
           <>
@@ -437,34 +426,9 @@ export function Templates() {
             </div>
           )}
         </div>
-        <div className="form-group">
-          <label className="form-label">Assigned Countries / Regions</label>
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: '10px 12px',
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 6,
-              maxHeight: 220,
-              overflowY: 'auto',
-            }}
-          >
-            {entities.map((en) => (
-              <label key={en.name} className="row-flex" style={{ fontSize: 13, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={editEntities.has(en.name)}
-                  onChange={() => toggleEntity(en.name)}
-                />
-                {en.name}
-              </label>
-            ))}
-          </div>
-          <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
-            Submitters in these countries can pick this template in My Submissions.
-          </div>
+        <div className="text-muted" style={{ fontSize: 11 }}>
+          Which entities use this template is configured per entity in{' '}
+          <strong>Legal Entity Setup</strong>, so it is set in exactly one place.
         </div>
       </Modal>
     </div>
