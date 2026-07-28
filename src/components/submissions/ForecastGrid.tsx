@@ -26,7 +26,8 @@ export interface ForecastGridProps {
   dayLabels: DayLabel[];
   values: GridValues;
   flags: Set<string>;
-  startingBalance: number;
+  /** Opening balance; `null` hides the running-total column entirely. */
+  startingBalance: number | null;
   dayComments?: Record<string, string>;
   editable: boolean;
   onChangeCell?: (catIdx: number, dayIdx: number, value: number) => void;
@@ -92,7 +93,7 @@ function useGridScales(props: ForecastGridProps): GridScales {
   }, [heatmap, categories, values, numDays, numCats]);
 
   const balanceScale = useHeatScale(() => {
-    if (!heatmap) return [];
+    if (!heatmap || startingBalance === null) return [];
     const out: number[] = [];
     for (let d = 0; d < numDays; d++) {
       out.push(runningBalance(numCats, values, startingBalance, d));
@@ -259,11 +260,16 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
     { label: 'Total Inflows', day: (d) => dayInflows(numCats, values, d), kind: 'subtotal' },
     { label: 'Total Outflows', day: (d) => dayOutflows(numCats, values, d), kind: 'subtotal' },
     { label: 'Net Cash Flow', day: (d) => dayNet(numCats, values, d), kind: 'total' },
-    {
-      label: 'Closing Balance',
-      day: (d) => runningBalance(numCats, values, startingBalance, d),
-      kind: 'total',
-    },
+    // A closing balance only means something once an opening one is given.
+    ...(startingBalance === null
+      ? []
+      : [
+          {
+            label: 'Closing Balance',
+            day: (d: number) => runningBalance(numCats, values, startingBalance, d),
+            kind: 'total',
+          },
+        ]),
   ];
 
   return (
@@ -425,6 +431,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  // A running balance only means something once an opening balance is given,
+  // so the whole column appears and disappears with it.
+  const hasBalance = startingBalance !== null;
   // Only the final column of each band gets a vertical rule.
   const groupEnds = useMemo(
     () => new Set(groups.map((g) => g.idxs[g.idxs.length - 1])),
@@ -453,9 +462,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
             Total
           </th>
-          <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
-            Running Total
-          </th>
+          {hasBalance && (
+            <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
+              Running Total
+            </th>
+          )}
         </tr>
         <tr>
           {categories.map((cat, i) => (
@@ -466,14 +477,16 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         </tr>
       </thead>
       <tbody>
-        <tr className="section-row">
-          <td className="row-label">Starting Balance</td>
-          {Array.from({ length: numCats + 1 }).map((_, i) => (
-            <td key={i} />
-          ))}
-          <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
-          <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
-        </tr>
+        {hasBalance && (
+          <tr className="section-row">
+            <td className="row-label">Starting Balance</td>
+            {Array.from({ length: numCats + 1 }).map((_, i) => (
+              <td key={i} />
+            ))}
+            <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
+            <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
+          </tr>
+        )}
         {dayLabels.map((dl, dayIdx) => (
           <tr key={dayIdx}>
             <td className="row-label">
@@ -504,15 +517,19 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             </td>
             {(() => {
               const net = dayNet(numCats, values, dayIdx);
-              const bal = runningBalance(numCats, values, startingBalance, dayIdx);
               return (
                 <>
                   <td className="cell subtotal-cell" style={fill(net, scales.totals)}>
                     {fmt(net)}
                   </td>
-                  <td className="cell running-total-cell" style={fill(bal, scales.balances)}>
-                    {bal.toLocaleString()}
-                  </td>
+                  {hasBalance && (
+                    <td
+                      className="cell running-total-cell"
+                      style={fill(runningBalance(numCats, values, startingBalance, dayIdx), scales.balances)}
+                    >
+                      {runningBalance(numCats, values, startingBalance, dayIdx).toLocaleString()}
+                    </td>
+                  )}
                 </>
               );
             })()}
@@ -536,9 +553,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 .reduce((a, b) => a + b, 0)
                 .toLocaleString()}
             </td>
-            <td className="cell total-cell">
-              {runningBalance(numCats, values, startingBalance, numDays - 1).toLocaleString()}
-            </td>
+            {hasBalance && (
+              <td className="cell total-cell">
+                {runningBalance(numCats, values, startingBalance, numDays - 1).toLocaleString()}
+              </td>
+            )}
           </tr>
         )}
         <tr>
@@ -558,9 +577,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               .reduce((a, b) => a + b, 0)
               .toLocaleString()}
           </td>
-          <td className="cell total-cell">
-            {runningBalance(numCats, values, startingBalance, numDays - 1).toLocaleString()}
-          </td>
+          {hasBalance && (
+            <td className="cell total-cell">
+              {runningBalance(numCats, values, startingBalance, numDays - 1).toLocaleString()}
+            </td>
+          )}
         </tr>
       </tbody>
     </table>

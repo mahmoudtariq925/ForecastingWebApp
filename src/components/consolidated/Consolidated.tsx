@@ -78,7 +78,7 @@ export function Consolidated() {
     let minBalance = Infinity;
     let minDay = 1;
     for (let d = 0; d < numDays; d++) {
-      const bal = runningBalance(numCats, values, current.startingBalance, d);
+      const bal = runningBalance(numCats, values, current.startingBalance ?? 0, d);
       if (bal < minBalance) {
         minBalance = bal;
         minDay = d + 1;

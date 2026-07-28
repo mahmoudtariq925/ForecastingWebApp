@@ -115,6 +115,12 @@ number (a header caught inside a copied range) is skipped rather than
 written as a zero, and a paste that skips anything says so instead of
 silently dropping cells.
 
+**Starting balance is optional.** Leave it blank and the grid drops the
+running-total column (and the days-across *Closing Balance* row) entirely
+rather than counting up from an assumed zero; type a value and the column
+appears immediately. Demo forecasts open with a seeded balance, so they look
+unchanged; a real one starts blank until the submitter fills it in.
+
 **Undo/redo** covers the whole forecast — `Ctrl+Z` / `Ctrl+Shift+Z` (or
 `Ctrl+Y`), plus toolbar buttons. One step undoes a whole pasted block or a
 Reset, not just a keystroke; a run of typing in one cell is a single step.

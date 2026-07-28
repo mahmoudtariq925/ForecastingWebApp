@@ -132,12 +132,12 @@ export function Comparison() {
       }
     };
     const cur = Array.from({ length: HORIZON_DAYS }, (_v, d) =>
-      metricAt(current.values, current.startingBalance, d),
+      metricAt(current.values, current.startingBalance ?? 0, d),
     );
     const prev = Array.from({ length: HORIZON_DAYS }, (_v, d) => {
       const shifted = d + WORKDAYS_PER_WEEK;
       if (shifted >= HORIZON_DAYS) return null;
-      return metricAt(priorData.values, priorData.startingBalance, shifted);
+      return metricAt(priorData.values, priorData.startingBalance ?? 0, shifted);
     });
     return [
       {

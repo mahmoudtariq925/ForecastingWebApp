@@ -48,7 +48,7 @@ function normalizeSubmission(sub: Submission): Submission {
       : [],
     comments: record(sub.comments) ?? {},
     dayComments: record(sub.dayComments) ?? {},
-    startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : 0,
+    startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
   };
 }
@@ -73,7 +73,9 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
     resolvedFlags: [],
     comments: {},
     dayComments: {},
-    startingBalance: DEMO_DATA ? startingBalanceFor(entity) : 0,
+    // Demo forecasts open with a balance; a real one starts blank until the
+    // submitter enters theirs, and the running total appears with it.
+    startingBalance: DEMO_DATA ? startingBalanceFor(entity) : null,
     updatedAt: new Date().toISOString(),
   };
 }
