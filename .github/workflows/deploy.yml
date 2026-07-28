@@ -1,3 +1,6 @@
+# STATIC demo deployment — publishes the mock-data build to the Pages ROOT.
+# The live instance deploys separately (deploy-live.yml) into /live and this
+# workflow must never touch it: keep_files below preserves that folder.
 name: Deploy to GitHub Pages
 
 on:
@@ -9,10 +12,10 @@ on:
 permissions:
   contents: write
 
-# Never run two deploys at once; a newer push supersedes an in-flight build.
+# Share one group with the live deploy so the two never race on gh-pages.
 concurrency:
   group: pages-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -38,3 +41,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          # Preserve everything already on the branch — most importantly the
+          # /live folder the live-instance workflow publishes. (Superseded
+          # asset files accumulate over time; harmless for Pages.)
+          keep_files: true

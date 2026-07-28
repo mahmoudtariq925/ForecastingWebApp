@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavIcon } from '../common/icons';
-import { users as seedUsers } from '../../data/mockData';
+import { seedUsers } from '../../data/appData';
+import { IS_LIVE } from '../../data/dataSource';
 import { permissionsFor } from '../../data/session';
 import { loadUsers } from '../../storage/localStorage';
 import { navFor } from '../../types/nav';
@@ -48,7 +49,7 @@ export function Sidebar({
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
   const sections = navFor(permissionsFor(user));
-  const allUsers = loadUsers(seedUsers);
+  const allUsers = loadUsers(seedUsers());
   // Brand-new joiners are grouped separately: picking one always replays
   // that role's walkthrough, which is how each tour gets reviewed.
   const existingUsers = allUsers.filter((u) => !u.alwaysTour);
@@ -72,6 +73,11 @@ export function Sidebar({
         <div className="brand-text">
           <div className="brand-mark">
             Liquid<span>·</span>
+            {IS_LIVE && (
+              <span className="live-badge" title="Live instance — real data, no demo numbers">
+                LIVE
+              </span>
+            )}
           </div>
           <div className="brand-sub">Cash Flow Forecasting</div>
         </div>

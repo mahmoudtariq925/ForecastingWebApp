@@ -3,7 +3,7 @@ import { TopBar } from '../layout/TopBar';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
-import { users as seedUsers } from '../../data/mockData';
+import { seedUsers } from '../../data/appData';
 import { currentUser, permissionsFor } from '../../data/session';
 import {
   listLegalEntities,
@@ -98,7 +98,7 @@ function ResponsibilitiesCell({ items }: { items: Responsibility[] }) {
  * live, so removing someone there removes the entity from this list too.
  */
 export function Users() {
-  const [users, setUsers] = useState<User[]>(() => loadUsers(seedUsers));
+  const [users, setUsers] = useState<User[]>(() => loadUsers(seedUsers()));
   const [adding, setAdding] = useState(false);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);

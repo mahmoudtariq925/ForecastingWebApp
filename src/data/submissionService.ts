@@ -9,12 +9,13 @@
 // ============================================================================
 import type { Entity, ForecastTemplate, Settings, Submission, SubmissionStatus } from '../types';
 import {
-  entities,
   generateGridValues,
   seedFor,
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
+import { listEntities } from './appData';
+import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
   currentWeekKey,
@@ -53,10 +54,11 @@ function normalizeSubmission(sub: Submission): Submission {
 }
 
 /** Build the fresh (unsaved) submission a given (entity, week, template) would
- * start from: seeded demo values for the standard template, blank otherwise. */
+ * start from: seeded demo values for the standard template (demo data only —
+ * the live instance never invents numbers), blank otherwise. */
 function buildSubmission(entity: string, week: string, template: ForecastTemplate): Submission {
-  const isStandard = template.id === STANDARD_TEMPLATE_ID;
-  const { values, flags } = isStandard
+  const seeded = DEMO_DATA && template.id === STANDARD_TEMPLATE_ID;
+  const { values, flags } = seeded
     ? generateGridValues(template.categories, week, seedFor(`${entity}:${week}`), true)
     // Templates authored in the editor can carry starting values.
     : { values: { ...(template.defaultValues ?? {}) }, flags: [] as string[] };
@@ -71,7 +73,7 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
     resolvedFlags: [],
     comments: {},
     dayComments: {},
-    startingBalance: startingBalanceFor(entity),
+    startingBalance: DEMO_DATA ? startingBalanceFor(entity) : 0,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -118,14 +120,15 @@ export interface ConsolidatedData {
 export function consolidatedValues(week: string, template: ForecastTemplate): ConsolidatedData {
   const values: GridValues = {};
   let startingBalance = 0;
-  for (const e of entities) {
+  const all = listEntities();
+  for (const e of all) {
     const sub = peekSubmission(e.name, week, template);
     for (const [key, v] of Object.entries(sub.values)) {
       if (v) values[key] = (values[key] || 0) + v;
     }
     startingBalance += sub.startingBalance ?? 0;
   }
-  return { values, startingBalance, entityCount: entities.length };
+  return { values, startingBalance, entityCount: all.length };
 }
 
 /**
@@ -158,7 +161,7 @@ export function getPriorValues(
   const prevKey = prevWeekKey(week);
   const stored = loadSubmission(prevKey, entity, template.id);
   if (stored) return stored.values;
-  if (template.id === STANDARD_TEMPLATE_ID) {
+  if (DEMO_DATA && template.id === STANDARD_TEMPLATE_ID) {
     return generateGridValues(
       template.categories,
       prevKey,
@@ -180,6 +183,16 @@ export function priorValueFor(
   catIdx: number,
   dayIdx: number,
 ): number | null {
+  // No prior forecast at all (a live instance's first week, or a template
+  // never submitted before): there is nothing to compare against, so no
+  // cell has a meaningful variance — as opposed to a prior value of 0.
+  let hasPrior = false;
+  for (const k in prior) {
+    void k;
+    hasPrior = true;
+    break;
+  }
+  if (!hasPrior) return null;
   const shifted = dayIdx + WORKDAYS_PER_WEEK;
   if (shifted >= HORIZON_DAYS) return null;
   return prior[`${catIdx}-${shifted}`] || 0;
@@ -245,7 +258,7 @@ export function largestVariances(
   limit = 12,
 ): VarianceRow[] {
   const rows: VarianceRow[] = [];
-  for (const e of entities) {
+  for (const e of listEntities()) {
     const sub = peekSubmission(e.name, week, template);
     const prior = getPriorValues(e.name, week, template);
     template.categories.forEach((cat, catIdx) => {
@@ -326,8 +339,9 @@ export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[
 
   // Current week across all entities (peek = stored-or-demo, no writes)…
   const week = currentWeekKey();
+  const allEntities = listEntities();
   const candidates: Submission[] = [];
-  for (const e of entities) {
+  for (const e of allEntities) {
     const template = templatesForEntity(templates, e.name)[0];
     if (template) candidates.push(peekSubmission(e.name, week, template));
   }
@@ -388,7 +402,7 @@ export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[
         period: sub.period,
         templateId: sub.templateId,
         templateName: template?.name ?? sub.templateId,
-        submitter: entities.find((e) => e.name === sub.entity)?.submitter ?? '—',
+        submitter: allEntities.find((e) => e.name === sub.entity)?.submitter ?? '—',
         status: sub.status,
         updatedAt: sub.updatedAt,
         items,

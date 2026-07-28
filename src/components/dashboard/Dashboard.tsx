@@ -2,13 +2,8 @@ import { useMemo } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
-import {
-  cycles as seedCycles,
-  entities,
-  seedFor,
-  STANDARD_TEMPLATE_ID,
-  users as seedUsers,
-} from '../../data/mockData';
+import { seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listCycles, listEntities, seedUsers } from '../../data/appData';
 import { currentWeekKey, dayLabelsForWeek, HORIZON_DAYS, weekLabel } from '../../data/periods';
 import {
   collectReviewGroups,
@@ -25,6 +20,7 @@ import {
   loadSettings,
   loadSubmission,
   loadTemplates,
+  loadUsers,
 } from '../../storage/localStorage';
 import { dayInflows, dayNet, dayOutflows } from '../submissions/gridMath';
 import { emailForName, mailDomain, openEmail } from '../../utils/email';
@@ -59,7 +55,9 @@ function agoLabel(iso: string): string {
 }
 
 export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: DashboardProps) {
-  const cycles = loadCycles(seedCycles);
+  const cycles = loadCycles(listCycles());
+  // Stable per mount; the screen remounts (dataVersion) whenever stores change.
+  const entities = useMemo(() => listEntities(), []);
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
   const overrides = loadApprovals(activeCycle?.id ?? 'CW-2026-21');
   const week = currentWeekKey();
@@ -107,7 +105,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
       missing += sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length;
     }
     return { flagCount: flags, needComment: missing };
-  }, [template, week]);
+  }, [entities, template, week]);
 
   // --- 4-week outlook chart from the consolidated grid ------------------
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
@@ -136,7 +134,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
       ? largestVariances(week, template, loadSettings(DEFAULT_SETTINGS), 3)
       : [];
     return { missing, awaiting, unresolved, blocked, movements };
-  }, [template, week, overrides]);
+  }, [entities, template, week, overrides]);
 
   // --- Region → country rollup for the progress table --------------------
   const regions = useMemo(() => {
@@ -160,7 +158,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         received: members.filter((e) => effective(e) !== 'pending').length,
       };
     });
-  }, [overrides, template, week]);
+  }, [entities, overrides, template, week]);
 
   /** Last-updated label: real timestamp when a submission exists, otherwise
    * a stable demo value derived from the entity name. */
@@ -175,7 +173,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   const sendChaser = (e: Entity) => {
     const me = currentUser();
     const domain = mailDomain(loadSettings(DEFAULT_SETTINGS));
-    const users = seedUsers;
+    const users = loadUsers(seedUsers());
     openEmail({
       to: [emailForName(e.submitter, users, domain), emailForName(e.approver, users, domain)],
       subject: `Reminder — ${activeCycle?.id ?? 'current cycle'} cash flow forecast (${e.name})`,

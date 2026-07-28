@@ -6,8 +6,11 @@
   "description": "Liquid — Treasury Cash Flow Forecasting (Phase 1: React + localStorage)",
   "scripts": {
     "dev": "vite",
+    "dev:live": "vite --mode live",
     "build": "tsc -b && vite build",
+    "build:live": "tsc -b && vite build --mode live --outDir dist-live --emptyOutDir",
     "preview": "vite preview",
+    "preview:live": "vite preview --outDir dist-live --port 4174",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {

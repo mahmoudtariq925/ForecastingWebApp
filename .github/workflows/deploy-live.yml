@@ -1,0 +1,48 @@
+# LIVE instance deployment — builds with `--mode live` (.env.live: real data,
+# no demo numbers) and publishes ONLY into the /live folder of the Pages site:
+#   https://<user>.github.io/ForecastingWebApp/live/
+#
+# Deliberately manual (workflow_dispatch): pushing code never redeploys the
+# live instance by itself, and this workflow can never touch the static demo
+# at the Pages root — it writes exclusively under destination_dir /live with
+# keep_files preserving everything else on the branch.
+name: Deploy LIVE instance to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Share one group with the static deploy so the two never race on gh-pages.
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (live mode)
+        run: npm run build:live
+
+      - name: Deploy to gh-pages under /live
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist-live
+          destination_dir: live
+          # Never delete the static demo at the branch root.
+          keep_files: true

@@ -1,11 +1,8 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import { useDialog } from './dialogContext';
-import {
-  cycles as seedCycles,
-  entities,
-  STANDARD_TEMPLATE_ID,
-} from '../../data/mockData';
+import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listCycles, listEntities } from '../../data/appData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -49,7 +46,7 @@ function fmtDeadline(iso: string): string {
 /** Sensible defaults for a new cycle: next id after the latest stored one,
  * starting next Monday, closing that week's Friday 18:00. */
 function nextCycleDefaults(): { id: string; start: string; deadline: string } {
-  const cycles = loadCycles(seedCycles);
+  const cycles = loadCycles(listCycles());
   let id = 'CW-2026-22';
   const parsed = cycles
     .map((c) => /^CW-(\d{4})-(\d+)$/.exec(c.id))
@@ -87,7 +84,7 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
       start: fmtDay(startDate),
       closes: fmtDeadline(deadline),
       status: 'submitted',
-      subs: `0 / ${entities.length}`,
+      subs: `0 / ${listEntities().length}`,
       total: 0,
     });
   };
@@ -130,9 +127,9 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
       } else if (scope === 'submissions') {
         await exportTable(submissionsTable(listSubmissions()), format, 'submissions');
       } else if (scope === 'cycles4') {
-        await exportTable(cyclesTable(loadCycles(seedCycles).slice(0, 4)), format, 'last-4-cycles');
+        await exportTable(cyclesTable(loadCycles(listCycles()).slice(0, 4)), format, 'last-4-cycles');
       } else {
-        await exportTable(cyclesTable(loadCycles(seedCycles)), format, 'cycles-ytd');
+        await exportTable(cyclesTable(loadCycles(listCycles())), format, 'cycles-ytd');
       }
       onClose();
     } catch (err) {

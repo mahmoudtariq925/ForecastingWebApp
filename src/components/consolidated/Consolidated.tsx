@@ -9,12 +9,8 @@ import {
   runningBalance,
   type GridValues,
 } from '../submissions/gridMath';
-import {
-  cycles as seedCycles,
-  entities,
-  STANDARD_TEMPLATE_ID,
-  users as seedUsers,
-} from '../../data/mockData';
+import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { listCycles, listEntities, seedUsers } from '../../data/appData';
 import {
   currentWeekKey,
   dayLabelsForWeek,
@@ -46,7 +42,7 @@ export function Consolidated() {
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
   const numDays = dayLabels.length;
   const numCats = template?.categories.length ?? 0;
-  const [cycles, setCycles] = useState(() => loadCycles(seedCycles));
+  const [cycles, setCycles] = useState(() => loadCycles(listCycles()));
   const { confirm, notify } = useDialog();
   const activeCycle = cycles.find((c) => c.status === 'submitted');
 
@@ -74,8 +70,10 @@ export function Consolidated() {
     const pInflows = sum((v, d) => dayInflows(numCats, v, d), priorValues);
     const pOutflows = sum((v, d) => dayOutflows(numCats, v, d), priorValues);
     const pNet = sum((v, d) => dayNet(numCats, v, d), priorValues);
-    const pct = (cur: number, prev: number) =>
-      ((cur - prev) / Math.max(Math.abs(prev), 1)) * 100;
+    // No prior data (a live instance's first week): a percentage against
+    // zero is meaningless, so signal "no comparison" instead of a huge number.
+    const pct = (cur: number, prev: number): number | null =>
+      prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100;
 
     let minBalance = Infinity;
     let minDay = 1;
@@ -99,11 +97,14 @@ export function Consolidated() {
   }, [current, prior, numCats, numDays]);
 
   const fmtM = (v: number) => `€ ${(v / 1000).toFixed(1)}M`;
-  const deltaPill = (v: number) => (
-    <span className={`delta ${v >= 0 ? 'up' : 'down'}`}>
-      {v >= 0 ? '↑' : '↓'} {Math.abs(v).toFixed(1)}%
-    </span>
-  );
+  const deltaPill = (v: number | null) =>
+    v === null ? (
+      <span className="delta">— no prior week</span>
+    ) : (
+      <span className={`delta ${v >= 0 ? 'up' : 'down'}`}>
+        {v >= 0 ? '↑' : '↓'} {Math.abs(v).toFixed(1)}%
+      </span>
+    );
 
   const closeCycle = async () => {
     if (!activeCycle) {
@@ -152,7 +153,7 @@ export function Consolidated() {
     if (!kpis || !current) return;
     const me = currentUser();
     // Treasury colleagues (excluding the sender) get the summary.
-    const recipients = loadUsers(seedUsers)
+    const recipients = loadUsers(seedUsers())
       .filter((u) => (u.role === 'treasury' || u.role === 'admin') && u.email !== me.email)
       .map((u) => u.email);
     openEmail({
@@ -160,7 +161,7 @@ export function Consolidated() {
       subject: `Consolidated cash flow forecast — ${weekLabel(week)}`,
       body:
         `Hi team,\n\n` +
-        `Consolidated 4-week forecast across ${entities.length} entities for ${weekLabel(week)}` +
+        `Consolidated 4-week forecast across ${listEntities().length} entities for ${weekLabel(week)}` +
         `${activeCycle ? ` (cycle ${activeCycle.id})` : ''}:\n\n` +
         `Total inflows: ${fmtM(kpis.inflows)}\n` +
         `Total outflows: ${fmtM(Math.abs(kpis.outflows))}\n` +

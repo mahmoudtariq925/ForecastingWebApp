@@ -243,6 +243,44 @@ One-time setup in the GitHub repo:
 `vite.config.ts` sets `base: './'` so assets resolve correctly from the
 project subpath.
 
+## The two instances: static demo vs live
+
+One codebase, two deployable builds, switched at **build time** by
+`VITE_DATA_SOURCE` (see `src/data/dataSource.ts`):
+
+| | **static** (default) | **live** |
+|---|---|---|
+| Data | Seeded demo entities, users, numbers | Starts empty — populated by you |
+| Users | Demo people + demo joiners | One bootstrap admin (`VITE_ADMIN_NAME` / `VITE_ADMIN_EMAIL`), then whoever you create |
+| Entities | 11 demo countries | Whatever you add in Legal Entity Setup |
+| Numbers | Deterministic demo values | Imported workbooks only — the app never invents a number |
+| Extra screens | — | **Data Import** (setup checklist + .xlsx/.csv upload) |
+| Badge | — | `LIVE` pill in the sidebar |
+| Storage namespace | `liquid:*` | `liquid-live:*` (the two can never mix, even on one origin) |
+| Build | `npm run build` → `dist/` | `npm run build:live` → `dist-live/` (loads `.env.live`) |
+| Deploy | `deploy.yml` (auto on push to `main`) → Pages **root** | `deploy-live.yml` (**manual** workflow_dispatch) → Pages **/live/** |
+| URL | `…github.io/ForecastingWebApp/` | `…github.io/ForecastingWebApp/live/` |
+
+The two workflows share one concurrency group and both set `keep_files`, so
+each writes only its own folder: pushing code redeploys the demo but never
+the live instance; running the live deploy never touches the demo. All
+screens read seed/reference data through `src/data/appData.ts` — the single
+data access layer that switches on the mode — so when the Phase 2 backend
+arrives it attaches to the live build by swapping that file (and the storage
+layer) for API calls.
+
+**Setting up the live instance** (first visit, as the bootstrap admin):
+open **Data Import** and follow the checklist — add legal entities, create
+users, assign responsibilities in Legal Entity Setup, then upload one
+Excel/CSV workbook per entity and week. Files go through the exact importer
+My Submissions uses: layout auto-detected, line items matched by label,
+`1,234` / `(500)` CSV number formats understood. Imported forecasts drive
+the dashboard, consolidation, comparisons and reviews immediately.
+
+Environment variables (all build-time, all public — never put secrets in
+`VITE_` vars): `VITE_DATA_SOURCE` (`static`/`live`), `VITE_ADMIN_NAME`,
+`VITE_ADMIN_EMAIL` — defined in `.env.live`, read only by `--mode live`.
+
 ## Project structure
 
 ```
@@ -263,7 +301,10 @@ src/
   onboarding/
     tourSteps.ts   Role-aware walkthrough content (the only file to edit)
     useOnboardingTour.ts  Tour engine: screen changes, waiting, graceful skips
+    dataImport/    Data Import screen (live instance: checklist + upload)
   data/
+    dataSource.ts  Build-time static|live switch (VITE_DATA_SOURCE)
+    appData.ts     Data access layer: entities/cycles/users per data source
     mockData.ts    Seed data, the standard template, demo-value generation
     periods.ts     Reporting periods (month/year) and day labels
     session.ts     The signed-in user (seeded admin until Phase 3 SSO)
