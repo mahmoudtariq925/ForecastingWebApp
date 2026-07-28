@@ -5,6 +5,86 @@ export type GridValues = Record<string, number>;
 
 export const cellKey = (catIdx: number, dayIdx: number) => `${catIdx}-${dayIdx}`;
 
+// ---------------------------------------------------------------------------
+// Number entry
+//
+// One parser for everything a treasury number can arrive as — typed by hand or
+// pasted out of Excel. `Number()` alone rejected or silently mangled most
+// real-world forms: accounting negatives "(500)", currency prefixes "£900",
+// the Unicode minus Excel emits, and non-breaking-space thousands separators
+// used across European locales.
+// ---------------------------------------------------------------------------
+
+/** Characters Excel and European locales use for a minus sign. */
+const MINUS = /[\u2212\u2013\u2014]/g;
+/** Currency symbols and separators that carry no numeric meaning. */
+const NOISE = /[\s\u00a0\u202f'\u2019`\u20ac$\u00a3\u00a5]/g;
+
+/**
+ * Parse one entered/pasted cell into a number.
+ *
+ * Returns `null` when the text is not a number at all (a label, a stray
+ * word), so callers can skip it rather than write a silent zero. An empty
+ * string is a deliberate blank and parses to 0.
+ */
+export function parseCellNumber(raw: string): number | null {
+  let text = String(raw ?? '').trim();
+  if (text === '') return 0;
+
+  text = text.replace(MINUS, '-');
+  // Accounting notation: (500) and -(500) both mean minus 500.
+  let negative = false;
+  const parens = /^-?\((.*)\)$/.exec(text);
+  if (parens) {
+    negative = true;
+    text = parens[1];
+  }
+  // A trailing minus ("500-") is what some ERP exports produce.
+  if (/-$/.test(text)) {
+    negative = !negative;
+    text = text.slice(0, -1);
+  }
+  text = text.replace(NOISE, '');
+  if (text.startsWith('-')) {
+    negative = !negative;
+    text = text.slice(1);
+  }
+  if (text === '') return 0;
+
+  // Thousands separator vs decimal comma: whichever separator appears last is
+  // the decimal one (1.234,56 and 1,234.56 both mean 1234.56).
+  const lastComma = text.lastIndexOf(',');
+  const lastDot = text.lastIndexOf('.');
+  if (lastComma !== -1 && lastDot !== -1) {
+    const decimal = lastComma > lastDot ? ',' : '.';
+    const thousands = decimal === ',' ? '.' : ',';
+    text = text.split(thousands).join('').replace(decimal, '.');
+  } else if (lastComma !== -1) {
+    // A lone comma is a decimal point only when it isn't grouping digits.
+    text = /,\d{3}(\D|$)/.test(text) ? text.split(',').join('') : text.replace(',', '.');
+  }
+
+  if (!/^\d*\.?\d*$/.test(text)) return null;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return null;
+  return negative ? -n : n;
+}
+
+/**
+ * True while `raw` is on its way to becoming a number ("-", "1.", "(2").
+ * Such text has to stay in the input as typed instead of being parsed and
+ * echoed back, which is what used to eat the minus sign and the decimal
+ * point mid-keystroke.
+ */
+export function isPartialNumber(raw: string): boolean {
+  return /^-?\(?-?[\d.,]*$/.test(
+    String(raw ?? '')
+      .replace(MINUS, '-')
+      .replace(NOISE, '')
+      .trim(),
+  );
+}
+
 export function catValue(values: GridValues, catIdx: number, dayIdx: number): number {
   return values[cellKey(catIdx, dayIdx)] || 0;
 }

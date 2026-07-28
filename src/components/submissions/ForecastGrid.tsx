@@ -1,4 +1,4 @@
-import { useMemo, type ClipboardEvent } from 'react';
+import { useMemo, useState, type ClipboardEvent } from 'react';
 import type { TemplateCategory, TemplateLayout } from '../../types';
 import type { DayLabel } from '../../data/periods';
 import {
@@ -9,6 +9,8 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
+  isPartialNumber,
+  parseCellNumber,
   runningBalance,
   subtotalTotal,
   subtotalValue,
@@ -170,17 +172,67 @@ function EditableCell({
   }
   return (
     <td className={cls} style={style} onClick={() => flagged && onCellClick?.(catIdx, dayIdx)}>
-      <input
-        value={val === 0 ? '' : val}
-        data-cat={catIdx}
-        data-day={dayIdx}
-        onChange={(e) => {
-          const n = Number(e.target.value.replace(/[€$,\s]/g, ''));
-          onChangeCell?.(catIdx, dayIdx, Number.isFinite(n) ? n : 0);
-        }}
+      <NumberCell
+        value={val}
+        catIdx={catIdx}
+        dayIdx={dayIdx}
+        onChange={(n) => onChangeCell?.(catIdx, dayIdx, n)}
         onPaste={(e) => onPaste?.(catIdx, dayIdx, e)}
       />
     </td>
+  );
+}
+
+/**
+ * A numeric cell that keeps the text the user is typing.
+ *
+ * Binding the input straight to the number meant every keystroke was parsed
+ * and echoed back, so any transient text that isn't yet a valid number was
+ * destroyed: "-" became "" (typing -500 stored 500) and "1." became "1"
+ * (typing 1.5 stored 15). Holding a draft while the cell is being edited,
+ * and committing the parsed value alongside it, fixes both while keeping the
+ * grid a controlled component everywhere else.
+ */
+function NumberCell({
+  value,
+  catIdx,
+  dayIdx,
+  onChange,
+  onPaste,
+}: {
+  value: number;
+  catIdx: number;
+  dayIdx: number;
+  onChange: (value: number) => void;
+  onPaste: (e: ClipboardEvent<HTMLInputElement>) => void;
+}) {
+  // null = not being edited, so the cell shows the stored value.
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <input
+      value={draft ?? (value === 0 ? '' : String(value))}
+      data-cat={catIdx}
+      data-day={dayIdx}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        const parsed = parseCellNumber(raw);
+        // Commit whatever parses; leave partial input ("-", "1.") on screen
+        // as typed rather than replacing it with a half-finished number.
+        if (parsed !== null) onChange(parsed);
+        else if (!isPartialNumber(raw)) onChange(0);
+      }}
+      onBlur={() => {
+        // Settle on the stored value: "1." shows as 1, junk clears to blank.
+        if (draft !== null) onChange(parseCellNumber(draft) ?? 0);
+        setDraft(null);
+      }}
+      onPaste={(e) => {
+        setDraft(null);
+        onPaste(e);
+      }}
+    />
   );
 }
 
