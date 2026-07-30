@@ -6,6 +6,8 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   footer: ReactNode;
+  /** `wide` for dialogs holding a form with several sections side by side. */
+  size?: 'default' | 'wide';
 }
 
 /** Elements a keyboard user can land on inside the dialog. */
@@ -20,7 +22,7 @@ const FOCUSABLE =
  * the dialog while it is open — previously focus wandered into the page
  * behind it and nothing announced that a dialog had appeared.
  */
-export function Modal({ open, title, onClose, children, footer }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, size = 'default' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreFocusTo = useRef<Element | null>(null);
   const titleId = useRef(`modal-${Math.abs(title.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7))}`);
@@ -68,7 +70,7 @@ export function Modal({ open, title, onClose, children, footer }: ModalProps) {
       aria-hidden={!open}
     >
       <div
-        className="modal"
+        className={`modal${size === 'wide' ? ' modal-wide' : ''}`}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"

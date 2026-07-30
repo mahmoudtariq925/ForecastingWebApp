@@ -260,17 +260,17 @@ const TREASURY_STEPS: TourStep[] = [
   },
   {
     view: 'legalEntities',
-    selector: '[data-tour="entity-selector"]',
+    selector: '[data-tour="entity-table"]',
     title: 'Legal Entity Setup',
-    body: 'Pick an entity, then say who views, submits and approves for it. Only people with the matching role can be picked, so the two never get mixed up.',
-    side: 'bottom',
+    body: 'Click any entity to open its setup, then say who views, submits and approves for it. Only people with the matching role can be picked, so the two never get mixed up.',
+    side: 'top',
   },
   {
     view: 'legalEntities',
     selector: '[data-tour="entity-template"]',
     title: 'Which template each entity uses',
-    body: 'Set the forecast template an entity submits on. This is the only place that is decided — the Templates screen just reports it.',
-    side: 'top',
+    body: 'Each entity submits on its own forecast template. That is decided here and nowhere else — the Templates screen only reports it.',
+    side: 'bottom',
   },
   {
     view: 'users',
