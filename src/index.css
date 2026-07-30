@@ -806,6 +806,37 @@ td.num {
   background: var(--amber);
   border-radius: 50%;
 }
+/* An open treasury question. Distinct from a variance flag: a flag comes from
+   the numbers, this one is a person waiting on an answer. */
+.forecast-grid td.cell.comment-requested {
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+.forecast-grid td.cell.comment-requested::after {
+  background: var(--blue);
+}
+/* Any cell treasury can ask about reads as clickable. */
+.forecast-grid td.cell.cell-askable {
+  cursor: pointer;
+}
+
+/* Focus mode: spotlight the cells that need attention and mute the rest, so
+   "which cells do I still have to fill in" is answered by looking, not
+   counting. Used by pre-submit validation. */
+.forecast-grid td.cell.cell-dimmed {
+  opacity: 0.28;
+}
+.forecast-grid td.cell.cell-spotlit {
+  background: var(--red-soft);
+  box-shadow:
+    inset 0 0 0 2px var(--red),
+    0 0 0 1px var(--red);
+  position: relative;
+  z-index: 1;
+}
+.forecast-grid td.cell.cell-spotlit input {
+  font-weight: 600;
+}
 .forecast-grid td.cell.subtotal-cell {
   color: var(--accent);
   font-weight: 600;
@@ -889,10 +920,11 @@ td.num {
   position: sticky;
   left: 0;
   z-index: 2;
-  min-width: 68px;
-  width: 68px;
+  /* Fits three 30px controls plus their gaps — the old 68px clipped them. */
+  min-width: 112px;
+  width: 112px;
   background: var(--bg-elev-2);
-  padding: 2px 5px;
+  padding: 3px 6px;
 }
 .sheet-grid th.sheet-gutter-h {
   z-index: 4;
@@ -900,12 +932,12 @@ td.num {
 /* The label column sits beside the gutter, so shift its sticky offset. */
 .sheet-grid th.row-label-h,
 .sheet-grid td.row-label {
-  left: 68px;
+  left: 112px;
   min-width: 260px;
 }
 
 /* Dates-down-rows has no reorder gutter, so its sticky first column starts at
-   the scroll origin. Leaving the 68px offset in place pushed the Period column
+   the scroll origin. Leaving the gutter offset in place pushed the Period column
    sideways and parked it on top of the first structure column. */
 .sheet-transposed th.row-label-h,
 .sheet-transposed td.row-label {
@@ -943,26 +975,32 @@ td.num {
 }
 .sheet-row-actions {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   justify-content: center;
 }
+/* 20px squares were a hard target to hit, especially the drag handle you
+   have to press and hold. 30px with a visible border reads as a control. */
 .sheet-row-actions button {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 17px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.12s ease;
 }
 .sheet-row-actions button:hover:not(:disabled) {
   background: var(--bg-elev);
+  border-color: var(--border-strong);
   color: var(--text);
 }
 .sheet-row-actions button.danger:hover:not(:disabled) {
   background: var(--red-soft);
+  border-color: var(--red);
   color: var(--red);
 }
 .sheet-row-actions button:disabled {
@@ -1256,9 +1294,46 @@ td.num {
 .variance-panel .row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   font-size: 12px;
   color: var(--text-dim);
   font-family: var(--mono);
+}
+/* Pre-submit validation: the same panel, in the colour of the cells it is
+   pointing at, so banner and grid read as one message. */
+.variance-panel.needs-input {
+  background: var(--red-soft);
+  border-left-color: var(--red);
+}
+.variance-panel.needs-input h4 {
+  color: var(--red);
+}
+/* An open treasury question, matching the blue outline on the cell. */
+.variance-panel.comment-request-panel {
+  background: var(--blue-soft);
+  border-left-color: var(--blue);
+}
+.variance-panel.comment-request-panel h4 {
+  color: var(--blue);
+}
+.comment-request-note {
+  background: var(--blue-soft);
+  border-left: 2px solid var(--blue);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.comment-request-note strong {
+  color: var(--text);
+}
+/* Prior-cycle overlay pickers: one row of week checkboxes, wrapping. */
+.chart-controls.compare-controls {
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
 }
 
 /* === USER MGMT === */
@@ -2015,6 +2090,9 @@ tbody tr.row-inactive td {
 .sheet-row-actions .drag-handle {
   cursor: grab;
   letter-spacing: -1px;
+  /* The braille-dot glyph renders small for its point size; scale it up so
+     the handle looks as grabbable as its hit area actually is. */
+  font-size: 20px;
 }
 .sheet-row-actions .drag-handle:active {
   cursor: grabbing;
@@ -2172,4 +2250,131 @@ tr.entity-row:focus-visible {
 .review-head:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* ============================================================
+   Analyst home: the cycle checklist. The whole point is that the
+   state of each step is readable at a glance, so colour carries
+   it — green done, red needs you, accent actionable, grey not yet.
+   ============================================================ */
+.cycle-banner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 16px 22px;
+  margin-bottom: 20px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cycle-banner-id {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.cycle-banner-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.up-next {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 100px;
+}
+.up-next.up-open {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.up-next.up-done {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+}
+.todo-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.todo-step:last-child {
+  border-bottom: none;
+}
+.todo-mark {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+}
+.todo-index {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+.todo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: auto;
+}
+.todo-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.todo-step.todo-done {
+  border-left-color: var(--green);
+}
+.todo-step.todo-done .todo-mark {
+  color: var(--green);
+  background: var(--green-soft);
+}
+.todo-step.todo-blocked {
+  border-left-color: var(--red);
+  background: var(--red-soft);
+}
+.todo-step.todo-blocked .todo-mark {
+  color: var(--red);
+  background: var(--bg-elev);
+}
+.todo-step.todo-active {
+  border-left-color: var(--accent);
+}
+.todo-step.todo-active .todo-mark {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+/* Not yet actionable: greyed out, and clearly not asking anything of you. */
+.todo-step.todo-waiting {
+  color: var(--text-muted);
+}
+.todo-step.todo-waiting .todo-mark {
+  color: var(--text-muted);
+  background: var(--bg-elev-2);
+}
+.todo-step.todo-waiting strong {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.todo-step.todo-waiting .todo-detail {
+  color: var(--text-muted);
 }

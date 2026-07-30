@@ -7,7 +7,14 @@
 // Every screen that shows forecast numbers goes through these helpers, so an
 // edit on the Submission screen is reflected everywhere else.
 // ============================================================================
-import type { Entity, ForecastTemplate, Settings, Submission, SubmissionStatus } from '../types';
+import type {
+  CommentRequest,
+  Entity,
+  ForecastTemplate,
+  Settings,
+  Submission,
+  SubmissionStatus,
+} from '../types';
 import {
   generateGridValues,
   seedFor,
@@ -33,6 +40,23 @@ import {
 } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
 
+/** Keep only well-formed comment requests — storage can hold anything. */
+function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, CommentRequest> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const r = value as Partial<CommentRequest>;
+    if (typeof r.message !== 'string' || !r.message.trim()) continue;
+    out[key] = {
+      from: typeof r.from === 'string' ? r.from : 'Treasury',
+      message: r.message,
+      requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
+    };
+  }
+  return out;
+}
+
 /** Fill in fields missing (or of the wrong type) in submissions stored by
  * older app versions, so downstream code can rely on the full shape. */
 function normalizeSubmission(sub: Submission): Submission {
@@ -47,6 +71,7 @@ function normalizeSubmission(sub: Submission): Submission {
       ? sub.resolvedFlags.filter((k) => typeof k === 'string')
       : [],
     comments: record(sub.comments) ?? {},
+    commentRequests: normalizeRequests(sub.commentRequests),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -72,6 +97,7 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
     flags,
     resolvedFlags: [],
     comments: {},
+    commentRequests: {},
     dayComments: {},
     // Demo forecasts open with a balance; a real one starts blank until the
     // submitter enters theirs, and the running total appears with it.
@@ -412,6 +438,8 @@ export interface ReviewItem {
   /** Submitter commentary; empty = still missing. */
   comment: string;
   resolved: boolean;
+  /** An open treasury question on this cell, if there is one. */
+  request: CommentRequest | null;
 }
 
 /** All review-relevant content of one stored submission. */
@@ -485,12 +513,13 @@ export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[
           pct: prev === null ? null : ((current - prev) / Math.max(Math.abs(prev), 1)) * 100,
           comment: sub.comments[key]?.trim() ?? '',
           resolved: resolved.has(key),
+          request: sub.commentRequests?.[key] ?? null,
         };
       });
-      // Unresolved first, then by absolute delta so the big movers lead.
+      // Biggest movers first — the size of the swing is what decides whether a
+      // comment is worth reading, so that is the only ordering that matters.
       items.sort(
         (a, b) =>
-          Number(a.resolved) - Number(b.resolved) ||
           Math.abs(b.current - (b.prior ?? 0)) - Math.abs(a.current - (a.prior ?? 0)),
       );
 
@@ -559,6 +588,73 @@ export function setFlagResolved(
   if (resolved) set.add(key);
   else set.delete(key);
   saveSubmission({ ...sub, resolvedFlags: [...set] });
+}
+
+/**
+ * Ask the submitter for commentary on one cell.
+ *
+ * Works on ANY cell, not just a flagged one: treasury's question is about the
+ * number, and the variance threshold is not the only reason to have one. The
+ * request also flags the cell, so it shows up on the submitter's grid and in
+ * the review queue alongside the threshold breaches.
+ */
+export function requestComment(
+  period: string,
+  entity: string,
+  templateId: string,
+  key: string,
+  request: CommentRequest,
+): void {
+  const sub = materializeSubmission(period, entity, templateId);
+  if (!sub) return;
+  const flags = new Set(sub.flags);
+  flags.add(key);
+  // A fresh question reopens the cell, however it was previously closed off.
+  saveSubmission({
+    ...sub,
+    flags: [...flags],
+    resolvedFlags: (sub.resolvedFlags ?? []).filter((k) => k !== key),
+    commentRequests: { ...(sub.commentRequests ?? {}), [key]: request },
+  });
+}
+
+/** Clear the open request on a cell — the submitter has answered it. */
+export function answerCommentRequest(sub: Submission, key: string): Submission['commentRequests'] {
+  const rest = { ...(sub.commentRequests ?? {}) };
+  delete rest[key];
+  return rest;
+}
+
+/**
+ * Entities whose forecast is in an approver's queue for a week.
+ *
+ * The Approvals screen and the analyst checklist both need this, and two
+ * versions of "what is waiting for me" would drift apart, so it lives here.
+ */
+export function approvalQueue(week: string, onlyEntities?: string[]): Entity[] {
+  const templates = loadTemplates();
+  return listEntities().filter((e) => {
+    if (onlyEntities && !onlyEntities.includes(e.name)) return false;
+    const template = templateForEntity(templates, e.name);
+    const stored = template ? loadSubmission(week, e.name, template.id) : null;
+    return (
+      e.status === 'submitted' ||
+      e.status === 'pending' ||
+      (stored !== null && stored.status === 'submitted')
+    );
+  });
+}
+
+/** How many queued forecasts still need a decision (approved/rejected). */
+export function pendingApprovalCount(
+  week: string,
+  overrides: ApprovalMap,
+  onlyEntities?: string[],
+): number {
+  return approvalQueue(week, onlyEntities).filter((e) => {
+    const status = overrides[e.name] ?? e.status;
+    return status !== 'approved' && status !== 'rejected';
+  }).length;
 }
 
 /** Mark every flagged cell of a submission as reviewed. */

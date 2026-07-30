@@ -20,6 +20,7 @@ import { listEntities, seedUsers } from '../../data/appData';
 import { DEMO_DATA } from '../../data/dataSource';
 import {
   currentWeekKey,
+  shiftWeeks,
   HORIZON_DAYS,
   HORIZON_WEEKS,
   periodsOf,
@@ -34,10 +35,13 @@ import {
   weekYearMonth,
 } from '../../data/periods';
 import {
+  answerCommentRequest,
   getOrCreateSubmission,
   getPriorValues,
   isVariance,
+  peekSubmission,
   priorValueFor,
+  requestComment,
   templatesForEntity,
 } from '../../data/submissionService';
 import { currentUser } from '../../data/session';
@@ -52,7 +56,12 @@ import {
 import { exportSubmissionXlsx, exportTemplateXlsx } from '../../utils/excel';
 import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
-import type { ForecastTemplate, SubmissionStatus, TemplateLayout } from '../../types';
+import type {
+  CommentRequest,
+  ForecastTemplate,
+  SubmissionStatus,
+  TemplateLayout,
+} from '../../types';
 
 /** Deep-link target used by the Review / Approvals screens. */
 export interface SubmissionTarget {
@@ -73,9 +82,16 @@ interface SubmissionProps {
   allowedEntities?: string[];
   /** Viewer role: the grid and all write actions are read-only. */
   readOnly?: boolean;
+  /** Treasury: may ask the submitter for commentary on any cell. */
+  canRequestComments?: boolean;
 }
 
-export function Submission({ initial, allowedEntities, readOnly = false }: SubmissionProps) {
+export function Submission({
+  initial,
+  allowedEntities,
+  readOnly = false,
+  canRequestComments = false,
+}: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const entities = useMemo(() => listEntities(), []);
   const selectableEntities = useMemo(
@@ -136,6 +152,7 @@ export function Submission({ initial, allowedEntities, readOnly = false }: Submi
         orientation={orientationOverride ?? template.layout}
         onChangeOrientation={setOrientationOverride}
         readOnly={readOnly}
+        canRequestComments={canRequestComments}
         selectors={
           <>
             <select
@@ -229,6 +246,8 @@ interface EditorProps {
   onChangeOrientation: (layout: TemplateLayout) => void;
   /** Viewer role: render everything, allow no changes. */
   readOnly: boolean;
+  /** Treasury: may ask the submitter for commentary on any cell. */
+  canRequestComments: boolean;
   selectors: React.ReactNode;
 }
 
@@ -251,6 +270,20 @@ interface ChartOptions {
   outflows: boolean;
 }
 
+/** Which measure the prior-cycle overlays plot. */
+type CompareMetric = 'net' | 'balance' | 'inflows' | 'outflows';
+
+const COMPARE_LABELS: Record<CompareMetric, string> = {
+  net: 'Net Cash Flow',
+  balance: 'Running Balance',
+  inflows: 'Inflows',
+  outflows: 'Outflows',
+};
+
+/** Distinct from the live series' colours so an overlay is never mistaken
+ *  for this week's line. */
+const OVERLAY_COLORS = ['#8e92a3', '#7a5ea8', '#4f8a8b', '#a86b3c'];
+
 function SubmissionEditor({
   entity,
   week,
@@ -259,6 +292,7 @@ function SubmissionEditor({
   orientation,
   onChangeOrientation,
   readOnly,
+  canRequestComments,
   selectors,
 }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
@@ -290,8 +324,18 @@ function SubmissionEditor({
     initial.startingBalance ?? null,
   );
   const [status, setStatus] = useState<SubmissionStatus>(initial.status);
+  const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
+    initial.commentRequests ?? {},
+  );
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
+  /** Treasury's question, while it is being written in the cell dialog. */
+  const [requestDraft, setRequestDraft] = useState('');
+  /**
+   * Cells still needing a number, spotlit after a submit attempt. null = not
+   * validating; an empty set never happens (nothing to point at → submit).
+   */
+  const [needInput, setNeedInput] = useState<Set<string> | null>(null);
   const [chartOptions, setChartOptions] = useState<ChartOptions>({
     balance: true,
     net: true,
@@ -299,6 +343,9 @@ function SubmissionEditor({
     outflows: false,
   });
   const [balanceStyle, setBalanceStyle] = useState<'solid' | 'dashed' | 'area'>('solid');
+  /** Earlier forecast weeks overlaid on the chart for comparison. */
+  const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
+  const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
   // Text held while the starting balance is being typed (see NumberCell).
   const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
 
@@ -382,6 +429,7 @@ function SubmissionEditor({
     values?: GridValues;
     flags?: Set<string>;
     comments?: Record<string, string>;
+    commentRequests?: Record<string, CommentRequest>;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -396,6 +444,7 @@ function SubmissionEditor({
       flags: [...(snap.flags ?? flags)],
       resolvedFlags,
       comments: snap.comments ?? comments,
+      commentRequests: snap.commentRequests ?? commentRequests,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -436,7 +485,7 @@ function SubmissionEditor({
     return next;
   };
 
-  const setCell = (catIdx: number, dayIdx: number, value: number) => {
+  const setCell = (catIdx: number, dayIdx: number, value: number | null) => {
     const key = cellKey(catIdx, dayIdx);
     // Typing streams a value per keystroke; coalesce a run of edits to the
     // same cell so one Ctrl+Z doesn't just remove one digit.
@@ -444,7 +493,11 @@ function SubmissionEditor({
       pushUndo();
       lastEditedCell.current = key;
     }
-    const nextValues = { ...values, [key]: value };
+    const nextValues = { ...values };
+    // Clearing removes the value rather than storing a zero, so the cell reads
+    // as "not forecast yet" everywhere downstream.
+    if (value === null) delete nextValues[key];
+    else nextValues[key] = value;
     const nextFlags = reflag(nextValues, [key], flags);
     setValues(nextValues);
     setFlags(nextFlags);
@@ -588,11 +641,12 @@ function SubmissionEditor({
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
     setCommentDraft(comments[key] ?? '');
+    setRequestDraft('');
     setVarianceCell({
       key,
       label: template.categories[catIdx]?.label ?? '',
       day: dayIdx + 1,
-      prior: priorValueFor(prior, catIdx, dayIdx),
+      prior: priorValueFor(prior, catIdx, dayIdx, template),
       current: values[key] || 0,
     });
   };
@@ -621,13 +675,101 @@ function SubmissionEditor({
     const nextComments = { ...comments, [varianceCell.key]: commentDraft.trim() };
     if (!commentDraft.trim()) delete nextComments[varianceCell.key];
     setComments(nextComments);
-    persist({ comments: nextComments });
+    // Answering the question closes it — treasury asked, this is the reply.
+    const nextRequests = answerCommentRequest(
+      { ...initial, commentRequests },
+      varianceCell.key,
+    );
+    setCommentRequests(nextRequests ?? {});
+    persist({ comments: nextComments, commentRequests: nextRequests ?? {} });
     setVarianceCell(null);
   };
 
+  /** Treasury asks the submitter about this cell, and emails them about it. */
+  const sendCommentRequest = async () => {
+    if (!varianceCell) return;
+    const message = requestDraft.trim();
+    if (!message) {
+      await notify({ tone: 'error', message: 'Write the question you want answered first.' });
+      return;
+    }
+    const me = currentUser();
+    const request: CommentRequest = {
+      from: me.name,
+      message,
+      requestedAt: new Date().toISOString(),
+    };
+    requestComment(week, entity, template.id, varianceCell.key, request);
+    const next = { ...commentRequests, [varianceCell.key]: request };
+    setCommentRequests(next);
+    setFlags((f) => new Set(f).add(varianceCell.key));
+    setVarianceCell(null);
+    setRequestDraft('');
+    emailCommentRequest(varianceCell, message);
+  };
+
+  /** Outlook draft to whoever submits for this entity. */
+  const emailCommentRequest = (cell: VarianceCell, message: string) => {
+    const ent = listEntities().find((e) => e.name === entity);
+    const me = currentUser();
+    const to = ent ? emailForName(ent.submitter, loadUsers(seedUsers()), mailDomain(settings)) : '';
+    openEmail({
+      to,
+      subject: `Question on the ${entity} forecast — ${cell.label} · Day ${cell.day} · ${weekLabel(week)}`,
+      body:
+        `Hi ${ent?.submitter ?? 'there'},\n\n` +
+        `I have a question about the ${entity} cash flow forecast for ${weekLabel(week)}.\n\n` +
+        `Line item: ${cell.label}\n` +
+        `Period: Day ${cell.day}\n` +
+        `Current value: ${fmtK(cell.current)}\n` +
+        (cell.prior === null ? '' : `Prior forecast: ${fmtK(cell.prior)}\n`) +
+        `\nQuestion:\n${message}\n\n` +
+        `Please add your commentary on that cell: ${appUrl()}\n\n` +
+        `Best regards,\n${me.name}\n${me.email}`,
+    });
+  };
+
   const uncommented = [...flags].filter((k) => !comments[k]?.trim());
+  const requestedCells = useMemo(() => new Set(Object.keys(commentRequests)), [commentRequests]);
+  const openRequests = useMemo(
+    () => Object.entries(commentRequests).map(([key, r]) => ({ key, ...r })),
+    [commentRequests],
+  );
+
+  /** "Receivables · Day 3" for a cell key, for banners and email subjects. */
+  const cellLabelFor = (key: string): string => {
+    const [c, d] = key.split('-').map(Number);
+    return `${template.categories[c]?.label ?? `Line ${c + 1}`} · Day ${d + 1}`;
+  };
+
+  /**
+   * Editable cells with no number in them yet. Subtotals are computed, so
+   * they never "need input"; a stored 0 is a real answer and counts as filled.
+   */
+  const emptyCells = useMemo(() => {
+    const out = new Set<string>();
+    template.categories.forEach((cat, catIdx) => {
+      if (cat.subtotal) return;
+      for (let d = 0; d < numPeriods; d++) {
+        const key = cellKey(catIdx, d);
+        if (values[key] === undefined) out.add(key);
+      }
+    });
+    return out;
+  }, [template, values, numPeriods]);
 
   const submit = async () => {
+    // Point at the gaps before anything else: a missing number is easier to
+    // fix while looking at the grid than to read about in a dialog.
+    if (emptyCells.size > 0 && needInput === null) {
+      setNeedInput(emptyCells);
+      requestAnimationFrame(() => {
+        document
+          .querySelector('.forecast-grid td.cell-spotlit')
+          ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+      });
+      return;
+    }
     if (uncommented.length > 0) {
       const addNow = await confirm({
         title: 'Commentary required',
@@ -641,6 +783,7 @@ function SubmissionEditor({
         return;
       }
     }
+    setNeedInput(null);
     setStatus('submitted');
     persist({ status: 'submitted' });
     await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
@@ -705,6 +848,56 @@ function SubmissionEditor({
   const toggleChartOption = (key: keyof ChartOptions) =>
     setChartOptions((o) => ({ ...o, [key]: !o[key] }));
 
+  // ---- Prior cycles overlaid on the same axes ----------------------------
+  // The forecast is rolling, so the question "is this week's shape different
+  // from last week's?" needs both drawn together, not two screens compared
+  // from memory.
+  const priorWeekOptions = useMemo(() => {
+    const out: { week: string; label: string; saved: boolean }[] = [];
+    for (let back = 1; back <= 8; back++) {
+      const key = shiftWeeks(week, -back);
+      out.push({
+        week: key,
+        label: weekLabelShort(key),
+        saved: loadSubmission(key, entity, template.id) !== null,
+      });
+    }
+    return out;
+  }, [week, entity, template.id]);
+
+  const overlaySeries: ChartSeries[] = useMemo(
+    () =>
+      compareWeeks.map((key, i) => {
+        const past = peekSubmission(entity, key, template);
+        const pastValues = past.values;
+        const metricAt = (d: number): number => {
+          switch (compareMetric) {
+            case 'net':
+              return dayNet(numCats, pastValues, d);
+            case 'balance':
+              return runningBalance(numCats, pastValues, past.startingBalance ?? 0, d);
+            case 'inflows':
+              return dayInflows(numCats, pastValues, d);
+            case 'outflows':
+              return dayOutflows(numCats, pastValues, d);
+          }
+        };
+        return {
+          label: `${weekLabelShort(key)} · ${COMPARE_LABELS[compareMetric]}`,
+          values: Array.from({ length: numPeriods }, (_v, d) => metricAt(d)),
+          color: OVERLAY_COLORS[i % OVERLAY_COLORS.length],
+          kind: 'line' as const,
+          dashed: true,
+        };
+      }),
+    [compareWeeks, compareMetric, entity, template, numCats, numPeriods],
+  );
+
+  const toggleCompareWeek = (key: string) =>
+    setCompareWeeks((prev) =>
+      prev.includes(key) ? prev.filter((w) => w !== key) : [...prev, key],
+    );
+
   const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
   const emailApprover = () => {
@@ -763,6 +956,43 @@ function SubmissionEditor({
         }
       />
       <div className="content">
+        {needInput && (
+          <div className="variance-panel needs-input" data-tour="needs-input">
+            <h4>
+              ◉ {needInput.size} cell{needInput.size === 1 ? ' still needs' : 's still need'} a
+              number
+            </h4>
+            <div className="row">
+              <span>
+                The highlighted cells below are empty. Fill them in, or submit anyway if they
+                are genuinely nil for this period.
+              </span>
+              <span className="row-flex">
+                <button className="btn btn-ghost" onClick={() => setNeedInput(null)}>
+                  Keep Editing
+                </button>
+                <button className="btn btn-primary" onClick={submit}>
+                  Submit Anyway
+                </button>
+              </span>
+            </div>
+          </div>
+        )}
+        {openRequests.length > 0 && (
+          <div className="variance-panel comment-request-panel">
+            <h4>
+              ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from Treasury
+            </h4>
+            <div className="row">
+              <span>
+                Cells outlined in blue have a question waiting. Click one to read it and reply.
+              </span>
+              <span>
+                {openRequests[0].from} · {cellLabelFor(openRequests[0].key)}
+              </span>
+            </div>
+          </div>
+        )}
         {flags.size > 0 && (
           <div className="variance-panel" data-tour="variance-panel">
             <h4>⚠ Variance Flags Detected</h4>
@@ -906,12 +1136,15 @@ function SubmissionEditor({
               dayLabels={dayLabels}
               values={values}
               flags={flags}
+              requested={requestedCells}
+              highlight={needInput}
               startingBalance={startingBalance}
               dayComments={dayComments}
               editable={!readOnly}
               onChangeCell={setCell}
               onPaste={handlePaste}
               onCellClick={openVariance}
+              clickableCells={canRequestComments ? 'all' : 'flagged'}
               onChangeDayComment={setDayComment}
               showColumnTotals={template.columnTotals === true}
             />
@@ -972,25 +1205,79 @@ function SubmissionEditor({
               <option value="area">Balance · area</option>
             </select>
           </div>
-          {chartSeries.length === 0 ? (
+          {/* Overlay earlier cycles on the same axes, so this week's shape can
+              be read against the ones it replaced. */}
+          <div className="chart-controls compare-controls" data-tour="compare-cycles">
+            <span className="grid-info">
+              <strong>Compare with</strong>
+            </span>
+            {priorWeekOptions.map((o) => (
+              <label
+                key={o.week}
+                className={`series-check${o.saved ? '' : ' text-muted'}`}
+                title={o.saved ? 'Saved forecast' : 'No saved forecast for this week'}
+              >
+                <input
+                  type="checkbox"
+                  checked={compareWeeks.includes(o.week)}
+                  onChange={() => toggleCompareWeek(o.week)}
+                />
+                {o.label}
+                {o.saved ? ' ●' : ''}
+              </label>
+            ))}
+            <select
+              className="form-select"
+              style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+              value={compareMetric}
+              onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
+              aria-label="Comparison metric"
+            >
+              {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
+                <option key={m} value={m}>
+                  Compare · {COMPARE_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </div>
+          {chartSeries.length + overlaySeries.length === 0 ? (
             <div className="empty-state" style={{ padding: '40px 20px' }}>
               <p>Select at least one series to plot.</p>
             </div>
           ) : (
-            <Chart labels={dayLabels.map((dl) => dl.dm)} series={chartSeries} unit="k" />
+            <Chart
+              labels={dayLabels.map((dl) => dl.dm)}
+              series={[...overlaySeries, ...chartSeries]}
+              unit="k"
+            />
           )}
         </div>
       </div>
 
       <Modal
         open={varianceCell !== null}
-        title={readOnly ? 'Variance Detail' : 'Explain Variance'}
+        title={
+          readOnly
+            ? 'Variance Detail'
+            : canRequestComments
+              ? 'Cell Detail'
+              : 'Explain Variance'
+        }
         onClose={() => setVarianceCell(null)}
         footer={
           <>
             <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
               {readOnly ? 'Close' : 'Cancel'}
             </button>
+            {canRequestComments && (
+              <button
+                className="btn btn-ghost"
+                onClick={sendCommentRequest}
+                title="Ask the submitter to explain this cell and email them about it"
+              >
+                Send Request
+              </button>
+            )}
             {!readOnly && (
               <button className="btn btn-primary" onClick={saveComment}>
                 Save
@@ -1002,7 +1289,7 @@ function SubmissionEditor({
         {varianceCell && (
           <>
             <div className="variance-panel" style={{ marginBottom: 18 }}>
-              <h4>Flagged Cell</h4>
+              <h4>{flags.has(varianceCell.key) ? 'Flagged Cell' : 'Cell'}</h4>
               <div className="row">
                 <span>
                   {varianceCell.label} · Day {varianceCell.day}
@@ -1023,6 +1310,12 @@ function SubmissionEditor({
                 <span>Current: €{varianceCell.current.toLocaleString()}k</span>
               </div>
             </div>
+            {commentRequests[varianceCell.key] && (
+              <div className="comment-request-note">
+                <strong>{commentRequests[varianceCell.key].from} asked:</strong>{' '}
+                {commentRequests[varianceCell.key].message}
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">
                 {readOnly ? 'Commentary' : 'Commentary (required)'}
@@ -1039,6 +1332,20 @@ function SubmissionEditor({
                 onChange={(e) => setCommentDraft(e.target.value)}
               />
             </div>
+            {canRequestComments && (
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Request commentary from the submitter</label>
+                <textarea
+                  className="form-textarea"
+                  placeholder="What do you want explained about this number?"
+                  value={requestDraft}
+                  onChange={(e) => setRequestDraft(e.target.value)}
+                />
+                <span className="text-muted" style={{ fontSize: 11 }}>
+                  Sending marks the cell for the submitter and opens an Outlook draft to them.
+                </span>
+              </div>
+            )}
           </>
         )}
       </Modal>

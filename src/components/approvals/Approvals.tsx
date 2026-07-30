@@ -4,7 +4,11 @@ import { StatusPill } from '../common/StatusPill';
 import { seedFor } from '../../data/mockData';
 import { listCycles, listEntities } from '../../data/appData';
 import { currentWeekKey } from '../../data/periods';
-import { peekSubmission, templateForEntity } from '../../data/submissionService';
+import {
+  approvalQueue,
+  peekSubmission,
+  templateForEntity,
+} from '../../data/submissionService';
 import {
   loadApprovals,
   loadCycles,
@@ -57,15 +61,8 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
     ? entities.filter((e) => scopeEntities.includes(e.name))
     : entities;
 
-  const queue = entities.filter((e) => {
-    if (scopeEntities && !scopeEntities.includes(e.name)) return false;
-    const stored = storedFor(e.name);
-    return (
-      e.status === 'submitted' ||
-      e.status === 'pending' ||
-      (stored !== null && stored.status === 'submitted')
-    );
-  });
+  // Shared with the analyst checklist, so "waiting on me" means one thing.
+  const queue = approvalQueue(week, scopeEntities);
 
   const decide = (entity: string, status: SubmissionStatus) => {
     const next = { ...overrides, [entity]: status };

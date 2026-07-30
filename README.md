@@ -11,13 +11,14 @@ later).
 
 | Screen | What it does |
 | --- | --- |
-| **Dashboard** | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
+| **Dashboard** (Treasury) | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
+| **My Dashboard** (submitter / approver) | The landing page for both roles: the active cycle, an **Up next** line, and an ordered three-step checklist — submit forecast → complete any review → await treasury feedback — each step green when done, grey when not yet actionable, red when something has come back |
 | **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
-| **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart (selectable series & line styles), paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, per-period history |
+| **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart with **prior cycles overlaid for comparison**, paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, **pre-submit validation** of unfilled cells, per-period history |
 | **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
-| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
+| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
 | **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
@@ -140,7 +141,54 @@ Free-text commentary boxes keep the browser's own undo.
 **Keyboard navigation** works like a spreadsheet: arrow keys move between
 cells, `Enter` / `Shift+Enter` move down and up, and `Tab` moves along the
 row. Arrow keys only leave a cell once the caret is at the end of the text,
-so editing a value in place still works.
+so editing a value in place still works. Arrows follow **screen direction in
+both orientations** — the grid tags which axis its rows are, because
+dates-down-rows and dates-across-columns swap what "one row down" means.
+
+**Clearing a cell empties it**, which is not the same as forecasting zero: a
+typed `0` is stored as `0`, a cleared cell holds no value at all. That
+distinction is what pre-submit validation reports on.
+
+### Pre-submit validation
+
+**Submit for Approval** checks the grid before it submits anything. If any
+editable cell has no number in it, the grid enters focus mode — those cells
+are spotlit and everything else is dimmed — with a banner saying how many and
+offering **Keep Editing** or **Submit Anyway**. Blanks are a judgement call,
+not an error: a nil period is a legitimate forecast, so nothing is ever
+blocked, only pointed at. Computed subtotals are excluded (the app derives
+them), and a demo forecast opens fully seeded, so the check passes straight
+through until something is actually cleared.
+
+### Comparing against earlier cycles
+
+The running-balance chart takes **prior cycles as overlays**: tick any of the
+last eight forecast weeks and each is drawn on the same axes as a dashed
+line, in its own colour, labelled with its week. One dropdown picks what the
+overlays plot (net cash flow, running balance, inflows or outflows). Weeks
+that already hold a saved forecast are marked with a dot; the rest fall back
+to the same demo data every other screen uses.
+
+### Asking for commentary
+
+A variance flag comes from the numbers. A **comment request** comes from a
+person, so it can land on any cell:
+
+- **From the forecast** — Treasury clicks any cell, flagged or not, and
+  writes a question in its dialog. **Send Request** marks the cell, flags it
+  so it joins the review queue, and opens an Outlook draft to that entity's
+  submitter with the line item, period, current and prior values already in
+  the body.
+- **From Comments Review** — the per-comment action is **Request further
+  comment**: it opens a message box showing the cell, its movement and
+  whatever the submitter said so far, then does the same two things.
+- **For the submitter** — cells with an open question are outlined in blue on
+  their grid, with a banner naming who asked. Answering the cell's commentary
+  closes the request; the review screen shows it as *awaiting reply* until
+  then.
+
+Review items sort by **absolute movement, largest first** — the size of the
+swing is what decides whether a comment is worth reading.
 
 ### Global roles vs. entity responsibilities
 
@@ -171,7 +219,7 @@ The four global roles:
 - **Approver** — reviews, approves and returns forecasts for assigned
   entities; scoped approval queue.
 - **Submitter** — edits, comments on and submits forecasts for assigned
-  entities.
+  entities, and answers Treasury's questions on individual cells.
 - **Viewer** — read-only forecast access for assigned entities: the grid
   renders without inputs, and Save/Submit/Reset are all absent.
 
@@ -247,7 +295,9 @@ absorbed with the Administrator role.
 The tour navigates between screens itself, **highlights the destination page in
 the sidebar** so it's clear where it took you, and **scrolls each target into
 view** before showing its popup, so a step near the bottom of a long page is
-never left below the fold.
+never left below the fold. Steps about a whole section — the region → country
+drill-down, for one — target the section itself, header and table together,
+rather than just its heading.
 
 - **Library:** [driver.js](https://driverjs.com) (~5 KB gzipped, zero
   dependencies, TypeScript types, plain CSS selectors). Chosen over Shepherd.js
