@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
+import { seedFor } from '../../data/mockData';
 import { listCycles, listEntities } from '../../data/appData';
 import { currentWeekKey } from '../../data/periods';
-import { peekSubmission } from '../../data/submissionService';
+import { peekSubmission, templateForEntity } from '../../data/submissionService';
 import {
   loadApprovals,
   loadCycles,
@@ -41,9 +41,25 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
   // entity whose stored submission was submitted this week — limited to the
   // approver's scoped entities when set.
   const entities = listEntities();
+  // An entity submits on the template Legal Entity Setup gives it, which is
+  // not necessarily the standard one — reading the standard template here is
+  // what used to hide a submitted forecast from its own approver.
+  const allTemplates = useMemo(() => loadTemplates(), []);
+  const entityTemplate = (name: string) => templateForEntity(allTemplates, name);
+  const storedFor = (name: string) => {
+    const t = entityTemplate(name);
+    return t ? loadSubmission(week, name, t.id) : null;
+  };
+
+  // Everything this approver is responsible for, decided or not — used to
+  // explain an empty queue rather than leaving them guessing.
+  const covered = scopeEntities
+    ? entities.filter((e) => scopeEntities.includes(e.name))
+    : entities;
+
   const queue = entities.filter((e) => {
     if (scopeEntities && !scopeEntities.includes(e.name)) return false;
-    const stored = loadSubmission(week, e.name, STANDARD_TEMPLATE_ID);
+    const stored = storedFor(e.name);
     return (
       e.status === 'submitted' ||
       e.status === 'pending' ||
@@ -56,19 +72,15 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
     setOverrides(next);
     saveApprovals(activeCycleId, next);
     // Reflect the decision on the stored submission, if there is one.
-    const stored = loadSubmission(week, entity, STANDARD_TEMPLATE_ID);
+    const stored = storedFor(entity);
     if (stored) saveSubmission({ ...stored, status, updatedAt: new Date().toISOString() });
   };
 
-  const template = useMemo(() => {
-    const templates = loadTemplates();
-    return templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0] ?? null;
-  }, []);
-
   const rowData = (name: string) => {
-    const stored = loadSubmission(week, name, STANDARD_TEMPLATE_ID);
+    const stored = storedFor(name);
     // Flag counts match the Dashboard KPI and Comments Review screen:
     // stored submission or the same deterministic demo data.
+    const template = entityTemplate(name);
     const flags = template ? peekSubmission(name, week, template).flags.length : 0;
     if (stored) {
       const hours = Math.max(
@@ -92,9 +104,27 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
         <div className="panel">
           <div className="panel-body no-pad">
             {queue.length === 0 ? (
+              // A bare "nothing to do" reads as a broken screen to an approver
+              // whose entities happen to be settled, so account for every
+              // entity they cover and where it currently stands.
               <div className="empty-state">
                 <div className="ic">✓</div>
                 <p>Nothing awaiting approval.</p>
+                {covered.length > 0 ? (
+                  <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    {covered.length === 1 ? 'Your entity is' : `All ${covered.length} of your entities are`}{' '}
+                    already decided —{' '}
+                    {covered
+                      .map((e) => `${e.name} (${overrides[e.name] ?? e.status})`)
+                      .join(', ')}
+                    . New forecasts appear here as soon as they are submitted.
+                  </p>
+                ) : (
+                  <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    No entities are assigned to you yet. Treasury assigns approvers under
+                    Legal Entity Setup.
+                  </p>
+                )}
               </div>
             ) : (
               <table data-tour="approvals-table">
@@ -158,7 +188,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                                   onOpenSubmission({
                                     entity: e.name,
                                     week,
-                                    templateId: STANDARD_TEMPLATE_ID,
+                                    templateId: entityTemplate(e.name)?.id,
                                   })
                                 }
                               >

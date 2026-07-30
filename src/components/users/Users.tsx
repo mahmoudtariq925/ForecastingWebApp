@@ -7,6 +7,7 @@ import { seedUsers } from '../../data/appData';
 import { currentUser, permissionsFor } from '../../data/session';
 import {
   listLegalEntities,
+  removeUserFromEntities,
   responsibilitiesFor,
   type Responsibility,
 } from '../../data/legalEntityService';
@@ -209,6 +210,9 @@ export function Users() {
       danger: true,
     });
     if (!confirmed) return;
+    // Take their entity assignments with them, or the entity keeps counting
+    // a user who no longer exists.
+    if (held.length > 0) removeUserFromEntities(u.email);
     commit(users.filter((x) => x.email !== u.email));
   };
 

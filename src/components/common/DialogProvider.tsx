@@ -87,7 +87,13 @@ export function DialogProvider({ children }: { children: ReactNode }) {
           )
         }
       >
-        <div className={`dialog-message${tone === 'error' && !isConfirm ? ' error' : ''}`}>
+        <div
+          className={`dialog-message${tone === 'error' && !isConfirm ? ' error' : ''}`}
+          // Notifications are announced; a confirm is already announced by the
+          // dialog role, and doubling up makes screen readers read it twice.
+          role={isConfirm ? undefined : 'status'}
+          aria-live={isConfirm ? undefined : 'polite'}
+        >
           {pending?.options.message}
         </div>
       </Modal>

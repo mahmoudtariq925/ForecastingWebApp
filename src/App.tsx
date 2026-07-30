@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { AnalystHome } from './components/home/AnalystHome';
@@ -23,7 +23,13 @@ import {
   permissionsFor,
   setCurrentUser,
 } from './data/session';
-import { loadCycles, loadData, saveCycle, saveData } from './storage/localStorage';
+import {
+  loadCycles,
+  loadData,
+  saveCycle,
+  saveData,
+  setSaveFailureHandler,
+} from './storage/localStorage';
 import type { Cycle } from './types';
 import { allowedViews, landingViewFor } from './types/nav';
 import type { ModalId, ViewId } from './types/nav';
@@ -37,6 +43,24 @@ export default function App() {
   const [navCollapsed, setNavCollapsed] = useState(() =>
     loadData<boolean>('navCollapsed', false),
   );
+
+  // A storage write that fails (quota, private mode) used to be swallowed, so
+  // a submitter could fill in a grid and lose it on reload without a word.
+  // Warn once per session rather than on every keystroke that follows.
+  const warnedAboutStorage = useRef(false);
+  useEffect(() => {
+    setSaveFailureHandler(() => {
+      if (warnedAboutStorage.current) return;
+      warnedAboutStorage.current = true;
+      void notify({
+        tone: 'error',
+        title: 'Changes are not being saved',
+        message:
+          'This browser refused to store your changes — usually because private browsing is on or its storage is full. Export anything you need before closing the tab.',
+      });
+    });
+    return () => setSaveFailureHandler(null);
+  }, [notify]);
 
   const toggleNavCollapsed = () => {
     setNavCollapsed((prev) => {
@@ -113,7 +137,7 @@ export default function App() {
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
     consolidated: <Consolidated />,
-    comparison: <Comparison />,
+    comparison: <Comparison scopeEntities={scopedEntities} />,
     review: (
       <CommentsReview
         onOpenSubmission={openSubmission}

@@ -4,13 +4,15 @@ import { StatusPill } from '../common/StatusPill';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listCycles, listEntities, seedUsers } from '../../data/appData';
-import { currentWeekKey, dayLabelsForWeek, HORIZON_DAYS, weekLabel } from '../../data/periods';
+import { currentWeekKey, dayLabelsForWeek, periodsOf, weekLabel } from '../../data/periods';
 import {
   collectReviewGroups,
   consolidatedValues,
+  getPriorValues,
   largestVariances,
   mergedEntityStatus,
   peekSubmission,
+  templateForEntity,
 } from '../../data/submissionService';
 import type { SubmissionTarget } from '../submissions/Submission';
 import { currentUser } from '../../data/session';
@@ -34,7 +36,9 @@ interface DashboardProps {
   onOpenSubmission?: (target: SubmissionTarget) => void;
 }
 
-function Delta({ delta }: { delta: number }) {
+function Delta({ delta }: { delta: number | null }) {
+  // No prior forecast to compare against: a percentage would be meaningless.
+  if (delta === null) return <span className="delta">— no prior week</span>;
   const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
   const sign = delta > 0 ? '↑' : delta < 0 ? '↓' : '—';
   return (
@@ -61,19 +65,61 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
   const overrides = loadApprovals(activeCycle?.id ?? 'CW-2026-21');
   const week = currentWeekKey();
-  const template = useMemo(() => {
-    const templates = loadTemplates();
-    return templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0] ?? null;
-  }, []);
+  const allTemplates = useMemo(() => loadTemplates(), []);
+  // Display template for the consolidated grid; each entity is still read on
+  // whatever template Legal Entity Setup gives it.
+  const template = useMemo(
+    () => allTemplates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? allTemplates[0] ?? null,
+    [allTemplates],
+  );
+  const entityTemplate = (name: string) => templateForEntity(allTemplates, name);
 
   const statusOf = (e: Entity): SubmissionStatus =>
-    template ? mergedEntityStatus(e, week, template.id, overrides) : e.status;
+    mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? '', overrides);
 
   // --- KPIs computed from the data stores -------------------------------
-  const totalForecast = entities.reduce((s, e) => s + e.total, 0) / 1000;
+  /**
+   * Every entity's own forecast total for the week, from the same stored
+   * submissions the Submission screen edits. These used to read the seeded
+   * `entity.total`, so the headline KPI and the region table never moved
+   * when a forecast changed while the KPI beside them did.
+   */
+  const entityTotals = useMemo(() => {
+    const out = new Map<string, { total: number; prior: number }>();
+    for (const e of entities) {
+      const t = entityTemplate(e.name);
+      if (!t) {
+        out.set(e.name, { total: 0, prior: 0 });
+        continue;
+      }
+      const periods = periodsOf(t).count;
+      const cats = t.categories.length;
+      const sub = peekSubmission(e.name, week, t);
+      const priorValues = getPriorValues(e.name, week, t);
+      let total = 0;
+      let prior = 0;
+      for (let d = 0; d < periods; d++) {
+        total += dayNet(cats, sub.values, d);
+        prior += dayNet(cats, priorValues, d);
+      }
+      out.set(e.name, { total, prior });
+    }
+    return out;
+  }, [entities, allTemplates, week]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalOf = (name: string) => entityTotals.get(name)?.total ?? 0;
+  const deltaOf = (name: string) => {
+    const row = entityTotals.get(name);
+    if (!row || row.prior === 0) return null;
+    return ((row.total - row.prior) / Math.abs(row.prior)) * 100;
+  };
+
+  const totalForecast = entities.reduce((s, e) => s + totalOf(e.name), 0) / 1000;
+  const priorTotal = entities.reduce((s, e) => s + (entityTotals.get(e.name)?.prior ?? 0), 0);
   const weightedDelta =
-    entities.reduce((s, e) => s + e.total * e.delta, 0) /
-    Math.max(entities.reduce((s, e) => s + e.total, 0), 1);
+    priorTotal === 0
+      ? null
+      : ((totalForecast * 1000 - priorTotal) / Math.abs(priorTotal)) * 100;
 
   // Consolidated across ALL entities from the same data the Submission
   // screen edits — recomputed on mount, so edits show up here immediately.
@@ -83,12 +129,13 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   );
   const numCats = template?.categories.length ?? 0;
 
+  const numPeriods = periodsOf(template).count;
   const netPosition = useMemo(() => {
     if (!consolidated) return 0;
     let net = 0;
-    for (let d = 0; d < HORIZON_DAYS; d++) net += dayNet(numCats, consolidated.values, d);
+    for (let d = 0; d < numPeriods; d++) net += dayNet(numCats, consolidated.values, d);
     return net / 1000;
-  }, [consolidated, numCats]);
+  }, [consolidated, numCats, numPeriods]);
 
   const received = entities.filter((e) => statusOf(e) !== 'pending').length;
   const pendingApproval = entities.filter((e) => statusOf(e) === 'submitted').length;
@@ -96,16 +143,17 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   const { flagCount, needComment } = useMemo(() => {
     // Same coverage as the Comments Review screen: every entity's current
     // week (stored submission or the deterministic demo data).
-    if (!template) return { flagCount: 0, needComment: 0 };
     let flags = 0;
     let missing = 0;
     for (const e of entities) {
-      const sub = peekSubmission(e.name, week, template);
+      const t = entityTemplate(e.name);
+      if (!t) continue;
+      const sub = peekSubmission(e.name, week, t);
       flags += sub.flags.length;
       missing += sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length;
     }
     return { flagCount: flags, needComment: missing };
-  }, [entities, template, week]);
+  }, [entities, allTemplates, week]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 4-week outlook chart from the consolidated grid ------------------
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
@@ -124,7 +172,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   // --- Requires Attention: what Treasury needs to act on right now -------
   const attention = useMemo(() => {
     const effective = (e: Entity) =>
-      template ? mergedEntityStatus(e, week, template.id, overrides) : e.status;
+      mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? '', overrides);
     const missing = entities.filter((e) => effective(e) === 'pending');
     const awaiting = entities.filter((e) => effective(e) === 'submitted');
     const reviewGroups = template ? collectReviewGroups(loadTemplates()) : [];
@@ -134,7 +182,9 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
       ? largestVariances(week, template, loadSettings(DEFAULT_SETTINGS), 3)
       : [];
     return { missing, awaiting, unresolved, blocked, movements };
-  }, [entities, template, week, overrides]);
+    // entityTemplate is derived from allTemplates, which is listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entities, template, allTemplates, week, overrides]);
 
   // --- Region → country rollup for the progress table --------------------
   const regions = useMemo(() => {
@@ -154,17 +204,18 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
       return {
         name,
         members,
-        total: members.reduce((s, e) => s + e.total, 0),
+        total: members.reduce((s, e) => s + totalOf(e.name), 0),
         received: members.filter((e) => effective(e) !== 'pending').length,
       };
     });
-  }, [entities, overrides, template, week]);
+  }, [entities, overrides, allTemplates, week, entityTotals]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Last-updated label: real timestamp when a submission exists, otherwise
    * a stable demo value derived from the entity name. */
   const updatedLabel = (entityName: string): string => {
-    if (template) {
-      const stored = loadSubmission(week, entityName, template.id);
+    const t = entityTemplate(entityName);
+    if (t) {
+      const stored = loadSubmission(week, entityName, t.id);
       if (stored?.updatedAt) return agoLabel(stored.updatedAt);
     }
     return `${(seedFor(entityName) % 26) + 1}h ago`;
@@ -319,7 +370,9 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                       onOpenSubmission({
                         entity: m.entity,
                         week,
-                        templateId: template?.id,
+                        templateId: entityTemplate(m.entity)?.id,
+                        // Open the flagged cell's dialog, not just the screen.
+                        focusCell: `${m.catIdx}-${m.dayIdx}`,
                       })
                     }
                   >
@@ -359,10 +412,11 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                     key={region.name}
                     region={region}
                     statusOf={statusOf}
+                    totalOf={totalOf}
+                    deltaOf={deltaOf}
                     updatedLabel={updatedLabel}
                     sendChaser={sendChaser}
                     week={week}
-                    templateId={template?.id}
                     onOpenSubmission={onOpenSubmission}
                     onNavigate={onNavigate}
                   />
@@ -387,10 +441,13 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
 interface RegionRowsProps {
   region: { name: string; members: Entity[]; total: number; received: number };
   statusOf: (e: Entity) => SubmissionStatus;
+  /** Live forecast total for an entity, from its stored submission. */
+  totalOf: (entityName: string) => number;
+  /** Week-over-week delta, or null when there is no prior week. */
+  deltaOf: (entityName: string) => number | null;
   updatedLabel: (entityName: string) => string;
   sendChaser: (e: Entity) => void;
   week: string;
-  templateId?: string;
   onOpenSubmission?: (target: SubmissionTarget) => void;
   onNavigate: (view: ViewId) => void;
 }
@@ -399,10 +456,11 @@ interface RegionRowsProps {
 function RegionRows({
   region,
   statusOf,
+  totalOf,
+  deltaOf,
   updatedLabel,
   sendChaser,
   week,
-  templateId,
   onOpenSubmission,
   onNavigate,
 }: RegionRowsProps) {
@@ -417,7 +475,7 @@ function RegionRows({
         </td>
         <td />
         <td className="num" style={{ fontWeight: 600 }}>
-          €{region.total.toLocaleString()}k
+          €{Math.round(region.total).toLocaleString()}k
         </td>
         <td colSpan={3} />
       </tr>
@@ -433,9 +491,9 @@ function RegionRows({
             <td>
               <StatusPill status={status} />
             </td>
-            <td className="num">€{e.total.toLocaleString()}k</td>
+            <td className="num">€{Math.round(totalOf(e.name)).toLocaleString()}k</td>
             <td className="num">
-              <Delta delta={e.delta} />
+              <Delta delta={deltaOf(e.name)} />
             </td>
             <td className="text-muted" style={{ fontSize: 12 }}>
               {updatedLabel(e.name)}
@@ -447,7 +505,7 @@ function RegionRows({
                   style={{ padding: '4px 10px', fontSize: 11 }}
                   onClick={() =>
                     onOpenSubmission
-                      ? onOpenSubmission({ entity: e.name, week, templateId })
+                      ? onOpenSubmission({ entity: e.name, week })
                       : onNavigate('submission')
                   }
                 >

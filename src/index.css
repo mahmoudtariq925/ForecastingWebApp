@@ -16,7 +16,8 @@
   --border-strong: #d3cfc4;
   --text: #1a1d24;
   --text-dim: #5c6170;
-  --text-muted: #8e92a3;
+  /* 4.6:1 on the app background — the old #8e92a3 was ~3.0:1, below AA. */
+  --text-muted: #6b7080;
   --accent: #8a6d3b;
   --accent-soft: rgba(138, 109, 59, 0.1);
   --green: #2f8a5c;
@@ -647,6 +648,19 @@ td.num {
   color: var(--text);
   font-weight: 500;
 }
+/* Disclosure strip under a grid toolbar: says what a screen is leaving out. */
+.grid-note {
+  padding: 9px 16px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  background: var(--amber-soft);
+  border-bottom: 1px solid var(--border);
+}
+.grid-note strong {
+  color: var(--text);
+  font-weight: 500;
+}
 .paste-hint {
   font-family: var(--mono);
   font-size: 10px;
@@ -889,10 +903,28 @@ td.num {
   left: 68px;
   min-width: 260px;
 }
+
+/* Dates-down-rows has no reorder gutter, so its sticky first column starts at
+   the scroll origin. Leaving the 68px offset in place pushed the Period column
+   sideways and parked it on top of the first structure column. */
+.sheet-transposed th.row-label-h,
+.sheet-transposed td.row-label {
+  left: 0;
+  min-width: 104px;
+  width: 104px;
+}
 /* Transposed canvas (dates down rows): structure lives in the headers. */
 .sheet-grid th.sheet-col-item {
-  min-width: 190px;
+  min-width: 150px;
   vertical-align: top;
+}
+/* Type selector and the drag/insert/delete cluster share one line, so a
+   structure column is no longer three stacked controls tall. */
+.sheet-col-item-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: space-between;
 }
 .sheet-grid th.sheet-col-item.section {
   background: #ecebe4;
@@ -905,10 +937,9 @@ td.num {
   text-align: left;
 }
 .sheet-period-cell {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .sheet-row-actions {
   display: flex;
@@ -1975,4 +2006,170 @@ tbody tr.row-inactive td {
 }
 .nav-item.tour-nav-active .icon {
   color: var(--accent);
+}
+
+/* ============================================================
+   Template builder: drag-to-reorder, insert-in-place, and
+   section banding that survives both orientations.
+   ============================================================ */
+.sheet-row-actions .drag-handle {
+  cursor: grab;
+  letter-spacing: -1px;
+}
+.sheet-row-actions .drag-handle:active {
+  cursor: grabbing;
+}
+.sheet-row-actions.horizontal {
+  justify-content: flex-end;
+}
+
+/* Drop indicator: a solid accent edge on the side the row/column will land. */
+.sheet-grid tr.drop-before > td,
+.sheet-grid tr.drop-before > th {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.sheet-grid tr.drop-after > td,
+.sheet-grid tr.drop-after > th {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.sheet-grid th.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sheet-grid th.drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.sheet-grid .dragging {
+  opacity: 0.45;
+}
+
+/* Alternating section bands. Subtle enough to sit under the heatmap-free
+   builder without shouting, strong enough to group a section at a glance. */
+.sheet-grid tr.band-a > td:not(.sheet-gutter),
+.sheet-grid th.sheet-col-item.band-a,
+.sheet-grid td.band-a {
+  background: rgba(138, 109, 59, 0.06);
+}
+.sheet-grid tr.band-b > td:not(.sheet-gutter),
+.sheet-grid th.sheet-col-item.band-b,
+.sheet-grid td.band-b {
+  background: rgba(61, 109, 163, 0.07);
+}
+/* The section header itself stays the strongest line in its band. */
+.sheet-grid tr.section-row > td {
+  border-top: 2px solid var(--border-strong);
+  font-weight: 600;
+}
+.sheet-grid tr.subtotal-row > td {
+  border-bottom: 2px solid var(--border-strong);
+}
+.sheet-grid th.sheet-col-item.section {
+  border-left: 2px solid var(--border-strong);
+}
+.sheet-grid th.sheet-col-item.subtotal {
+  border-right: 2px solid var(--border-strong);
+}
+.sheet-grid td.section-cell {
+  border-left: 2px solid var(--border-strong);
+}
+
+/* Legal Entity Setup: every row opens that entity's setup dialog, so it has
+   to read as clickable and be reachable from the keyboard. */
+tr.entity-row {
+  cursor: pointer;
+}
+tr.entity-row:hover > td {
+  background: var(--accent-soft);
+}
+tr.entity-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The setup dialog itself: several sections in one scrollable dialog, so
+   each needs a heading rule to separate it from the one above. */
+.modal-wide {
+  max-width: 780px;
+}
+.setup-heading {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.setup-heading:not(:first-child) {
+  margin-top: 28px;
+}
+.setup-heading .text-muted {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.setup-block {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.setup-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+/* "+ Add Submitter" is the longest label here — let it keep one line rather
+   than wrapping and making the three blocks different heights. */
+.setup-block-head > .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.setup-block .assign-picker {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  max-height: 220px;
+}
+
+/* ============================================================
+   Focus visibility. Nothing rendered a focus ring, so keyboard
+   users had no idea where they were. :focus-visible keeps mouse
+   clicks clean while making keyboard focus obvious.
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.btn:focus-visible,
+.nav-item:focus-visible,
+.user-card:focus-visible,
+.user-switch-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.forecast-grid input:focus-visible,
+.sheet-grid input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--bg-elev);
+}
+/* The grid's own cell highlight while navigating with the keyboard. */
+.forecast-grid td.cell:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Comments Review: a forecast that is still blocking the cycle should look
+   different from one that is cleared — the list is sorted by that, but every
+   row used to carry identical weight. */
+.panel.review-blocked {
+  border-left: 3px solid var(--amber);
+}
+.review-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }

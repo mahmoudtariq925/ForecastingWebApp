@@ -13,12 +13,12 @@ import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listCycles, listEntities } from '../../data/appData';
 import {
   currentWeekKey,
-  dayLabelsForWeek,
-  HORIZON_DAYS,
+  periodsOf,
   prevWeekKey,
+  rollShift,
   shiftWeeks,
+  templateDayLabels,
   weekLabelShort,
-  WORKDAYS_PER_WEEK,
 } from '../../data/periods';
 import {
   consolidatedValues,
@@ -56,10 +56,10 @@ function DeltaCell({ pct }: { pct: number }) {
   );
 }
 
-/** Sum a per-day metric over one submission's full horizon. */
-function horizonTotal(values: GridValues, numCats: number): number {
+/** Sum the net position over one submission's full horizon. */
+function horizonTotal(values: GridValues, numCats: number, periods: number): number {
   let s = 0;
-  for (let d = 0; d < HORIZON_DAYS; d++) s += dayNet(numCats, values, d);
+  for (let d = 0; d < periods; d++) s += dayNet(numCats, values, d);
   return s;
 }
 
@@ -69,7 +69,15 @@ function horizonTotal(values: GridValues, numCats: number): number {
  * demo data standing in for entities that have no stored submission yet), so
  * editing a forecast is immediately reflected here.
  */
-export function Comparison() {
+interface ComparisonProps {
+  /**
+   * Restrict every view to these entities (approver / submitter scoping);
+   * undefined = the whole group, which is what Treasury sees.
+   */
+  scopeEntities?: string[];
+}
+
+export function Comparison({ scopeEntities }: ComparisonProps = {}) {
   const [tab, setTab] = useState(0);
   const [metric, setMetric] = useState<Metric>('net');
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
@@ -101,18 +109,22 @@ export function Comparison() {
   const overrides = useMemo(() => loadApprovals(activeCycleId), [activeCycleId]);
 
   const numCats = template?.categories.length ?? 0;
+  // Every aggregate on this screen spans the display template's own horizon —
+  // a template declaring 30 periods used to have its last 10 columns ignored.
+  const periods = useMemo(() => periodsOf(template).count, [template]);
+  const shift = useMemo(() => rollShift(template), [template]);
 
   // Consolidated grids for the selected pair (live: recomputed per render).
   const current = useMemo(
-    () => (template ? consolidatedValues(pair.current, template) : null),
-    [template, pair],
+    () => (template ? consolidatedValues(pair.current, template, scopeEntities) : null),
+    [template, pair, scopeEntities],
   );
   const priorData = useMemo(
-    () => (template ? consolidatedValues(pair.prior, template) : null),
-    [template, pair],
+    () => (template ? consolidatedValues(pair.prior, template, scopeEntities) : null),
+    [template, pair, scopeEntities],
   );
 
-  const dayLabels = useMemo(() => dayLabelsForWeek(pair.current), [pair]);
+  const dayLabels = useMemo(() => templateDayLabels(template, pair.current), [template, pair]);
 
   // ---- Daily Variance chart: current horizon vs the prior forecast's view
   // of the same calendar days (horizons roll by one week = 5 working days;
@@ -131,13 +143,13 @@ export function Comparison() {
           return dayOutflows(numCats, v, d);
       }
     };
-    const cur = Array.from({ length: HORIZON_DAYS }, (_v, d) =>
-      metricAt(current.values, current.startingBalance, d),
+    const cur = Array.from({ length: periods }, (_v, d) =>
+      metricAt(current.values, current.startingBalance ?? 0, d),
     );
-    const prev = Array.from({ length: HORIZON_DAYS }, (_v, d) => {
-      const shifted = d + WORKDAYS_PER_WEEK;
-      if (shifted >= HORIZON_DAYS) return null;
-      return metricAt(priorData.values, priorData.startingBalance, shifted);
+    const prev = Array.from({ length: periods }, (_v, d) => {
+      const shifted = d + shift;
+      if (shifted >= periods) return null;
+      return metricAt(priorData.values, priorData.startingBalance ?? 0, shifted);
     });
     return [
       {
@@ -154,14 +166,25 @@ export function Comparison() {
         kind: 'line',
       },
     ];
-  }, [current, priorData, metric, numCats, pair]);
+  }, [current, priorData, metric, numCats, pair, periods, shift]);
 
   // ---- By Entity: full-horizon net totals per entity, current vs prior. ----
   const entityRows = useMemo(() => {
     if (!template) return [];
-    return listEntities().map((e) => {
-      const cur = horizonTotal(peekSubmission(e.name, pair.current, template).values, numCats);
-      const prev = horizonTotal(peekSubmission(e.name, pair.prior, template).values, numCats);
+    const scoped = scopeEntities
+      ? listEntities().filter((e) => scopeEntities.includes(e.name))
+      : listEntities();
+    return scoped.map((e) => {
+      const cur = horizonTotal(
+        peekSubmission(e.name, pair.current, template).values,
+        numCats,
+        periods,
+      );
+      const prev = horizonTotal(
+        peekSubmission(e.name, pair.prior, template).values,
+        numCats,
+        periods,
+      );
       const pct = ((cur - prev) / Math.max(Math.abs(prev), 1)) * 100;
       return {
         name: e.name,
@@ -171,7 +194,7 @@ export function Comparison() {
         status: mergedEntityStatus(e, pair.current, template.id, overrides),
       };
     });
-  }, [template, pair, numCats, overrides]);
+  }, [template, pair, numCats, periods, overrides, scopeEntities]);
 
   // ---- By Category: consolidated per-category totals, current vs prior. ----
   const categoryRows = useMemo(() => {
@@ -179,19 +202,19 @@ export function Comparison() {
     return template.categories.map((cat, catIdx) => {
       let cur = 0;
       let prev = 0;
-      for (let d = 0; d < HORIZON_DAYS; d++) {
+      for (let d = 0; d < periods; d++) {
         cur += current.values[`${catIdx}-${d}`] || 0;
         prev += priorData.values[`${catIdx}-${d}`] || 0;
       }
       const pct = ((cur - prev) / Math.max(Math.abs(prev), 1)) * 100;
       return { label: cat.label, current: cur, prior: prev, pct };
     });
-  }, [template, current, priorData]);
+  }, [template, current, priorData, periods]);
 
   // ---- Largest cell-level variances across all entities (live). ----
   const varianceRows = useMemo(
-    () => (template ? largestVariances(pair.current, template, settings) : []),
-    [template, pair, settings],
+    () => (template ? largestVariances(pair.current, template, settings, 12, scopeEntities) : []),
+    [template, pair, settings, scopeEntities],
   );
 
   if (!template) {
@@ -249,7 +272,8 @@ export function Comparison() {
             <>
               <div className="chart-controls">
                 <span className="grid-info">
-                  Consolidated · all entities · €k · last 5 days have no prior forecast
+                  {scopeEntities ? 'Your entities' : 'Consolidated · all entities'} · €k
+                  {shift > 0 && ` · last ${shift} periods have no prior forecast`}
                 </span>
                 <select
                   className="form-select"

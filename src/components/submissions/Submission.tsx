@@ -59,6 +59,12 @@ export interface SubmissionTarget {
   entity?: string;
   week?: string;
   templateId?: string;
+  /**
+   * A flagged cell (`${catIdx}-${dayIdx}`) whose commentary dialog should open
+   * on arrival. Comments Review sends this so "Explain" lands on the exact
+   * cell instead of leaving the submitter to hunt for it in the grid.
+   */
+  focusCell?: string;
 }
 
 interface SubmissionProps {
@@ -126,6 +132,7 @@ export function Submission({ initial, allowedEntities, readOnly = false }: Submi
         entity={entity}
         week={week}
         template={template}
+        focusCell={initial?.focusCell}
         orientation={orientationOverride ?? template.layout}
         onChangeOrientation={setOrientationOverride}
         readOnly={readOnly}
@@ -216,6 +223,8 @@ interface EditorProps {
   entity: string;
   week: string;
   template: ForecastTemplate;
+  /** Flagged cell to open the commentary dialog on, if deep-linked. */
+  focusCell?: string;
   orientation: TemplateLayout;
   onChangeOrientation: (layout: TemplateLayout) => void;
   /** Viewer role: render everything, allow no changes. */
@@ -229,7 +238,7 @@ interface EditState {
   flags: Set<string>;
   comments: Record<string, string>;
   dayComments: Record<string, string>;
-  startingBalance: number;
+  startingBalance: number | null;
 }
 
 /** Plenty for a working session; keeps the stack from growing unbounded. */
@@ -246,6 +255,7 @@ function SubmissionEditor({
   entity,
   week,
   template,
+  focusCell,
   orientation,
   onChangeOrientation,
   readOnly,
@@ -274,7 +284,11 @@ function SubmissionEditor({
   const [dayComments, setDayComments] = useState<Record<string, string>>(
     initial.dayComments ?? {},
   );
-  const [startingBalance, setStartingBalance] = useState<number>(initial.startingBalance ?? 0);
+  // null = the submitter hasn't given an opening balance; the grid then
+  // leaves the running-total column out until they do.
+  const [startingBalance, setStartingBalance] = useState<number | null>(
+    initial.startingBalance ?? null,
+  );
   const [status, setStatus] = useState<SubmissionStatus>(initial.status);
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
@@ -369,7 +383,7 @@ function SubmissionEditor({
     flags?: Set<string>;
     comments?: Record<string, string>;
     dayComments?: Record<string, string>;
-    startingBalance?: number;
+    startingBalance?: number | null;
     status?: SubmissionStatus;
   }
   const persist = (snap: Snapshot = {}) => {
@@ -383,7 +397,8 @@ function SubmissionEditor({
       resolvedFlags,
       comments: snap.comments ?? comments,
       dayComments: snap.dayComments ?? dayComments,
-      startingBalance: snap.startingBalance ?? startingBalance,
+      startingBalance:
+        'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -503,7 +518,7 @@ function SubmissionEditor({
     persist({ dayComments: next });
   };
 
-  const setBalance = (v: number) => {
+  const setBalance = (v: number | null) => {
     if (lastEditedCell.current !== 'starting-balance') {
       pushUndo();
       lastEditedCell.current = 'starting-balance';
@@ -582,6 +597,25 @@ function SubmissionEditor({
     });
   };
 
+  // Deep link from Comments Review: open that cell's commentary dialog as
+  // soon as the grid is up, so "Explain" lands on the right cell.
+  const focusedOnce = useRef(false);
+  useEffect(() => {
+    if (!focusCell || focusedOnce.current) return;
+    const [c, d] = focusCell.split('-').map(Number);
+    if (!Number.isFinite(c) || !Number.isFinite(d)) return;
+    focusedOnce.current = true;
+    openVariance(c, d);
+    // Scroll the cell itself into view behind the dialog.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`)
+        ?.scrollIntoView({ block: 'center', inline: 'center' });
+    });
+    // openVariance is stable for a given render of this editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCell]);
+
   const saveComment = () => {
     if (!varianceCell) return;
     const nextComments = { ...comments, [varianceCell.key]: commentDraft.trim() };
@@ -626,7 +660,7 @@ function SubmissionEditor({
       dates,
       dayLabels,
       values,
-      startingBalance,
+      startingBalance: startingBalance ?? 0,
       dayComments,
       filename: `${entity.replace(/\s+/g, '-')}-${week}-forecast.xlsx`,
     }).catch((err) =>
@@ -643,11 +677,14 @@ function SubmissionEditor({
   const inflowByDay = dates.map((_d, d) => dayInflows(numCats, values, d));
   const outflowByDay = dates.map((_d, d) => dayOutflows(numCats, values, d));
   const netByDay = dates.map((_d, d) => dayNet(numCats, values, d));
-  const balanceByDay = dates.map((_d, d) => runningBalance(numCats, values, startingBalance, d));
+  const hasBalance = startingBalance !== null;
+  const balanceByDay = dates.map((_d, d) =>
+    runningBalance(numCats, values, startingBalance ?? 0, d),
+  );
   const totalInflows = inflowByDay.reduce((a, b) => a + b, 0);
   const totalOutflows = outflowByDay.reduce((a, b) => a + b, 0);
   const totalNet = netByDay.reduce((a, b) => a + b, 0);
-  const closingBalance = balanceByDay[numDays - 1] ?? startingBalance;
+  const closingBalance = balanceByDay[numDays - 1] ?? startingBalance ?? 0;
 
   const chartSeries: ChartSeries[] = [];
   if (chartOptions.inflows)
@@ -656,7 +693,7 @@ function SubmissionEditor({
     chartSeries.push({ label: 'Outflows', values: outflowByDay, color: CHART_COLORS.red, kind: 'bar' });
   if (chartOptions.net)
     chartSeries.push({ label: 'Net Cash Flow', values: netByDay, color: CHART_COLORS.blue, kind: 'bar' });
-  if (chartOptions.balance)
+  if (chartOptions.balance && hasBalance)
     chartSeries.push({
       label: 'Running Balance',
       values: balanceByDay,
@@ -684,7 +721,7 @@ function SubmissionEditor({
         `The ${entity} cash flow forecast for ${weekLabel(week)} is ready for your review in Liquid.\n\n` +
         `Status: ${status}\n` +
         `Template: ${template.name}\n` +
-        `Starting balance: ${fmtK(startingBalance)}\n` +
+        (hasBalance ? `Starting balance: ${fmtK(startingBalance ?? 0)}\n` : '') +
         `Total inflows: ${fmtK(totalInflows)}\n` +
         `Total outflows: ${fmtK(totalOutflows)}\n` +
         `Net cash flow: ${fmtK(totalNet)}\n` +
@@ -825,27 +862,40 @@ function SubmissionEditor({
             </div>
             <div className="row-flex">
               <label className="form-label" style={{ margin: 0 }}>
-                Starting Balance
+                Starting Balance <span className="text-muted">(optional)</span>
               </label>
               <input
                 className="form-input"
                 style={{ width: 120, textAlign: 'right', fontFamily: 'var(--mono)' }}
                 // Same draft-while-typing treatment as a grid cell, so a
                 // negative opening balance can actually be typed.
-                value={balanceDraft ?? String(startingBalance)}
+                value={balanceDraft ?? (startingBalance === null ? '' : String(startingBalance))}
+                placeholder="optional"
                 disabled={readOnly}
                 onChange={(e) => {
                   const raw = e.target.value;
                   setBalanceDraft(raw);
-                  const parsed = parseCellNumber(raw);
-                  if (parsed !== null) setBalance(parsed);
+                  // Clearing the field removes the opening balance entirely,
+                  // which is what hides the running-total column again.
+                  if (raw.trim() === '') setBalance(null);
+                  else {
+                    const parsed = parseCellNumber(raw);
+                    if (parsed !== null) setBalance(parsed);
+                  }
                 }}
                 onBlur={() => {
-                  if (balanceDraft !== null) setBalance(parseCellNumber(balanceDraft) ?? 0);
+                  if (balanceDraft !== null) {
+                    setBalance(balanceDraft.trim() === '' ? null : parseCellNumber(balanceDraft));
+                  }
                   setBalanceDraft(null);
                 }}
                 aria-label="Starting balance"
               />
+              {!hasBalance && (
+                <span className="text-muted" style={{ fontSize: 11 }}>
+                  Enter one to show a running balance
+                </span>
+              )}
             </div>
           </div>
           <div className="forecast-grid-wrap" data-tour="forecast-grid">
@@ -876,14 +926,16 @@ function SubmissionEditor({
         </div>
         <div className="panel">
           <div className="chart-controls">
-            <label className="series-check">
-              <input
-                type="checkbox"
-                checked={chartOptions.balance}
-                onChange={() => toggleChartOption('balance')}
-              />
-              Running Balance
-            </label>
+            {hasBalance && (
+              <label className="series-check">
+                <input
+                  type="checkbox"
+                  checked={chartOptions.balance}
+                  onChange={() => toggleChartOption('balance')}
+                />
+                Running Balance
+              </label>
+            )}
             <label className="series-check">
               <input
                 type="checkbox"

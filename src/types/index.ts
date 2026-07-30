@@ -205,8 +205,12 @@ export interface Submission {
   comments: Record<string, string>;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
-  /** Opening cash balance for the horizon, EUR thousands. */
-  startingBalance: number;
+  /**
+   * Opening cash balance for the horizon, EUR thousands. Optional: `null`
+   * means the submitter hasn't given one, and the grid then leaves the
+   * running-total column out rather than counting up from an assumed zero.
+   */
+  startingBalance: number | null;
   updatedAt: string;
 }
 
