@@ -133,6 +133,7 @@ export default function App() {
         initial={submissionTarget ?? undefined}
         allowedEntities={scopedEntities}
         readOnly={!permissions.canSubmitForecasts}
+        canRequestComments={permissions.canReviewComments}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,

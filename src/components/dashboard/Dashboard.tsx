@@ -1,10 +1,15 @@
-import { useMemo } from 'react';
-import { CyclePill, TopBar } from '../layout/TopBar';
-import { StatusPill } from '../common/StatusPill';
-import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
-import { seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { listCycles, listEntities, seedUsers } from '../../data/appData';
-import { currentWeekKey, dayLabelsForWeek, periodsOf, weekLabel } from '../../data/periods';
+import { useMemo } from "react";
+import { CyclePill, TopBar } from "../layout/TopBar";
+import { StatusPill } from "../common/StatusPill";
+import { Chart, CHART_COLORS, type ChartSeries } from "../common/Chart";
+import { seedFor, STANDARD_TEMPLATE_ID } from "../../data/mockData";
+import { listCycles, listEntities, seedUsers } from "../../data/appData";
+import {
+  currentWeekKey,
+  dayLabelsForWeek,
+  periodsOf,
+  weekLabel,
+} from "../../data/periods";
 import {
   collectReviewGroups,
   consolidatedValues,
@@ -13,9 +18,9 @@ import {
   mergedEntityStatus,
   peekSubmission,
   templateForEntity,
-} from '../../data/submissionService';
-import type { SubmissionTarget } from '../submissions/Submission';
-import { currentUser } from '../../data/session';
+} from "../../data/submissionService";
+import type { SubmissionTarget } from "../submissions/Submission";
+import { currentUser } from "../../data/session";
 import {
   loadApprovals,
   loadCycles,
@@ -23,12 +28,12 @@ import {
   loadSubmission,
   loadTemplates,
   loadUsers,
-} from '../../storage/localStorage';
-import { dayInflows, dayNet, dayOutflows } from '../submissions/gridMath';
-import { emailForName, mailDomain, openEmail } from '../../utils/email';
-import { DEFAULT_SETTINGS } from '../settings/defaults';
-import type { Entity, SubmissionStatus } from '../../types';
-import type { ModalId, ViewId } from '../../types/nav';
+} from "../../storage/localStorage";
+import { dayInflows, dayNet, dayOutflows } from "../submissions/gridMath";
+import { emailForName, mailDomain, openEmail } from "../../utils/email";
+import { DEFAULT_SETTINGS } from "../settings/defaults";
+import type { Entity, SubmissionStatus } from "../../types";
+import type { ModalId, ViewId } from "../../types/nav";
 
 interface DashboardProps {
   onOpenModal: (id: ModalId) => void;
@@ -39,8 +44,8 @@ interface DashboardProps {
 function Delta({ delta }: { delta: number | null }) {
   // No prior forecast to compare against: a percentage would be meaningless.
   if (delta === null) return <span className="delta">— no prior week</span>;
-  const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
-  const sign = delta > 0 ? '↑' : delta < 0 ? '↓' : '—';
+  const cls = delta > 0 ? "up" : delta < 0 ? "down" : "";
+  const sign = delta > 0 ? "↑" : delta < 0 ? "↓" : "—";
   return (
     <span className={`delta ${cls}`}>
       {sign} {Math.abs(delta).toFixed(1)}%
@@ -51,31 +56,39 @@ function Delta({ delta }: { delta: number | null }) {
 /** "3h ago" / "2d ago" from an ISO timestamp. */
 function agoLabel(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return 'now';
+  if (!Number.isFinite(ms) || ms < 0) return "now";
   const hours = Math.round(ms / 3_600_000);
-  if (hours < 1) return 'just now';
+  if (hours < 1) return "just now";
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: DashboardProps) {
+export function Dashboard({
+  onOpenModal,
+  onNavigate,
+  onOpenSubmission,
+}: DashboardProps) {
   const cycles = loadCycles(listCycles());
   // Stable per mount; the screen remounts (dataVersion) whenever stores change.
   const entities = useMemo(() => listEntities(), []);
-  const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
-  const overrides = loadApprovals(activeCycle?.id ?? 'CW-2026-21');
+  const activeCycle = cycles.find((c) => c.status === "submitted") ?? cycles[0];
+  const overrides = loadApprovals(activeCycle?.id ?? "CW-2026-21");
   const week = currentWeekKey();
   const allTemplates = useMemo(() => loadTemplates(), []);
   // Display template for the consolidated grid; each entity is still read on
   // whatever template Legal Entity Setup gives it.
   const template = useMemo(
-    () => allTemplates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? allTemplates[0] ?? null,
+    () =>
+      allTemplates.find((t) => t.id === STANDARD_TEMPLATE_ID) ??
+      allTemplates[0] ??
+      null,
     [allTemplates],
   );
-  const entityTemplate = (name: string) => templateForEntity(allTemplates, name);
+  const entityTemplate = (name: string) =>
+    templateForEntity(allTemplates, name);
 
   const statusOf = (e: Entity): SubmissionStatus =>
-    mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? '', overrides);
+    mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? "", overrides);
 
   // --- KPIs computed from the data stores -------------------------------
   /**
@@ -114,8 +127,12 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
     return ((row.total - row.prior) / Math.abs(row.prior)) * 100;
   };
 
-  const totalForecast = entities.reduce((s, e) => s + totalOf(e.name), 0) / 1000;
-  const priorTotal = entities.reduce((s, e) => s + (entityTotals.get(e.name)?.prior ?? 0), 0);
+  const totalForecast =
+    entities.reduce((s, e) => s + totalOf(e.name), 0) / 1000;
+  const priorTotal = entities.reduce(
+    (s, e) => s + (entityTotals.get(e.name)?.prior ?? 0),
+    0,
+  );
   const weightedDelta =
     priorTotal === 0
       ? null
@@ -133,12 +150,15 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   const netPosition = useMemo(() => {
     if (!consolidated) return 0;
     let net = 0;
-    for (let d = 0; d < numPeriods; d++) net += dayNet(numCats, consolidated.values, d);
+    for (let d = 0; d < numPeriods; d++)
+      net += dayNet(numCats, consolidated.values, d);
     return net / 1000;
   }, [consolidated, numCats, numPeriods]);
 
-  const received = entities.filter((e) => statusOf(e) !== 'pending').length;
-  const pendingApproval = entities.filter((e) => statusOf(e) === 'submitted').length;
+  const received = entities.filter((e) => statusOf(e) !== "pending").length;
+  const pendingApproval = entities.filter(
+    (e) => statusOf(e) === "submitted",
+  ).length;
 
   const { flagCount, needComment } = useMemo(() => {
     // Same coverage as the Comments Review screen: every entity's current
@@ -159,22 +179,43 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
   const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
   const outlookSeries: ChartSeries[] = useMemo(() => {
     if (!consolidated) return [];
-    const inflows = dayLabels.map((_dl, d) => dayInflows(numCats, consolidated.values, d));
-    const outflows = dayLabels.map((_dl, d) => dayOutflows(numCats, consolidated.values, d));
-    const net = dayLabels.map((_dl, d) => dayNet(numCats, consolidated.values, d));
+    const inflows = dayLabels.map((_dl, d) =>
+      dayInflows(numCats, consolidated.values, d),
+    );
+    const outflows = dayLabels.map((_dl, d) =>
+      dayOutflows(numCats, consolidated.values, d),
+    );
+    const net = dayLabels.map((_dl, d) =>
+      dayNet(numCats, consolidated.values, d),
+    );
     return [
-      { label: 'Inflows', values: inflows, color: CHART_COLORS.green, kind: 'bar' },
-      { label: 'Outflows', values: outflows, color: CHART_COLORS.red, kind: 'bar' },
-      { label: 'Net Cash Flow', values: net, color: CHART_COLORS.accent, kind: 'line' },
+      {
+        label: "Inflows",
+        values: inflows,
+        color: CHART_COLORS.green,
+        kind: "bar",
+      },
+      {
+        label: "Outflows",
+        values: outflows,
+        color: CHART_COLORS.red,
+        kind: "bar",
+      },
+      {
+        label: "Net Cash Flow",
+        values: net,
+        color: CHART_COLORS.accent,
+        kind: "line",
+      },
     ];
   }, [consolidated, dayLabels, numCats]);
 
   // --- Requires Attention: what Treasury needs to act on right now -------
   const attention = useMemo(() => {
     const effective = (e: Entity) =>
-      mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? '', overrides);
-    const missing = entities.filter((e) => effective(e) === 'pending');
-    const awaiting = entities.filter((e) => effective(e) === 'submitted');
+      mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? "", overrides);
+    const missing = entities.filter((e) => effective(e) === "pending");
+    const awaiting = entities.filter((e) => effective(e) === "submitted");
     const reviewGroups = template ? collectReviewGroups(loadTemplates()) : [];
     const unresolved = reviewGroups.reduce((s, g) => s + g.unresolved, 0);
     const blocked = reviewGroups.filter((g) => g.unresolved > 0).length;
@@ -205,7 +246,7 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         name,
         members,
         total: members.reduce((s, e) => s + totalOf(e.name), 0),
-        received: members.filter((e) => effective(e) !== 'pending').length,
+        received: members.filter((e) => effective(e) !== "pending").length,
       };
     });
   }, [entities, overrides, allTemplates, week, entityTotals]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -226,13 +267,16 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
     const domain = mailDomain(loadSettings(DEFAULT_SETTINGS));
     const users = loadUsers(seedUsers());
     openEmail({
-      to: [emailForName(e.submitter, users, domain), emailForName(e.approver, users, domain)],
-      subject: `Reminder — ${activeCycle?.id ?? 'current cycle'} cash flow forecast (${e.name})`,
+      to: [
+        emailForName(e.submitter, users, domain),
+        emailForName(e.approver, users, domain),
+      ],
+      subject: `Reminder — ${activeCycle?.id ?? "current cycle"} cash flow forecast (${e.name})`,
       body:
-        `Hi ${e.submitter.split(' ')[0]}, hi ${e.approver.split(' ')[0]},\n\n` +
+        `Hi ${e.submitter.split(" ")[0]}, hi ${e.approver.split(" ")[0]},\n\n` +
         `Gentle reminder that the ${e.name} cash flow forecast for cycle ` +
-        `${activeCycle?.id ?? '—'} (${weekLabel(week)}) is still ${statusOf(e)}.\n` +
-        `The cycle closes ${activeCycle?.closes ?? 'soon'}.\n\n` +
+        `${activeCycle?.id ?? "—"} (${weekLabel(week)}) is still ${statusOf(e)}.\n` +
+        `The cycle closes ${activeCycle?.closes ?? "soon"}.\n\n` +
         `Submit or approve it here: ${window.location.origin + window.location.pathname}\n\n` +
         `Best regards,\n${me.name}\n${me.email}`,
     });
@@ -245,11 +289,17 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
         title="Treasury Dashboard"
         actions={
           <>
-            <CyclePill label="Active Cycle" value={activeCycle?.id ?? '—'} />
-            <button className="btn btn-ghost" onClick={() => onOpenModal('export')}>
+            <CyclePill label="Active Cycle" value={activeCycle?.id ?? "—"} />
+            <button
+              className="btn btn-ghost"
+              onClick={() => onOpenModal("export")}
+            >
               Export
             </button>
-            <button className="btn btn-primary" onClick={() => onOpenModal('newCycle')}>
+            <button
+              className="btn btn-primary"
+              onClick={() => onOpenModal("newCycle")}
+            >
               + New Cycle
             </button>
           </>
@@ -267,19 +317,25 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
           <div className="kpi-card">
             <div className="kpi-label">Net Cash Position</div>
             <div className="kpi-value">€ {netPosition.toFixed(1)}M</div>
-            <div className="kpi-sub text-dim">{weekLabel(week)} consolidated</div>
+            <div className="kpi-sub text-dim">
+              {weekLabel(week)} consolidated
+            </div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Submissions Received</div>
             <div className="kpi-value">
               {received} / {entities.length}
             </div>
-            <div className="kpi-sub text-dim">{pendingApproval} pending approval</div>
+            <div className="kpi-sub text-dim">
+              {pendingApproval} pending approval
+            </div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Variance Flags</div>
             <div className="kpi-value">{flagCount}</div>
-            <div className="kpi-sub text-dim">{needComment} require commentary</div>
+            <div className="kpi-sub text-dim">
+              {needComment} require commentary
+            </div>
           </div>
         </div>
 
@@ -295,14 +351,14 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                 <strong>Missing submissions</strong>
                 <span className="text-dim">
                   {attention.missing.length === 0
-                    ? 'Every entity has submitted.'
-                    : attention.missing.map((e) => e.name).join(', ')}
+                    ? "Every entity has submitted."
+                    : attention.missing.map((e) => e.name).join(", ")}
                 </span>
               </div>
               {attention.missing.length > 0 && (
                 <button
                   className="btn btn-ghost"
-                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
                   title="Opens a prefilled reminder email in Outlook"
                   onClick={() => sendChaser(attention.missing[0])}
                 >
@@ -316,14 +372,14 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                 <strong>Forecasts awaiting approval</strong>
                 <span className="text-dim">
                   {attention.awaiting.length === 0
-                    ? 'Approval queue is clear.'
-                    : attention.awaiting.map((e) => e.name).join(', ')}
+                    ? "Approval queue is clear."
+                    : attention.awaiting.map((e) => e.name).join(", ")}
                 </span>
               </div>
               <button
                 className="btn btn-ghost"
-                style={{ padding: '4px 10px', fontSize: 11 }}
-                onClick={() => onNavigate('approvals')}
+                style={{ padding: "4px 10px", fontSize: 11 }}
+                onClick={() => onNavigate("approvals")}
               >
                 Open Approvals
               </button>
@@ -334,22 +390,28 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                 <strong>Unresolved comments</strong>
                 <span className="text-dim">
                   {attention.unresolved === 0
-                    ? 'Nothing blocking cycle close.'
-                    : `${attention.blocked} forecast${attention.blocked === 1 ? '' : 's'} blocked until reviewed.`}
+                    ? "Nothing blocking cycle close."
+                    : `${attention.blocked} forecast${attention.blocked === 1 ? "" : "s"} blocked until reviewed.`}
                 </span>
               </div>
               <button
                 className="btn btn-ghost"
-                style={{ padding: '4px 10px', fontSize: 11 }}
-                onClick={() => onNavigate('review')}
+                style={{ padding: "4px 10px", fontSize: 11 }}
+                onClick={() => onNavigate("review")}
               >
                 Review Comments
               </button>
             </div>
             {attention.movements.map((m) => (
-              <div className="attention-row" key={`${m.entity}-${m.category}-${m.dayIdx}`}>
-                <span className={`delta ${m.pct > 0 ? 'up' : 'down'}`} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
-                  {m.pct > 0 ? '+' : ''}
+              <div
+                className="attention-row"
+                key={`${m.entity}-${m.category}-${m.dayIdx}`}
+              >
+                <span
+                  className={`delta ${m.pct > 0 ? "up" : "down"}`}
+                  style={{ fontFamily: "var(--mono)", fontSize: 12 }}
+                >
+                  {m.pct > 0 ? "+" : ""}
                   {m.pct.toFixed(0)}%
                 </span>
                 <div className="attention-text">
@@ -359,13 +421,13 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
                   <span className="text-dim">
                     Week-over-week move: €{m.prior.toLocaleString()}k → €
                     {m.current.toLocaleString()}k (day {m.dayIdx + 1})
-                    {m.comment ? ` — “${m.comment}”` : ' — no commentary yet'}
+                    {m.comment ? ` — “${m.comment}”` : " — no commentary yet"}
                   </span>
                 </div>
                 {onOpenSubmission && (
                   <button
                     className="btn btn-ghost"
-                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    style={{ padding: "4px 10px", fontSize: 11 }}
                     onClick={() =>
                       onOpenSubmission({
                         entity: m.entity,
@@ -384,45 +446,49 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
           </div>
         </div>
 
-        <div className="section-header">
-          <h2 data-tour="cycle-progress">Cycle Progress · Region → Country</h2>
-          <span className="tag">
-            {activeCycle?.id ?? '—'} · Closes {activeCycle?.closes ?? '—'}
-          </span>
-        </div>
+        {/* Wrapper so the walkthrough highlights the whole region → country
+            section, header and table together, rather than just its title. */}
+        <div data-tour="cycle-progress">
+          <div className="section-header">
+            <h2>Cycle Progress · Region → Country</h2>
+            <span className="tag">
+              {activeCycle?.id ?? "—"} · Closes {activeCycle?.closes ?? "—"}
+            </span>
+          </div>
 
-        <div className="panel">
-          <div className="panel-body no-pad">
-            <table>
-              <thead>
-                <tr>
-                  <th>Entity / Team</th>
-                  <th>Submitter</th>
-                  <th>Approver</th>
-                  <th>Status</th>
-                  <th className="num">Total (€)</th>
-                  <th className="num">Δ vs Prior</th>
-                  <th>Updated</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {regions.map((region) => (
-                  <RegionRows
-                    key={region.name}
-                    region={region}
-                    statusOf={statusOf}
-                    totalOf={totalOf}
-                    deltaOf={deltaOf}
-                    updatedLabel={updatedLabel}
-                    sendChaser={sendChaser}
-                    week={week}
-                    onOpenSubmission={onOpenSubmission}
-                    onNavigate={onNavigate}
-                  />
-                ))}
-              </tbody>
-            </table>
+          <div className="panel">
+            <div className="panel-body no-pad">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Entity / Team</th>
+                    <th>Submitter</th>
+                    <th>Approver</th>
+                    <th>Status</th>
+                    <th className="num">Total (€)</th>
+                    <th className="num">Δ vs Prior</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {regions.map((region) => (
+                    <RegionRows
+                      key={region.name}
+                      region={region}
+                      statusOf={statusOf}
+                      totalOf={totalOf}
+                      deltaOf={deltaOf}
+                      updatedLabel={updatedLabel}
+                      sendChaser={sendChaser}
+                      week={week}
+                      onOpenSubmission={onOpenSubmission}
+                      onNavigate={onNavigate}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -431,7 +497,11 @@ export function Dashboard({ onOpenModal, onNavigate, onOpenSubmission }: Dashboa
           <span className="tag">Consolidated · all entities · €k</span>
         </div>
         <div className="panel">
-          <Chart labels={dayLabels.map((dl) => dl.dm)} series={outlookSeries} unit="k" />
+          <Chart
+            labels={dayLabels.map((dl) => dl.dm)}
+            series={outlookSeries}
+            unit="k"
+          />
         </div>
       </div>
     </div>
@@ -491,7 +561,9 @@ function RegionRows({
             <td>
               <StatusPill status={status} />
             </td>
-            <td className="num">€{Math.round(totalOf(e.name)).toLocaleString()}k</td>
+            <td className="num">
+              €{Math.round(totalOf(e.name)).toLocaleString()}k
+            </td>
             <td className="num">
               <Delta delta={deltaOf(e.name)} />
             </td>
@@ -502,19 +574,19 @@ function RegionRows({
               <div className="row-flex">
                 <button
                   className="btn btn-ghost"
-                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  style={{ padding: "4px 10px", fontSize: 11 }}
                   onClick={() =>
                     onOpenSubmission
                       ? onOpenSubmission({ entity: e.name, week })
-                      : onNavigate('submission')
+                      : onNavigate("submission")
                   }
                 >
                   View
                 </button>
-                {status !== 'approved' && (
+                {status !== "approved" && (
                   <button
                     className="btn btn-ghost"
-                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    style={{ padding: "4px 10px", fontSize: 11 }}
                     title="Opens a prefilled reminder email in Outlook"
                     onClick={() => sendChaser(e)}
                   >

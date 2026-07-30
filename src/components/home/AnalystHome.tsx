@@ -3,20 +3,11 @@ import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { listCycles } from '../../data/appData';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
-import {
-  currentWeekKey,
-  prevWeekKey,
-  weekLabel,
-  weekLabelShort,
-} from '../../data/periods';
-import { peekSubmission, templatesForEntity } from '../../data/submissionService';
-import {
-  listSubmissions,
-  loadCycles,
-  loadSubmission,
-  loadTemplates,
-} from '../../storage/localStorage';
-import type { Submission, User } from '../../types';
+import { currentWeekKey, prevWeekKey, weekLabel, weekLabelShort } from '../../data/periods';
+import { pendingApprovalCount } from '../../data/submissionService';
+import { analystTodo, type StepState, type TodoStep } from '../../data/todoService';
+import { loadApprovals, loadCycles } from '../../storage/localStorage';
+import type { User } from '../../types';
 import type { ViewId } from '../../types/nav';
 import type { SubmissionTarget } from '../submissions/Submission';
 
@@ -24,20 +15,6 @@ interface AnalystHomeProps {
   user: User;
   onOpenSubmission: (target: SubmissionTarget) => void;
   onNavigate: (view: ViewId) => void;
-}
-
-interface EntityWork {
-  entity: string;
-  templateId: string;
-  templateName: string;
-  submission: Submission;
-  /** Whether the user has actually saved this week's forecast yet. */
-  started: boolean;
-  /** Flagged cells still missing commentary — blocks submission. */
-  needCommentary: number;
-  flagged: number;
-  returnedForUpdate: boolean;
-  lastSubmitted: Submission | null;
 }
 
 function agoLabel(iso: string): string {
@@ -49,87 +26,85 @@ function agoLabel(iso: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+const STEP_MARK: Record<StepState, string> = {
+  done: '✓',
+  blocked: '!',
+  active: '→',
+  waiting: '·',
+};
+
+/** One numbered step of the cycle checklist. */
+function ChecklistStep({
+  index,
+  step,
+  action,
+}: {
+  index: number;
+  step: TodoStep;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className={`todo-step todo-${step.state}`}>
+      <span className="todo-mark" aria-hidden="true">
+        {STEP_MARK[step.state]}
+      </span>
+      <span className="todo-index">{index}</span>
+      <span className="todo-body">
+        <strong>{step.label}</strong>
+        <span className="todo-detail">{step.detail}</span>
+      </span>
+      {action}
+    </div>
+  );
+}
+
 /**
- * The focused landing page for submitters/approvers: "what do I need to
- * update, explain and submit" — only their assigned entities, never the
- * treasury-wide picture.
+ * The submitter / approver landing page: an ordered checklist of what this
+ * cycle needs from them — get the numbers in, clear whatever review is
+ * theirs, then hand over to treasury — rather than a wall of numbers they
+ * have to interpret before knowing what to do.
  */
 export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeProps) {
   const week = currentWeekKey();
-  const templates = useMemo(() => loadTemplates(), []);
-  const myEntities = useMemo(() => assignedEntitiesFor(user), [user]);
   const cycles = loadCycles(listCycles());
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
+  const permissions = permissionsFor(user);
+  const isApprover = permissions.canApproveForecasts;
 
-  const work: EntityWork[] = useMemo(
-    () =>
-      myEntities.flatMap((entity) => {
-        const template = templatesForEntity(templates, entity)[0];
-        if (!template) return [];
-        const submission = peekSubmission(entity, week, template);
-        const needCommentary = submission.flags.filter(
-          (k) => !submission.comments?.[k]?.trim(),
-        ).length;
-        const history = listSubmissions()
-          .filter((s) => s.entity === entity && s.status !== 'draft')
-          .sort((a, b) => b.period.localeCompare(a.period));
-        return [
-          {
-            entity,
-            templateId: template.id,
-            templateName: template.name,
-            submission,
-            started: loadSubmission(week, entity, template.id) !== null,
-            needCommentary,
-            flagged: submission.flags.length,
-            returnedForUpdate: submission.status === 'rejected',
-            lastSubmitted: history[0] ?? null,
-          },
-        ];
-      }),
-    [myEntities, templates, week],
-  );
+  const todo = useMemo(() => {
+    // An approver's queue is scoped to their own entities, same as the
+    // Approvals screen — the checklist must not count someone else's work.
+    const pending = isApprover
+      ? pendingApprovalCount(
+          week,
+          loadApprovals(activeCycle?.id ?? ''),
+          assignedEntitiesFor(user),
+        )
+      : 0;
+    return analystTodo(user, week, activeCycle, pending);
+  }, [user, week, activeCycle, isApprover]);
 
-  // Viewers have read-only access, so nothing is ever "theirs to action".
-  const canEditForecasts = permissionsFor(user).canSubmitForecasts;
-  const actionCount = canEditForecasts
-    ? work.reduce(
-        (s, w) =>
-          s +
-          w.needCommentary +
-          (w.returnedForUpdate ? 1 : 0) +
-          (w.submission.status === 'draft' ? 1 : 0),
-        0,
-      )
-    : 0;
-
-  const recentActivity = useMemo(
-    () =>
-      listSubmissions()
-        .filter((s) => myEntities.includes(s.entity))
-        .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-        .slice(0, 6),
-    [myEntities],
-  );
-
+  const work = todo.entities;
+  const canEditForecasts = permissions.canSubmitForecasts;
   const firstName = user.name.split(' ')[0];
+  const first = work[0];
 
   return (
     <div className="view active">
       <TopBar
-        crumb={`My Workspace · ${myEntities.join(' · ')}`}
+        crumb={`My Workspace · ${work.map((w) => w.entity).join(' · ')}`}
         title={`Welcome, ${firstName}`}
         actions={
-          work[0] && (
+          first && (
             <button
               className="btn btn-primary"
               onClick={() =>
-                onOpenSubmission({ entity: work[0].entity, week, templateId: work[0].templateId })
+                onOpenSubmission({ entity: first.entity, week, templateId: first.templateId })
               }
             >
               {!canEditForecasts
                 ? 'View Current Forecast'
-                : work[0].started && work[0].submission.status === 'draft'
+                : first.started && first.submission.status === 'draft'
                   ? 'Continue Forecast'
                   : 'Open Current Forecast'}
             </button>
@@ -137,179 +112,184 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         }
       />
       <div className="content">
-        <div className="kpi-grid" data-tour="analyst-kpis">
-          <div className="kpi-card">
-            <div className="kpi-label">Current Cycle</div>
-            <div className="kpi-value">{activeCycle?.id ?? '—'}</div>
-            <div className="kpi-sub text-dim">Deadline: {activeCycle?.closes ?? '—'}</div>
+        {/* Same cycle banner treasury sees, so both sides quote the same
+            deadline when they talk about "this cycle". */}
+        <div className="cycle-banner" data-tour="analyst-cycle">
+          <div>
+            <span className="nav-label" style={{ padding: 0 }}>
+              Active cycle
+            </span>
+            <div className="cycle-banner-id">{activeCycle?.id ?? '—'}</div>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Forecast Week</div>
-            <div className="kpi-value">{weekLabelShort(week)}</div>
-            <div className="kpi-sub text-dim">{weekLabel(week)}</div>
+          <div className="cycle-banner-meta">
+            <span>
+              <strong>{weekLabelShort(week)}</strong> · {weekLabel(week)}
+            </span>
+            <span className="text-muted">Closes {activeCycle?.closes ?? '—'}</span>
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">My Entities</div>
-            <div className="kpi-value">{myEntities.length}</div>
-            <div className="kpi-sub text-dim">{myEntities.join(', ')}</div>
+          <div className={`up-next up-${todo.allDone ? 'done' : 'open'}`} data-tour="up-next">
+            {todo.upNext}
           </div>
-          <div className="kpi-card">
-            <div className="kpi-label">{canEditForecasts ? 'Needs My Action' : 'Access'}</div>
-            <div className="kpi-value">{canEditForecasts ? actionCount : 'View'}</div>
-            <div className="kpi-sub text-dim">
-              {!canEditForecasts
-                ? 'read-only forecast access'
-                : actionCount === 0
-                  ? 'all caught up'
-                  : 'items to update, explain or submit'}
-            </div>
+        </div>
+
+        <div className="section-header">
+          <h2>Your Cycle Checklist</h2>
+          <span className="tag">in order · {work.length} entit{work.length === 1 ? 'y' : 'ies'}</span>
+        </div>
+        <div className="panel">
+          <div className="todo-list" data-tour="analyst-todo">
+            <ChecklistStep
+              index={1}
+              step={todo.steps[0]}
+              action={
+                first &&
+                todo.steps[0].state !== 'done' && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() =>
+                      onOpenSubmission({
+                        entity: first.entity,
+                        week,
+                        templateId: first.templateId,
+                      })
+                    }
+                  >
+                    {todo.steps[0].state === 'blocked' ? 'Open Forecast' : 'Enter Forecast'}
+                  </button>
+                )
+              }
+            />
+            <ChecklistStep
+              index={2}
+              step={todo.steps[1]}
+              action={
+                todo.steps[1].state === 'active' && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() => onNavigate(isApprover ? 'approvals' : 'review')}
+                  >
+                    {isApprover ? 'Open Approvals' : 'Open Comments'}
+                  </button>
+                )
+              }
+            />
+            <ChecklistStep
+              index={3}
+              step={todo.steps[2]}
+              action={
+                todo.steps[2].state !== 'waiting' && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() => onNavigate('review')}
+                  >
+                    View Comments
+                  </button>
+                )
+              }
+            />
           </div>
         </div>
 
         <div className="section-header">
           <h2>My Forecasts</h2>
-          <span className="tag">{weekLabelShort(week)} · {activeCycle?.id ?? '—'}</span>
+          <span className="tag">
+            {weekLabelShort(week)} · {activeCycle?.id ?? '—'}
+          </span>
         </div>
-        {work.map((w) => (
-          <div className="panel" key={w.entity}>
-            <div className="analyst-forecast-row">
-              <div className="analyst-forecast-info">
-                <strong>{w.entity}</strong>
-                <span className="text-muted" style={{ fontSize: 12 }}>
-                  {w.templateName}
-                </span>
-                <StatusPill
-                  status={w.submission.status}
-                  label={w.returnedForUpdate ? 'returned for update' : w.submission.status}
-                />
-                <span className="text-dim" style={{ fontSize: 12 }}>
-                  {w.started ? `Last saved ${agoLabel(w.submission.updatedAt)}` : 'Not started yet'}
-                </span>
-                {w.lastSubmitted && (
-                  <span className="text-muted" style={{ fontSize: 12 }}>
-                    Last submitted: {weekLabelShort(w.lastSubmitted.period)} (
-                    {w.lastSubmitted.status})
-                  </span>
-                )}
-              </div>
-              <div className="row-flex" data-tour="analyst-forecast-actions">
-                {w.needCommentary > 0 && (
-                  <span className="badge-num warn">
-                    {w.needCommentary} variance{w.needCommentary === 1 ? '' : 's'} to explain
-                  </span>
-                )}
-                <button
-                  className="btn btn-primary"
-                  style={{ padding: '6px 12px', fontSize: 12 }}
-                  onClick={() =>
-                    onOpenSubmission({ entity: w.entity, week, templateId: w.templateId })
-                  }
-                >
-                  {!canEditForecasts
-                    ? 'View Forecast'
-                    : !w.started
-                      ? 'Open Current Forecast'
-                      : w.submission.status === 'draft'
-                        ? 'Continue Forecast'
-                        : 'Open Forecast'}
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  style={{ padding: '6px 12px', fontSize: 12 }}
-                  onClick={() =>
-                    onOpenSubmission({
-                      entity: w.entity,
-                      week: prevWeekKey(week),
-                      templateId: w.templateId,
-                    })
-                  }
-                >
-                  View Previous
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  style={{ padding: '6px 12px', fontSize: 12 }}
-                  onClick={() => onNavigate('review')}
-                >
-                  View Comments
-                </button>
-              </div>
-            </div>
-            {(w.needCommentary > 0 || w.returnedForUpdate) && (
-              <div className="variance-panel" style={{ margin: '0 20px 16px', borderRadius: 4 }}>
-                <h4>Feedback from Treasury</h4>
-                <div className="row">
-                  <span>
-                    {w.returnedForUpdate
-                      ? 'This forecast was rejected — update the figures and resubmit.'
-                      : `${w.needCommentary} flagged cell${w.needCommentary === 1 ? '' : 's'} still need${w.needCommentary === 1 ? 's' : ''} commentary before Treasury can close the cycle.`}
-                  </span>
-                  <span>
-                    {w.flagged} flagged · {w.needCommentary} open
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-
-        <div className="section-header">
-          <h2>Recent Activity</h2>
-          <span className="tag">my entities only</span>
-        </div>
-        <div className="panel">
-          {recentActivity.length === 0 ? (
+        {work.length === 0 ? (
+          <div className="panel">
             <div className="empty-state">
               <div className="ic">✎</div>
-              <p>No saved forecasts yet — open your current forecast to get started.</p>
+              <p>
+                No entities are assigned to you yet. Treasury assigns responsibilities under Legal
+                Entity Setup.
+              </p>
             </div>
-          ) : (
-            <div className="panel-body no-pad">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Entity</th>
-                    <th>Forecast Week</th>
-                    <th>Status</th>
-                    <th>Updated</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentActivity.map((s) => (
-                    <tr key={`${s.period}:${s.entity}:${s.templateId}`}>
-                      <td>
-                        <strong>{s.entity}</strong>
-                      </td>
-                      <td className="text-dim">{weekLabel(s.period)}</td>
-                      <td>
-                        <StatusPill status={s.status} />
-                      </td>
-                      <td className="text-muted" style={{ fontSize: 12 }}>
-                        {agoLabel(s.updatedAt)}
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
-                          onClick={() =>
-                            onOpenSubmission({
-                              entity: s.entity,
-                              week: s.period,
-                              templateId: s.templateId,
-                            })
-                          }
-                        >
-                          Open
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          </div>
+        ) : (
+          work.map((w) => (
+            <div className="panel" key={w.entity}>
+              <div className="analyst-forecast-row">
+                <div className="analyst-forecast-info">
+                  <strong>{w.entity}</strong>
+                  <span className="text-muted" style={{ fontSize: 12 }}>
+                    {w.templateName}
+                  </span>
+                  <StatusPill
+                    status={w.submission.status}
+                    label={w.returnedForUpdate ? 'returned for update' : w.submission.status}
+                  />
+                  <span className="text-dim" style={{ fontSize: 12 }}>
+                    {w.started ? `Last saved ${agoLabel(w.submission.updatedAt)}` : 'Not started yet'}
+                  </span>
+                </div>
+                <div className="row-flex" data-tour="analyst-forecast-actions">
+                  {w.openQuestions > 0 && (
+                    <span className="badge-num warn">
+                      {w.openQuestions} question{w.openQuestions === 1 ? '' : 's'} to answer
+                    </span>
+                  )}
+                  {w.needCommentary > 0 && (
+                    <span className="badge-num">
+                      {w.needCommentary} variance{w.needCommentary === 1 ? '' : 's'} to explain
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() =>
+                      onOpenSubmission({ entity: w.entity, week, templateId: w.templateId })
+                    }
+                  >
+                    {!canEditForecasts
+                      ? 'View Forecast'
+                      : !w.started
+                        ? 'Open Current Forecast'
+                        : w.submission.status === 'draft'
+                          ? 'Continue Forecast'
+                          : 'Open Forecast'}
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() =>
+                      onOpenSubmission({
+                        entity: w.entity,
+                        week: prevWeekKey(week),
+                        templateId: w.templateId,
+                      })
+                    }
+                  >
+                    View Previous
+                  </button>
+                </div>
+              </div>
+              {(w.openQuestions > 0 || w.needCommentary > 0 || w.returnedForUpdate) && (
+                <div
+                  className={`variance-panel${w.openQuestions > 0 ? ' comment-request-panel' : ''}`}
+                  style={{ margin: '0 20px 16px', borderRadius: 4 }}
+                >
+                  <h4>Feedback from Treasury</h4>
+                  <div className="row">
+                    <span>
+                      {w.openQuestions > 0
+                        ? `Treasury asked about ${w.openQuestions} cell${w.openQuestions === 1 ? '' : 's'} — open the forecast and reply on each one.`
+                        : w.returnedForUpdate
+                          ? 'This forecast was returned — update the figures and resubmit.'
+                          : `${w.needCommentary} flagged cell${w.needCommentary === 1 ? '' : 's'} still need${w.needCommentary === 1 ? 's' : ''} commentary before Treasury can close the cycle.`}
+                    </span>
+                    <span>
+                      {w.flagged} flagged · {w.needCommentary} unexplained
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          ))
+        )}
       </div>
     </div>
   );

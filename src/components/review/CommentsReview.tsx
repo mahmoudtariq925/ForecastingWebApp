@@ -2,15 +2,21 @@ import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { useDialog } from '../common/dialogContext';
+import { Modal } from '../common/Modal';
 import {
   collectReviewGroups,
+  requestComment,
   resolveAllFlags,
-  setFlagResolved,
   type ReviewGroup,
   type ReviewItem,
 } from '../../data/submissionService';
 import { weekLabel, weekLabelShort } from '../../data/periods';
-import { loadTemplates } from '../../storage/localStorage';
+import { seedUsers } from '../../data/appData';
+import { currentUser } from '../../data/session';
+import { listEntities } from '../../data/appData';
+import { loadSettings, loadTemplates, loadUsers } from '../../storage/localStorage';
+import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { SubmissionTarget } from '../submissions/Submission';
 
 const PAGE_SIZE = 8;
@@ -35,6 +41,8 @@ interface CommentsReviewProps {
 }
 
 function ItemStatePill({ item }: { item: ReviewItem }) {
+  // An open question outranks everything else: someone is waiting on a reply.
+  if (item.request) return <StatusPill status="rejected" label="awaiting reply" />;
   if (item.resolved) return <StatusPill status="approved" label="resolved" />;
   if (!item.comment) return <StatusPill status="pending" label="needs commentary" />;
   return <StatusPill status="submitted" label="awaiting review" />;
@@ -54,7 +62,7 @@ export function CommentsReview({
   canResolve = true,
 }: CommentsReviewProps) {
   const templates = useMemo(() => loadTemplates(), []);
-  const { confirm } = useDialog();
+  const { confirm, notify } = useDialog();
   // Bumped after every write so the groups re-read from storage.
   const [version, setVersion] = useState(0);
   const groups = useMemo(() => {
@@ -147,9 +155,50 @@ export function CommentsReview({
     });
   };
 
-  const resolveItem = (g: ReviewGroup, item: ReviewItem, resolved: boolean) => {
-    setFlagResolved(g.period, g.entity, g.templateId, item.key, resolved);
+  // ---- Asking the submitter for (more) commentary ------------------------
+  const [asking, setAsking] = useState<{ group: ReviewGroup; item: ReviewItem } | null>(null);
+  const [askDraft, setAskDraft] = useState('');
+
+  const openAsk = (group: ReviewGroup, item: ReviewItem) => {
+    setAskDraft('');
+    setAsking({ group, item });
+  };
+
+  const sendAsk = async () => {
+    if (!asking) return;
+    const message = askDraft.trim();
+    if (!message) {
+      await notify({ tone: 'error', message: 'Write the question you want answered first.' });
+      return;
+    }
+    const { group, item } = asking;
+    const me = currentUser();
+    requestComment(group.period, group.entity, group.templateId, item.key, {
+      from: me.name,
+      message,
+      requestedAt: new Date().toISOString(),
+    });
+    setAsking(null);
     setVersion((v) => v + 1);
+    // The submitter is not sitting in the app waiting — tell them.
+    const settings = loadSettings(DEFAULT_SETTINGS);
+    const ent = listEntities().find((e) => e.name === group.entity);
+    openEmail({
+      to: ent ? emailForName(ent.submitter, loadUsers(seedUsers()), mailDomain(settings)) : '',
+      subject: `Question on the ${group.entity} forecast — ${item.category} · ${item.dateLabel}`,
+      body:
+        `Hi ${ent?.submitter ?? 'there'},\n\n` +
+        `I have a question about the ${group.entity} cash flow forecast for ` +
+        `${weekLabel(group.period)}.\n\n` +
+        `Line item: ${item.category}\n` +
+        `Period: ${item.dateLabel}\n` +
+        `Current value: ${fmtK(item.current)}\n` +
+        (item.prior === null ? '' : `Prior forecast: ${fmtK(item.prior)}\n`) +
+        (item.comment ? `\nYour commentary so far:\n${item.comment}\n` : '') +
+        `\nQuestion:\n${message}\n\n` +
+        `Please reply on that cell in Liquid: ${appUrl()}\n\n` +
+        `Best regards,\n${me.name}\n${me.email}`,
+    });
   };
 
   const resolveGroup = async (g: ReviewGroup) => {
@@ -433,43 +482,40 @@ export function CommentsReview({
                                 style={{ fontSize: 12, maxWidth: 300 }}
                               >
                                 {item.comment || 'No commentary provided yet.'}
+                                {item.request && (
+                                  <div className="comment-request-note" style={{ marginTop: 6 }}>
+                                    <strong>{item.request.from} asked:</strong>{' '}
+                                    {item.request.message}
+                                  </div>
+                                )}
                               </td>
                               <td>
                                 {!canResolve ? (
-                                  !item.comment && (
-                                    <button
-                                      className="btn btn-ghost"
-                                      style={{ padding: '4px 10px', fontSize: 11 }}
-                                      title="Open the forecast to add your commentary"
-                                      onClick={() =>
-                                        onOpenSubmission?.({
-                                          entity: g.entity,
-                                          week: g.period,
-                                          templateId: g.templateId,
-                                          // Land on this exact cell with its
-                                          // commentary dialog already open.
-                                          focusCell: item.key,
-                                        })
-                                      }
-                                    >
-                                      Explain
-                                    </button>
-                                  )
-                                ) : item.resolved ? (
                                   <button
                                     className="btn btn-ghost"
                                     style={{ padding: '4px 10px', fontSize: 11 }}
-                                    onClick={() => resolveItem(g, item, false)}
+                                    title="Open the forecast to add your commentary"
+                                    onClick={() =>
+                                      onOpenSubmission?.({
+                                        entity: g.entity,
+                                        week: g.period,
+                                        templateId: g.templateId,
+                                        // Land on this exact cell with its
+                                        // commentary dialog already open.
+                                        focusCell: item.key,
+                                      })
+                                    }
                                   >
-                                    Reopen
+                                    {item.request ? 'Reply' : 'Explain'}
                                   </button>
                                 ) : (
                                   <button
                                     className="btn btn-ghost"
                                     style={{ padding: '4px 10px', fontSize: 11 }}
-                                    onClick={() => resolveItem(g, item, true)}
+                                    title="Ask the submitter to explain this cell and email them"
+                                    onClick={() => openAsk(g, item)}
                                   >
-                                    Mark Resolved
+                                    {item.request ? 'Ask Again' : 'Request Further Comment'}
                                   </button>
                                 )}
                               </td>
@@ -522,6 +568,65 @@ export function CommentsReview({
           </div>
         )}
       </div>
+
+      <Modal
+        open={asking !== null}
+        title="Request further comment"
+        onClose={() => setAsking(null)}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setAsking(null)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={sendAsk}>
+              Send Request
+            </button>
+          </>
+        }
+      >
+        {asking && (
+          <>
+            <div className="variance-panel" style={{ marginBottom: 18 }}>
+              <h4>{asking.group.entity} · {weekLabelShort(asking.group.period)}</h4>
+              <div className="row">
+                <span>
+                  {asking.item.category} · {asking.item.dateLabel}
+                </span>
+                <span>
+                  {asking.item.pct === null
+                    ? 'new period'
+                    : `${asking.item.pct > 0 ? '+' : ''}${asking.item.pct.toFixed(1)}%`}
+                </span>
+              </div>
+              <div className="row">
+                <span>
+                  Prior: {asking.item.prior === null ? '—' : `€${fmtK(asking.item.prior)}k`}
+                </span>
+                <span>Current: €{fmtK(asking.item.current)}k</span>
+              </div>
+            </div>
+            {asking.item.comment && (
+              <div className="comment-request-note" style={{ marginBottom: 16 }}>
+                <strong>{asking.group.submitter} said:</strong> {asking.item.comment}
+              </div>
+            )}
+            <div className="form-group" style={{ marginBottom: 8 }}>
+              <label className="form-label">What do you want explained?</label>
+              <textarea
+                className="form-textarea"
+                placeholder="e.g. This is triple last week's payables — is a one-off settlement included?"
+                value={askDraft}
+                onChange={(e) => setAskDraft(e.target.value)}
+                aria-label="Request message"
+              />
+            </div>
+            <span className="text-muted" style={{ fontSize: 11 }}>
+              Sending marks the cell on {asking.group.submitter}’s forecast and opens an Outlook
+              draft to them.
+            </span>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

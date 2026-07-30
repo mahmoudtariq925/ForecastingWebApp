@@ -189,6 +189,20 @@ export interface ForecastTemplate {
  * Sign convention (from the standard workbook): inflows positive,
  * outflows negative.
  */
+/**
+ * A treasury request for commentary on one forecast cell.
+ *
+ * Distinct from a variance flag: a flag is derived from the numbers, whereas
+ * a request is a person asking a question — so it can land on any cell,
+ * including one the threshold never flagged.
+ */
+export interface CommentRequest {
+  /** Display name of whoever asked, for the submitter's benefit. */
+  from: string;
+  message: string;
+  requestedAt: string;
+}
+
 export interface Submission {
   /** Forecast week key: ISO date of the Monday, e.g. "2026-07-13". */
   period: string;
@@ -203,6 +217,11 @@ export interface Submission {
   resolvedFlags?: string[];
   /** Commentary per flagged cell, keyed like `values`. */
   comments: Record<string, string>;
+  /**
+   * Open treasury requests for commentary, keyed like `values`. A request can
+   * sit on any cell, flagged or not; it clears when the submitter answers it.
+   */
+  commentRequests?: Record<string, CommentRequest>;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**

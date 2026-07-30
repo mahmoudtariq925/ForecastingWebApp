@@ -31,14 +31,27 @@ export interface ForecastGridProps {
   dayLabels: DayLabel[];
   values: GridValues;
   flags: Set<string>;
+  /** Cells carrying an open treasury question, marked apart from a flag. */
+  requested?: Set<string>;
+  /**
+   * Focus mode: when set, these cells are spotlit and every other cell is
+   * dimmed. Used to point at the cells still needing input before submission.
+   */
+  highlight?: Set<string> | null;
   /** Opening balance; `null` hides the running-total column entirely. */
   startingBalance: number | null;
   dayComments?: Record<string, string>;
   editable: boolean;
-  onChangeCell?: (catIdx: number, dayIdx: number, value: number) => void;
+  /** `null` = the cell was cleared, which is different from a forecast of 0. */
+  onChangeCell?: (catIdx: number, dayIdx: number, value: number | null) => void;
   /** Paste starting at a cell; the editor maps rows/cols per layout. */
   onPaste?: (catIdx: number, dayIdx: number, e: ClipboardEvent<HTMLInputElement>) => void;
   onCellClick?: (catIdx: number, dayIdx: number) => void;
+  /**
+   * Which cells respond to a click. Submitters explain flagged cells;
+   * treasury asks about any cell, flagged or not.
+   */
+  clickableCells?: 'flagged' | 'all';
   onChangeDayComment?: (dayIdx: number, comment: string) => void;
   /** Diverging heatmap on the numeric cells (on by default). */
   heatmap?: boolean;
@@ -150,34 +163,55 @@ function EditableCell({
   scale: HeatScale;
   extraClass?: string;
 }) {
-  const { categories, values, flags, editable, onChangeCell, onPaste, onCellClick } = props;
+  const {
+    categories,
+    values,
+    flags,
+    requested,
+    highlight,
+    editable,
+    onChangeCell,
+    onPaste,
+    onCellClick,
+    clickableCells = 'flagged',
+  } = props;
   const key = cellKey(catIdx, dayIdx);
   const flagged = flags.has(key);
+  const asked = requested?.has(key) ?? false;
+  // Focus mode dims everything that isn't being pointed at.
+  const focus = highlight ? (highlight.has(key) ? ' cell-spotlit' : ' cell-dimmed') : '';
 
   // Computed subtotal rows are never editable — the app derives them.
   if (categories[catIdx]?.subtotal) {
     const sub = subtotalValue(categories, values, catIdx, dayIdx);
     return (
-      <td className={`cell subtotal-cell ${extraClass}`.trim()} style={fill(sub, scale)}>
+      <td
+        className={`cell subtotal-cell ${extraClass}${focus}`.trim()}
+        style={fill(sub, scale)}
+      >
         {fmt(sub)}
       </td>
     );
   }
 
   const val = catValue(values, catIdx, dayIdx);
-  const cls = `cell ${flagged ? 'variance-flag' : ''} ${extraClass}`.trim();
+  const clickable = onCellClick && (clickableCells === 'all' || flagged);
+  const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
+    clickable ? 'cell-askable' : ''
+  } ${extraClass}${focus}`.replace(/\s+/g, ' ').trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
+  const open = clickable ? () => onCellClick(catIdx, dayIdx) : undefined;
 
   if (!editable) {
     return (
-      <td className={cls} style={style}>
+      <td className={cls} style={style} onClick={open}>
         {fmt(val)}
       </td>
     );
   }
   return (
-    <td className={cls} style={style} onClick={() => flagged && onCellClick?.(catIdx, dayIdx)}>
+    <td className={cls} style={style} onClick={open}>
       <NumberCell
         value={val}
         catIdx={catIdx}
@@ -209,7 +243,7 @@ function NumberCell({
   value: number;
   catIdx: number;
   dayIdx: number;
-  onChange: (value: number) => void;
+  onChange: (value: number | null) => void;
   onPaste: (e: ClipboardEvent<HTMLInputElement>) => void;
 }) {
   // null = not being edited, so the cell shows the stored value.
@@ -223,6 +257,13 @@ function NumberCell({
       onChange={(e) => {
         const raw = e.target.value;
         setDraft(raw);
+        // Emptying a cell empties it. Committing 0 instead would make
+        // "no forecast yet" indistinguishable from "the forecast is zero",
+        // which is exactly the difference pre-submit validation reports on.
+        if (raw.trim() === '') {
+          onChange(null);
+          return;
+        }
         const parsed = parseCellNumber(raw);
         // Commit whatever parses; leave partial input ("-", "1.") on screen
         // as typed rather than replacing it with a half-finished number.
@@ -231,7 +272,7 @@ function NumberCell({
       }}
       onBlur={() => {
         // Settle on the stored value: "1." shows as 1, junk clears to blank.
-        if (draft !== null) onChange(parseCellNumber(draft) ?? 0);
+        if (draft !== null) onChange(draft.trim() === '' ? null : (parseCellNumber(draft) ?? 0));
         setDraft(null);
       }}
       onPaste={(e) => {
@@ -268,15 +309,29 @@ function moveWithKeyboard(e: ReactKeyboardEvent<HTMLInputElement>): void {
   const day = Number(input.dataset.day);
   if (!Number.isFinite(cat) || !Number.isFinite(day)) return;
 
+  const grid = input.closest<HTMLElement>('.forecast-grid');
+  // Arrows are SCREEN directions, so which coordinate they step depends on
+  // the layout: the grouped (dates-down-rows) grid puts days on the rows and
+  // line items across the columns, days-across is the other way round.
+  // Mapping up/down to `cat` unconditionally made the arrows move sideways
+  // in the default layout.
+  const rowsAreDays = grid?.dataset.rows === 'days';
   let nextCat = cat;
   let nextDay = day;
-  if (e.key === 'ArrowUp') nextCat -= 1;
-  else if (e.key === 'ArrowDown') nextCat += 1;
-  else if (e.key === 'ArrowLeft') nextDay -= 1;
-  else if (e.key === 'ArrowRight') nextDay += 1;
-  else if (e.key === 'Enter') nextCat += e.shiftKey ? -1 : 1;
+  const stepDown = (n: number) => {
+    if (rowsAreDays) nextDay += n;
+    else nextCat += n;
+  };
+  const stepRight = (n: number) => {
+    if (rowsAreDays) nextCat += n;
+    else nextDay += n;
+  };
+  if (e.key === 'ArrowUp') stepDown(-1);
+  else if (e.key === 'ArrowDown') stepDown(1);
+  else if (e.key === 'ArrowLeft') stepRight(-1);
+  else if (e.key === 'ArrowRight') stepRight(1);
+  else if (e.key === 'Enter') stepDown(e.shiftKey ? -1 : 1);
 
-  const grid = input.closest('.forecast-grid');
   const target = grid?.querySelector<HTMLInputElement>(
     `input[data-cat="${nextCat}"][data-day="${nextDay}"]`,
   );
@@ -322,7 +377,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   ];
 
   return (
-    <table className="forecast-grid">
+    <table className="forecast-grid" data-rows="categories">
       <thead>
         <tr>
           <th className="row-label-h">Cash Flow Category</th>
@@ -490,7 +545,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   );
 
   return (
-    <table className="forecast-grid">
+    <table className="forecast-grid" data-rows="days">
       <thead>
         <tr>
           <th className="row-label-h" rowSpan={2}>
