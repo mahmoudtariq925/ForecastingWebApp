@@ -169,6 +169,19 @@ export function periodsOf(template?: Pick<ForecastTemplate, 'periods'> | null): 
   return { count: Math.min(Math.round(p.count), 120), granularity: p.granularity ?? 'day' };
 }
 
+/**
+ * How many columns a forecast rolls forward between consecutive cycles.
+ *
+ * Cycles are weekly, so a daily template moves five columns, a weekly one
+ * moves one, and a monthly one stays put — that offset is what lines a prior
+ * forecast's column up with the same calendar period in the current one.
+ */
+export function rollShift(template?: Pick<ForecastTemplate, 'periods'> | null): number {
+  const { granularity } = periodsOf(template);
+  if (granularity === 'day') return WORKDAYS_PER_WEEK;
+  return granularity === 'week' ? 1 : 0;
+}
+
 /** Dates for a template's forecast columns, starting at `key`'s Monday. */
 export function templateDates(
   template: Pick<ForecastTemplate, 'periods'> | null | undefined,

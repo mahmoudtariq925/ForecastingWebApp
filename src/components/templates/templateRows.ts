@@ -76,6 +76,45 @@ export function categoryIndexByRow(rows: EditorRow[]): (number | null)[] {
   );
 }
 
+/**
+ * Move a row from one index to another (drag-and-drop reorder), returning a
+ * new list. Splice-based rather than swap-based so a row dragged several
+ * places lands exactly where it was dropped.
+ */
+export function reorderRows(rows: EditorRow[], from: number, to: number): EditorRow[] {
+  if (from === to || from < 0 || to < 0 || from >= rows.length || to > rows.length) return rows;
+  const next = [...rows];
+  const [moved] = next.splice(from, 1);
+  next.splice(from < to ? to - 1 : to, 0, moved);
+  return next;
+}
+
+/**
+ * The rows a section owns: everything after it up to the next section. Used
+ * to give a new section its own subtotal and to shade a section's span.
+ */
+export function sectionSpan(rows: EditorRow[], sectionIdx: number): number[] {
+  if (rows[sectionIdx]?.kind !== 'section') return [];
+  const out: number[] = [];
+  for (let i = sectionIdx + 1; i < rows.length; i++) {
+    if (rows[i].kind === 'section') break;
+    out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Index of the section each row belongs to (-1 = outside any section), so the
+ * canvas can band alternating sections in either orientation.
+ */
+export function sectionIndexByRow(rows: EditorRow[]): number[] {
+  let section = -1;
+  return rows.map((row) => {
+    if (row.kind === 'section') section += 1;
+    return section;
+  });
+}
+
 /** Human summary used in the editor header and the template list. */
 export function structureSummary(rows: EditorRow[]): string {
   const items = rows.filter((r) => r.kind === 'item' && r.label.trim()).length;

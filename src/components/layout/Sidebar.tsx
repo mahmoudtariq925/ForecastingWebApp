@@ -98,7 +98,7 @@ export function Sidebar({
 
       {/* The nav list is the only part that scrolls, so the brand above
           and the user card below stay reachable at any zoom level. */}
-      <div className="nav-scroll">
+      <nav className="nav-scroll" aria-label="Main">
         {sections.workspace.length > 0 && (
           <div className="nav-section">
             <div className="nav-label">Workspace</div>
@@ -134,7 +134,7 @@ export function Sidebar({
             ))}
           </div>
         )}
-      </div>
+      </nav>
 
       <div className="user-card-wrap" ref={switcherRef}>
         {showSwitcher && (

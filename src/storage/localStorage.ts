@@ -24,13 +24,29 @@ import { IS_LIVE } from '../data/dataSource';
 // uploaded data can never touch each other's keys.
 const PREFIX = IS_LIVE ? 'liquid-live:' : 'liquid:';
 
+/**
+ * Called when a write fails so the app can tell the user, instead of leaving
+ * them to discover on reload that their forecast was never saved. Set once at
+ * start-up; a console warning is the fallback.
+ */
+type SaveFailureHandler = (key: string, error: unknown) => void;
+let onSaveFailure: SaveFailureHandler | null = null;
+
+export function setSaveFailureHandler(handler: SaveFailureHandler | null): void {
+  onSaveFailure = handler;
+}
+
 /** Low-level: persist any JSON-serialisable value under a namespaced key. */
-export function saveData<T>(key: string, value: T): void {
+export function saveData<T>(key: string, value: T): boolean {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
+    return true;
   } catch (err) {
-    // Storage can throw in private mode or when the quota is exceeded.
+    // Storage can throw in private mode or when the quota is exceeded. This
+    // used to be swallowed, so typed-in numbers silently failed to persist.
     console.warn(`[storage] failed to save "${key}"`, err);
+    onSaveFailure?.(key, err);
+    return false;
   }
 }
 
@@ -131,6 +147,25 @@ export function listSubmissions(period?: string): Submission[] {
     }
   }
   return out;
+}
+
+/**
+ * Re-key every stored submission from one entity name to another.
+ *
+ * Submissions are keyed by entity NAME, so renaming a legal entity used to
+ * strand its whole history behind the old key. Renaming now carries the data
+ * across with it.
+ */
+export function renameEntityInSubmissions(from: string, to: string): number {
+  if (!from || !to || from === to) return 0;
+  let moved = 0;
+  for (const sub of listSubmissions()) {
+    if (sub.entity !== from) continue;
+    removeSubmission(sub.period, sub.entity, sub.templateId);
+    saveSubmission({ ...sub, entity: to });
+    moved++;
+  }
+  return moved;
 }
 
 /** Periods that have at least one stored submission for the given entity. */

@@ -15,11 +15,11 @@ later).
 | **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
 | **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart (selectable series & line styles), paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, per-period history |
 | **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
-| **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email |
-| **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector |
-| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, deep link into the submission |
+| **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
+| **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
+| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups, pagination, per-comment and per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
-| **Legal Entity Setup** | Entity-first configuration: entity master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
+| **Legal Entity Setup** | Entity-first configuration, driven by clicking a row in the entity list: the selected entity's master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template all open in a panel **above** the list, so nothing needs scrolling past |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
 | **Settings** | Forecast horizon and cycle frequency, variance threshold rules, and the SSO / allowed-domain configuration |
 
@@ -55,13 +55,24 @@ opens a spreadsheet-style builder where the grid *is* the template:
 - **Rows** are the forecast structure — each row is a *section* band, an
   input *line item*, or a computed *subtotal* (which sums the line items
   above it inside its section and is never typed into). Rows can be renamed
-  inline, retyped between the three kinds, reordered, inserted (Enter adds a
-  row below and focuses it) and deleted.
-- **Columns** are the forecast periods: add or remove individual columns, or
-  set a count and granularity (working days / weeks / months). Templates
-  without a period block — every uploaded workbook and the seeded standard
-  one — keep the classic 4-week, 20-working-day horizon, so existing
-  forecasts are unaffected.
+  inline, retyped between the three kinds and deleted. **Adding a section
+  creates its subtotal automatically**, so a section is never left without
+  one.
+- **Reordering** is drag-and-drop: grab a row or column by its `⠿` handle and
+  drop it where it belongs, instead of stepping it past its neighbours one
+  arrow-click at a time. Dragging a section moves the whole band — its line
+  items and subtotal travel with it. Every row and column also carries a `+`
+  that inserts directly *after* it, so a new line item goes where it belongs
+  rather than at the end.
+- **Sections are shaded** in alternating bands in both orientations, so where
+  one section ends and the next begins is visible at a glance.
+- **Columns** are the forecast periods. The count and granularity (working
+  days / weeks / months) are set once in **Forecast periods** at the top;
+  individual date columns are not separately clickable or removable — in the
+  dates-down-rows orientation that per-column chrome overflowed the row
+  labels and broke the layout. Templates without a period block — every
+  uploaded workbook and the seeded standard one — keep the classic 4-week,
+  20-working-day horizon, so existing forecasts are unaffected.
 - **Cells** hold optional starting values that new submissions are seeded
   with.
 - **Preview** renders the real forecast grid, read-only, exactly as
@@ -126,6 +137,11 @@ unchanged; a real one starts blank until the submitter fills it in.
 Reset, not just a keystroke; a run of typing in one cell is a single step.
 Free-text commentary boxes keep the browser's own undo.
 
+**Keyboard navigation** works like a spreadsheet: arrow keys move between
+cells, `Enter` / `Shift+Enter` move down and up, and `Tab` moves along the
+row. Arrow keys only leave a cell once the caret is at the end of the text,
+so editing a value in place still works.
+
 ### Global roles vs. entity responsibilities
 
 Two deliberately separate concepts:
@@ -162,6 +178,17 @@ The four global roles:
 Approvers, submitters and viewers never see Users, Settings or Legal Entity
 Setup, and only ever the entities assigned to them.
 
+**Approvers and submitters get Comparisons too**, scoped to their own
+entities — they need to see this week against last week for what they
+actually own, not just Treasury's group view. Every tab, the chart and the
+variance table are filtered to their assigned entities and the header says
+*Your entities* so the scope is never ambiguous. Viewers stay read-only
+without it.
+
+An approver whose entities are all settled sees **why** the queue is empty —
+each entity they cover and its current status — instead of a bare "nothing
+awaiting approval" that reads like a broken screen.
+
 ### Where the logic lives
 
 `src/data/session.ts` is the single source of role logic: `currentUser()`,
@@ -187,6 +214,24 @@ from the same stored submissions the Submission screen edits, via
 `src/data/submissionService.ts` (entities without a stored submission fall
 back to deterministic demo data). Change a cell in My Submissions and the
 consolidated totals, comparison tabs, variance tables and charts all follow.
+
+Aggregation is **template-aware in both directions**. Each entity is read on
+the template Legal Entity Setup gives it, and its line items are matched onto
+the display template **by label**, not by position — so an entity on a
+different template still reaches the Dashboard, Consolidated, Comparisons and
+its approver's queue. Every horizon-spanning total also runs over the
+template's own declared period count rather than an assumed 20 working days,
+and the prior-week comparison offset follows the template's granularity (five
+columns for a daily template, one for a weekly one, none for a monthly one).
+
+When a line item has **no counterpart** in the display template it cannot be
+summed into it, so Consolidated names it in a note above the grid — which
+items, which entities and how much is excluded — rather than quietly
+returning a total smaller than the sum of its parts.
+
+Renaming a legal entity carries its stored forecasts with it, and removing a
+user clears them from every entity's viewer/approver/submitter lists, so
+neither leaves orphaned data behind.
 
 ### Guided walkthrough (onboarding)
 
@@ -240,6 +285,18 @@ by the app itself and there is no backend involved.
 
 The app is responsive: below ~900px the sidebar becomes a drawer and wide
 tables scroll inside their panels.
+
+### Accessibility
+
+- **Dialogs** carry `role="dialog"`, `aria-modal` and a labelled title, move
+  focus into themselves when they open, keep `Tab` inside while open, close
+  on `Escape`, and hand focus back to whatever opened them.
+- **Focus is always visible** — a `:focus-visible` ring on every interactive
+  control, so the app is navigable without a mouse.
+- **Muted text meets WCAG AA** (4.7:1 against the page background; it was
+  3.0:1). The tone is unchanged, only the value.
+- The sidebar is a real `<nav>` landmark, and the entity list rows are
+  keyboard-operable (`Tab` to reach, `Enter` / `Space` to select).
 
 ### Zoom and short viewports
 

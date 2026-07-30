@@ -105,9 +105,28 @@ function liveEntities(): Entity[] {
   });
 }
 
+/**
+ * Demo entities, with their master data taken from Legal Entity Setup.
+ *
+ * The demo list is seeded from the same constants `buildLegalEntities()` is,
+ * so they can be matched by the seeded id. Reading the configured name here
+ * is what makes renaming an entity actually show up on the other screens —
+ * previously the rename lived only on the Legal Entity Setup table.
+ */
+function demoEntitiesWithConfig(): Entity[] {
+  const configured = new Map(
+    loadLegalEntities(buildLegalEntities()).map((e) => [e.id, e]),
+  );
+  return demoEntities.map((e) => {
+    const legal = configured.get(`le-${e.name.toLowerCase().replace(/\s+/g, '-')}`);
+    if (!legal) return e;
+    return { ...e, name: legal.name, region: legal.region };
+  });
+}
+
 /** The reporting entities every aggregate screen iterates. */
 export function listEntities(): Entity[] {
-  return IS_LIVE ? liveEntities() : demoEntities;
+  return IS_LIVE ? liveEntities() : demoEntitiesWithConfig();
 }
 
 // ---------------------------------------------------------------------------

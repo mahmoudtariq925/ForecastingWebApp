@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { useDialog } from '../common/dialogContext';
 import { ForecastGrid } from '../submissions/ForecastGrid';
@@ -8,7 +8,10 @@ import {
   categoriesFromRows,
   categoryIndexByRow,
   makeRow,
+  reorderRows,
   rowsFromCategories,
+  sectionIndexByRow,
+  sectionSpan,
   structureSummary,
   type EditorRow,
   type EditorRowKind,
@@ -128,24 +131,64 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   const updateRow = (id: string, patch: Partial<EditorRow>) =>
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
+  /**
+   * Insert at `index`. A new section arrives with its own subtotal already
+   * in place — a section without one has no total, which is never what you
+   * want, and adding it by hand every time is busywork.
+   */
   const insertRow = (index: number, kind: EditorRowKind) => {
     const row = makeRow(kind);
-    setRows((prev) => [...prev.slice(0, index), row, ...prev.slice(index)]);
+    const added: EditorRow[] =
+      kind === 'section' ? [row, makeRow('item'), makeRow('subtotal', 'Subtotal')] : [row];
+    setRows((prev) => [...prev.slice(0, index), ...added, ...prev.slice(index)]);
     // Focus the new row's label once it has rendered.
     requestAnimationFrame(() => labelRefs.current.get(row.id)?.focus());
   };
 
+  /** Removing a section takes its auto-added subtotal with it if it is empty. */
   const removeRow = (index: number) =>
-    setRows((prev) => prev.filter((_r, i) => i !== index));
-
-  const moveRow = (index: number, delta: number) =>
     setRows((prev) => {
-      const target = index + delta;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
+      const doomed = new Set([index]);
+      if (prev[index]?.kind === 'section') {
+        for (const i of sectionSpan(prev, index)) {
+          if (prev[i].kind === 'subtotal') doomed.add(i);
+        }
+      }
+      return prev.filter((_r, i) => !doomed.has(i));
     });
+
+  // ---- Drag to reorder ----------------------------------------------------
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
+  const onDragStart = (index: number) => (e: DragEvent<HTMLElement>) => {
+    setDragFrom(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox needs data set for a drag to start at all.
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+  const onDragOver = (index: number) => (e: DragEvent<HTMLElement>) => {
+    if (dragFrom === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOver(index);
+  };
+  const onDrop = (index: number) => (e: DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    if (dragFrom !== null) setRows((prev) => reorderRows(prev, dragFrom, index));
+    setDragFrom(null);
+    setDragOver(null);
+  };
+  const endDrag = () => {
+    setDragFrom(null);
+    setDragOver(null);
+  };
+  /** Where the drop indicator sits while dragging over `index`. */
+  const dropClass = (index: number): string => {
+    if (dragFrom === null || dragOver !== index) return '';
+    if (dragFrom === index) return ' dragging';
+    return dragFrom < index ? ' drop-after' : ' drop-before';
+  };
 
   const onLabelKeyDown = (e: KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === 'Enter') {
@@ -161,22 +204,24 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   };
 
   // ---- Column operations --------------------------------------------------
-  const addPeriod = () => setPeriodCount((n) => Math.min(n + 1, 120));
-
-  const removePeriod = (periodIdx: number) => {
-    if (periodCount <= 1) return;
-    // Drop the column's values and shift later columns down one index so the
-    // stored keys keep matching the visible grid.
+  /**
+   * The horizon is set here and nowhere else — the canvas used to carry a
+   * delete button on every period and an "+ Period" cell, which is what broke
+   * the dates-down-rows layout and put the same setting in two places.
+   * Shrinking the horizon drops the seed values that fall outside it.
+   */
+  const setPeriods = (raw: string) => {
+    const digits = Number(raw.replace(/\D/g, ''));
+    const count = Math.max(1, Math.min(Number.isFinite(digits) ? digits : 1, 120));
+    setPeriodCount(count);
     setValues((prev) => {
       const next: Record<string, number> = {};
       for (const [key, v] of Object.entries(prev)) {
-        const [c, d] = key.split('-').map(Number);
-        if (d === periodIdx) continue;
-        next[`${c}-${d > periodIdx ? d - 1 : d}`] = v;
+        const period = Number(key.split('-')[1]);
+        if (Number.isFinite(period) && period < count) next[key] = v;
       }
       return next;
     });
-    setPeriodCount((n) => n - 1);
   };
 
   const setCell = (catIdx: number, periodIdx: number, raw: string) => {
@@ -235,6 +280,47 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   };
 
   const summary = structureSummary(rows);
+  const sectionOf = useMemo(() => sectionIndexByRow(rows), [rows]);
+
+  /** Alternating tint so a section's span reads as one block in either
+   *  orientation — previously only the section's own row was shaded. */
+  const bandClass = (index: number): string => {
+    const section = sectionOf[index];
+    if (section < 0) return '';
+    return section % 2 === 0 ? ' band-a' : ' band-b';
+  };
+
+  /** Drag handle + insert-after + delete, shared by both orientations. */
+  const RowControls = ({ index, vertical }: { index: number; vertical: boolean }) => (
+    <div className={`sheet-row-actions${vertical ? '' : ' horizontal'}`}>
+      <button
+        className="drag-handle"
+        draggable
+        onDragStart={onDragStart(index)}
+        onDragEnd={endDrag}
+        title={vertical ? 'Drag to reorder row' : 'Drag to reorder column'}
+        aria-label={vertical ? `Reorder row ${index + 1}` : `Reorder column ${index + 1}`}
+      >
+        ⠿
+      </button>
+      <button
+        title={vertical ? 'Insert a row below' : 'Insert a column after'}
+        aria-label={vertical ? `Insert row after ${index + 1}` : `Insert column after ${index + 1}`}
+        onClick={() => insertRow(index + 1, rows[index].kind === 'section' ? 'item' : rows[index].kind)}
+      >
+        +
+      </button>
+      <button
+        title={vertical ? 'Delete row' : 'Delete column'}
+        aria-label={vertical ? `Delete row ${index + 1}` : `Delete column ${index + 1}`}
+        className="danger"
+        onClick={() => removeRow(index)}
+      >
+        ×
+      </button>
+    </div>
+  );
+
 
   return (
     <div className="view active">
@@ -307,10 +393,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                     style={{ width: 90, textAlign: 'right', fontFamily: 'var(--mono)' }}
                     value={periodCount}
                     aria-label="Number of periods"
-                    onChange={(e) => {
-                      const n = Number(e.target.value.replace(/\D/g, ''));
-                      setPeriodCount(Math.max(1, Math.min(Number.isFinite(n) ? n : 1, 120)));
-                    }}
+                    onChange={(e) => setPeriods(e.target.value)}
                   />
                   <select
                     className="form-select"
@@ -389,30 +472,40 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                 {transposed ? (
                   /* Dates down rows: periods are the rows, structure across the
                      columns — the same shape submitters get in this orientation. */
-                  <table className="forecast-grid sheet-grid">
+                  <table className="forecast-grid sheet-grid sheet-transposed">
                     <thead>
                       <tr>
                         <th className="row-label-h">Period</th>
                         {rows.map((row, index) => (
                           <th
                             key={row.id}
-                            className={`day-h sheet-col-item${row.kind === 'section' ? ' section' : ''}`}
+                            className={
+                              `day-h sheet-col-item${row.kind === 'section' ? ' section' : ''}` +
+                              `${row.kind === 'subtotal' ? ' subtotal' : ''}` +
+                              bandClass(index) +
+                              dropClass(index)
+                            }
+                            onDragOver={onDragOver(index)}
+                            onDrop={onDrop(index)}
                           >
                             <div className="sheet-col-item-head">
-                              <select
-                                className="sheet-kind"
-                                value={row.kind}
-                                aria-label={`Column ${index + 1} type`}
-                                onChange={(e) =>
-                                  updateRow(row.id, { kind: e.target.value as EditorRowKind })
-                                }
-                              >
-                                {(Object.keys(ROW_KIND_LABELS) as EditorRowKind[]).map((k) => (
-                                  <option key={k} value={k}>
-                                    {ROW_KIND_LABELS[k]}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="sheet-col-item-top">
+                                <select
+                                  className="sheet-kind"
+                                  value={row.kind}
+                                  aria-label={`Column ${index + 1} type`}
+                                  onChange={(e) =>
+                                    updateRow(row.id, { kind: e.target.value as EditorRowKind })
+                                  }
+                                >
+                                  {(Object.keys(ROW_KIND_LABELS) as EditorRowKind[]).map((k) => (
+                                    <option key={k} value={k}>
+                                      {ROW_KIND_LABELS[k]}
+                                    </option>
+                                  ))}
+                                </select>
+                                <RowControls index={index} vertical={false} />
+                              </div>
                               <input
                                 ref={(el) => {
                                   if (el) labelRefs.current.set(row.id, el);
@@ -430,32 +523,6 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                 onChange={(e) => updateRow(row.id, { label: e.target.value })}
                                 onKeyDown={(e) => onLabelKeyDown(e, index)}
                               />
-                              <div className="sheet-row-actions">
-                                <button
-                                  title="Move left"
-                                  aria-label="Move column left"
-                                  disabled={index === 0}
-                                  onClick={() => moveRow(index, -1)}
-                                >
-                                  ←
-                                </button>
-                                <button
-                                  title="Move right"
-                                  aria-label="Move column right"
-                                  disabled={index === rows.length - 1}
-                                  onClick={() => moveRow(index, 1)}
-                                >
-                                  →
-                                </button>
-                                <button
-                                  title="Delete column"
-                                  aria-label="Delete column"
-                                  className="danger"
-                                  onClick={() => removeRow(index)}
-                                >
-                                  ×
-                                </button>
-                              </div>
                             </div>
                           </th>
                         ))}
@@ -466,35 +533,26 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                       {Array.from({ length: periodCount }, (_v, p) => (
                         <tr key={p}>
                           <td className="row-label">
-                            <div className="sheet-period-cell">
-                              <span>
-                                P{p + 1} · {dayLabels[p]?.dm ?? ''}
-                              </span>
-                              {periodCount > 1 && (
-                                <button
-                                  className="chip-remove"
-                                  title={`Remove period ${p + 1}`}
-                                  aria-label={`Remove period ${p + 1}`}
-                                  onClick={() => removePeriod(p)}
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
+                            <span className="sheet-period-cell">
+                              P{p + 1} · {dayLabels[p]?.dm ?? ''}
+                            </span>
                           </td>
                           {rows.map((row, index) => {
                             const catIdx = catIdxByRow[index];
-                            if (row.kind === 'section') return <td key={row.id} className="cell" />;
+                            const band = bandClass(index);
+                            if (row.kind === 'section') {
+                              return <td key={row.id} className={`cell section-cell${band}`} />;
+                            }
                             if (row.kind === 'subtotal' || catIdx === null) {
                               return (
-                                <td key={row.id} className="cell subtotal-cell">
+                                <td key={row.id} className={`cell subtotal-cell${band}`}>
                                   {row.kind === 'subtotal' ? 'auto' : '—'}
                                 </td>
                               );
                             }
                             const val = values[`${catIdx}-${p}`];
                             return (
-                              <td key={row.id} className="cell">
+                              <td key={row.id} className={`cell${band}`}>
                                 <input
                                   value={val === undefined ? '' : val}
                                   placeholder="0"
@@ -509,17 +567,6 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                           )}
                         </tr>
                       ))}
-                      <tr>
-                        <td className="row-label">
-                          <button className="sheet-add-col" onClick={addPeriod} title="Add a period">
-                            + Period
-                          </button>
-                        </td>
-                        {rows.map((row) => (
-                          <td key={row.id} className="cell" />
-                        ))}
-                        {columnTotals && <td className="cell" />}
-                      </tr>
                       {columnTotals && (
                         <tr className="column-totals-row">
                           <td className="row-label total">Column Total</td>
@@ -551,25 +598,10 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                 P{i + 1}
                                 <span className="dow">{dayLabels[i]?.dm ?? ''}</span>
                               </span>
-                              {periodCount > 1 && (
-                                <button
-                                  className="chip-remove"
-                                  title={`Remove period ${i + 1}`}
-                                  aria-label={`Remove period ${i + 1}`}
-                                  onClick={() => removePeriod(i)}
-                                >
-                                  ×
-                                </button>
-                              )}
                             </div>
                           </th>
                         ))}
                         {columnTotals && <th className="day-h totals-head">Total</th>}
-                        <th className="day-h">
-                          <button className="sheet-add-col" onClick={addPeriod} title="Add a period">
-                            + Period
-                          </button>
-                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -578,34 +610,18 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                         const isSection = row.kind === 'section';
                         const isSubtotal = row.kind === 'subtotal';
                         return (
-                          <tr key={row.id} className={isSection ? 'section-row' : undefined}>
+                          <tr
+                            key={row.id}
+                            className={
+                              `${isSection ? 'section-row' : ''}${isSubtotal ? ' subtotal-row' : ''}` +
+                              bandClass(index) +
+                              dropClass(index)
+                            }
+                            onDragOver={onDragOver(index)}
+                            onDrop={onDrop(index)}
+                          >
                             <td className="sheet-gutter">
-                              <div className="sheet-row-actions">
-                                <button
-                                  title="Move up"
-                                  aria-label="Move row up"
-                                  disabled={index === 0}
-                                  onClick={() => moveRow(index, -1)}
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  title="Move down"
-                                  aria-label="Move row down"
-                                  disabled={index === rows.length - 1}
-                                  onClick={() => moveRow(index, 1)}
-                                >
-                                  ↓
-                                </button>
-                                <button
-                                  title="Delete row"
-                                  aria-label="Delete row"
-                                  className="danger"
-                                  onClick={() => removeRow(index)}
-                                >
-                                  ×
-                                </button>
-                              </div>
+                              <RowControls index={index} vertical />
                             </td>
                             <td className={`row-label ${isSubtotal ? 'subtotal' : ''}`}>
                               <div className="sheet-label-cell">
@@ -670,7 +686,6 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                   : ''}
                               </td>
                             )}
-                            <td className="cell" />
                           </tr>
                         );
                       })}
@@ -684,7 +699,6 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                             </td>
                           ))}
                           <td className="cell totals-cell" />
-                          <td className="cell" />
                         </tr>
                       )}
                     </tbody>

@@ -12,7 +12,11 @@ import {
   persistLegalEntities,
   withAssignment,
 } from '../../data/legalEntityService';
-import { loadTemplates, loadUsers } from '../../storage/localStorage';
+import {
+  loadTemplates,
+  loadUsers,
+  renameEntityInSubmissions,
+} from '../../storage/localStorage';
 import type { EntityResponsibility, LegalEntity } from '../../types';
 
 const RESPONSIBILITIES: {
@@ -78,6 +82,16 @@ export function LegalEntitySetup() {
   const selected = entityList.find((e) => e.id === selectedId) ?? entityList[0] ?? null;
 
   /** Persist one edited entity and keep local state in sync. */
+  /** Select an entity and bring the detail panel (above the list) into view. */
+  const selectEntity = (id: string) => {
+    setSelectedId(id);
+    requestAnimationFrame(() => {
+      document
+        .querySelector('.entity-detail-anchor')
+        ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  };
+
   const applyEntity = (next: LegalEntity) => {
     const list = entityList.map((e) => (e.id === next.id ? next : e));
     setEntityList(persistLegalEntities(list));
@@ -86,6 +100,29 @@ export function LegalEntitySetup() {
   const updateField = <K extends keyof LegalEntity>(key: K, value: LegalEntity[K]) => {
     if (!selected || !canManage) return;
     applyEntity({ ...selected, [key]: value });
+  };
+
+  // The name is committed on blur, not per keystroke: stored forecasts are
+  // keyed by entity name, so every intermediate spelling would otherwise
+  // re-key the whole history.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitName = async () => {
+    if (!selected || nameDraft === null) return;
+    const next = nameDraft.trim();
+    setNameDraft(null);
+    if (!next || next === selected.name) return;
+    if (entityList.some((e) => e.id !== selected.id && e.name.toLowerCase() === next.toLowerCase())) {
+      await notify({ tone: 'error', message: 'Another legal entity already has that name.' });
+      return;
+    }
+    const moved = renameEntityInSubmissions(selected.name, next);
+    applyEntity({ ...selected, name: next });
+    if (moved > 0) {
+      await notify({
+        tone: 'success',
+        message: `Renamed to “${next}”. ${moved} stored forecast${moved === 1 ? '' : 's'} moved with it.`,
+      });
+    }
   };
 
   const toggleAssignment = (
@@ -146,89 +183,6 @@ export function LegalEntitySetup() {
         }
       />
       <div className="content">
-        {/* ---------- Overview of every configured entity ---------- */}
-        <div className="panel">
-          <div className="grid-toolbar">
-            <div className="grid-toolbar-left">
-              <label className="form-label" style={{ margin: 0 }}>
-                Legal Entity
-              </label>
-              <select
-                className="form-select"
-                style={{ width: 'auto' }}
-                value={selected?.id ?? ''}
-                onChange={(e) => setSelectedId(e.target.value)}
-                aria-label="Select legal entity"
-                data-tour="entity-selector"
-              >
-                {entityList.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                    {e.status === 'inactive' ? ' (inactive)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid-info">
-              <strong>{entityList.length} legal entities</strong> ·{' '}
-              <span className="text-muted">
-                {entityList.filter((e) => e.status === 'active').length} active · entity
-                responsibilities and templates are configured here
-              </span>
-            </div>
-          </div>
-          <div className="panel-body no-pad">
-            <table>
-              <thead>
-                <tr>
-                  <th>Entity</th>
-                  <th>Country</th>
-                  <th>Region</th>
-                  <th>Currency</th>
-                  <th>Status</th>
-                  <th>Forecast Template</th>
-                  <th className="num">Viewers</th>
-                  <th className="num">Approvers</th>
-                  <th className="num">Submitters</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entityList.map((e) => (
-                  <tr
-                    key={e.id}
-                    onClick={() => setSelectedId(e.id)}
-                    className={`${e.id === selected?.id ? 'row-selected' : ''}${
-                      e.status === 'inactive' ? ' row-inactive' : ''
-                    }`}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td>
-                      <strong>{e.name}</strong>
-                    </td>
-                    <td className="text-dim">{e.country}</td>
-                    <td className="text-dim">{e.region}</td>
-                    <td className="text-dim">{e.currency}</td>
-                    <td>
-                      <span
-                        className={`status ${e.status === 'inactive' ? 'rejected' : 'approved'}`}
-                      >
-                        <span className="dot" />
-                        {e.status}
-                      </span>
-                    </td>
-                    <td className="text-dim" style={{ fontSize: 12 }}>
-                      {templates.find((t) => t.id === e.forecastTemplateId)?.name ?? '— none —'}
-                    </td>
-                    <td className="num">{e.viewers.length}</td>
-                    <td className="num">{e.approvers.length}</td>
-                    <td className="num">{e.submitters.length}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         {!selected ? (
           <div className="panel">
             <div className="empty-state">
@@ -239,9 +193,11 @@ export function LegalEntitySetup() {
         ) : (
           <>
             {/* ---------- Entity master data ---------- */}
-            <div className="section-header">
+            <div className="section-header entity-detail-anchor">
               <h2>{selected.name}</h2>
-              <span className="tag">entity details</span>
+              <span className="tag">
+                entity details · pick another from the list below
+              </span>
             </div>
             <div className="panel">
               <div className="panel-body">
@@ -250,9 +206,13 @@ export function LegalEntitySetup() {
                     <label className="form-label">Legal Entity Name</label>
                     <input
                       className="form-input"
-                      value={selected.name}
+                      value={nameDraft ?? selected.name}
                       disabled={!canManage}
-                      onChange={(e) => updateField('name', e.target.value)}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onBlur={commitName}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                      }}
                     />
                   </div>
                   <div className="form-group">
@@ -431,6 +391,97 @@ export function LegalEntitySetup() {
             )}
           </>
         )}
+
+        {/* ---------- Overview of every configured entity ---------- */}
+        <div className="panel">
+          <div className="grid-toolbar">
+            <div className="grid-toolbar-left">
+              <label className="form-label" style={{ margin: 0 }}>
+                Legal Entity
+              </label>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={selected?.id ?? ''}
+                onChange={(e) => setSelectedId(e.target.value)}
+                aria-label="Select legal entity"
+                data-tour="entity-selector"
+              >
+                {entityList.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                    {e.status === 'inactive' ? ' (inactive)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid-info">
+              <strong>{entityList.length} legal entities</strong> ·{' '}
+              <span className="text-muted">
+                {entityList.filter((e) => e.status === 'active').length} active · click a row to
+                edit it in the panel above
+              </span>
+            </div>
+          </div>
+          <div className="panel-body no-pad">
+            <table>
+              <thead>
+                <tr>
+                  <th>Entity</th>
+                  <th>Country</th>
+                  <th>Region</th>
+                  <th>Currency</th>
+                  <th>Status</th>
+                  <th>Forecast Template</th>
+                  <th className="num">Viewers</th>
+                  <th className="num">Approvers</th>
+                  <th className="num">Submitters</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entityList.map((e) => (
+                  <tr
+                    key={e.id}
+                    onClick={() => selectEntity(e.id)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === 'Enter' || ev.key === ' ') {
+                        ev.preventDefault();
+                        selectEntity(e.id);
+                      }
+                    }}
+                    tabIndex={0}
+                    aria-selected={e.id === selected?.id}
+                    className={`entity-row${e.id === selected?.id ? ' row-selected' : ''}${
+                      e.status === 'inactive' ? ' row-inactive' : ''
+                    }`}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td>
+                      <strong>{e.name}</strong>
+                    </td>
+                    <td className="text-dim">{e.country}</td>
+                    <td className="text-dim">{e.region}</td>
+                    <td className="text-dim">{e.currency}</td>
+                    <td>
+                      <span
+                        className={`status ${e.status === 'inactive' ? 'rejected' : 'approved'}`}
+                      >
+                        <span className="dot" />
+                        {e.status}
+                      </span>
+                    </td>
+                    <td className="text-dim" style={{ fontSize: 12 }}>
+                      {templates.find((t) => t.id === e.forecastTemplateId)?.name ?? '— none —'}
+                    </td>
+                    <td className="num">{e.viewers.length}</td>
+                    <td className="num">{e.approvers.length}</td>
+                    <td className="num">{e.submitters.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* ---------- Add entity ---------- */}

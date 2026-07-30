@@ -320,11 +320,20 @@ export function CommentsReview({
           pageRows.map(({ group: g, items }) => {
             const isOpen = expanded.has(g.id);
             return (
-              <div className="panel" key={g.id}>
+              // Blocked forecasts carry visual weight so the sort order
+              // (most blocked first) is actually legible.
+              <div className={`panel${g.unresolved > 0 ? ' review-blocked' : ''}`} key={g.id}>
                 <div
                   className="review-head"
                   onClick={() => toggleExpanded(g.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleExpanded(g.id);
+                    }
+                  }}
                   role="button"
+                  tabIndex={0}
                   aria-expanded={isOpen}
                 >
                   <div className="review-meta">
@@ -350,7 +359,7 @@ export function CommentsReview({
                     )}
                     {onOpenSubmission && (
                       <button
-                        className="btn btn-ghost"
+                        className="btn btn-primary"
                         style={{ padding: '4px 10px', fontSize: 11 }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -366,7 +375,8 @@ export function CommentsReview({
                     )}
                     {canResolve && g.unresolved > 0 && (
                       <button
-                        className="btn btn-success"
+                        className="btn btn-ghost"
+                        title="Mark every comment on this forecast as reviewed"
                         style={{ padding: '4px 10px', fontSize: 11 }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -436,6 +446,9 @@ export function CommentsReview({
                                           entity: g.entity,
                                           week: g.period,
                                           templateId: g.templateId,
+                                          // Land on this exact cell with its
+                                          // commentary dialog already open.
+                                          focusCell: item.key,
                                         })
                                       }
                                     >

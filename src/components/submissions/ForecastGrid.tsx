@@ -1,4 +1,9 @@
-import { useMemo, useState, type ClipboardEvent } from 'react';
+import {
+  useMemo,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import type { TemplateCategory, TemplateLayout } from '../../types';
 import type { DayLabel } from '../../data/periods';
 import {
@@ -233,8 +238,52 @@ function NumberCell({
         setDraft(null);
         onPaste(e);
       }}
+      onKeyDown={moveWithKeyboard}
     />
   );
+}
+
+/**
+ * Spreadsheet keyboard movement.
+ *
+ * The grid is a data-entry surface, so arrows, Enter and Shift+Enter move
+ * between cells the way Excel does; previously the only way across a 12x20
+ * grid was to Tab through every cell in turn. Cells are addressed by their
+ * `data-cat` / `data-day` attributes, which both orientations already carry,
+ * so one handler serves the whole grid.
+ */
+function moveWithKeyboard(e: ReactKeyboardEvent<HTMLInputElement>): void {
+  const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
+  if (!keys.includes(e.key)) return;
+  const input = e.currentTarget;
+  // Left/right inside a partly-typed value should still move the caret — but
+  // when the value is fully selected (which is how a cell arrives after a
+  // move) the user means "next cell", not "collapse the selection".
+  const { selectionStart: from, selectionEnd: to, value } = input;
+  const allSelected = from === 0 && to === value.length && value.length > 0;
+  if (e.key === 'ArrowLeft' && !allSelected && from !== 0) return;
+  if (e.key === 'ArrowRight' && !allSelected && to !== value.length) return;
+
+  const cat = Number(input.dataset.cat);
+  const day = Number(input.dataset.day);
+  if (!Number.isFinite(cat) || !Number.isFinite(day)) return;
+
+  let nextCat = cat;
+  let nextDay = day;
+  if (e.key === 'ArrowUp') nextCat -= 1;
+  else if (e.key === 'ArrowDown') nextCat += 1;
+  else if (e.key === 'ArrowLeft') nextDay -= 1;
+  else if (e.key === 'ArrowRight') nextDay += 1;
+  else if (e.key === 'Enter') nextCat += e.shiftKey ? -1 : 1;
+
+  const grid = input.closest('.forecast-grid');
+  const target = grid?.querySelector<HTMLInputElement>(
+    `input[data-cat="${nextCat}"][data-day="${nextDay}"]`,
+  );
+  if (!target) return;
+  e.preventDefault();
+  target.focus();
+  target.select();
 }
 
 // ---------------------------------------------------------------------------

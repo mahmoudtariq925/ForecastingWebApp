@@ -76,6 +76,34 @@ export function eligibleUsers(users: User[], responsibility: EntityResponsibilit
   return users.filter((u) => u.role === role && u.status !== 'inactive');
 }
 
+/**
+ * Strip a user from every entity's responsibility lists. User Management
+ * warned that a removed user was still assigned somewhere but left the email
+ * behind, so the entity kept counting a person who no longer existed — and a
+ * new account with the same address would silently inherit their access.
+ */
+export function removeUserFromEntities(email: string): LegalEntity[] {
+  const target = email.toLowerCase();
+  const all = listLegalEntities();
+  let touched = false;
+  const next = all.map((entity) => {
+    const strip = (list: string[]) => list.filter((e) => e.toLowerCase() !== target);
+    const viewers = strip(entity.viewers);
+    const approvers = strip(entity.approvers);
+    const submitters = strip(entity.submitters);
+    if (
+      viewers.length === entity.viewers.length &&
+      approvers.length === entity.approvers.length &&
+      submitters.length === entity.submitters.length
+    ) {
+      return entity;
+    }
+    touched = true;
+    return { ...entity, viewers, approvers, submitters };
+  });
+  return touched ? persistLegalEntities(next) : all;
+}
+
 /** One entity a user is responsible for, and in what capacity. */
 export interface Responsibility {
   entityId: string;

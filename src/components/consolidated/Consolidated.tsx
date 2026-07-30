@@ -13,8 +13,8 @@ import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listCycles, listEntities, seedUsers } from '../../data/appData';
 import {
   currentWeekKey,
-  dayLabelsForWeek,
-  horizonDates,
+  templateDates,
+  templateDayLabels,
   prevWeekKey,
   weekLabel,
   weekLabelShort,
@@ -39,7 +39,7 @@ export function Consolidated() {
     const templates = loadTemplates();
     return templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0] ?? null;
   }, []);
-  const dayLabels = useMemo(() => dayLabelsForWeek(week), [week]);
+  const dayLabels = useMemo(() => templateDayLabels(template, week), [template, week]);
   const numDays = dayLabels.length;
   const numCats = template?.categories.length ?? 0;
   const [cycles, setCycles] = useState(() => loadCycles(listCycles()));
@@ -135,7 +135,7 @@ export function Consolidated() {
       layout: 'days-across',
       entity: 'Consolidated (all entities)',
       weekLabel: weekLabelShort(week),
-      dates: horizonDates(week),
+      dates: templateDates(template, week),
       dayLabels,
       values: current.values,
       startingBalance: current.startingBalance,
@@ -244,6 +244,20 @@ export function Consolidated() {
               </span>
             </div>
           </div>
+          {current.omitted.length > 0 && (
+            <div className="grid-note" role="note">
+              <strong>{current.omitted.length} line item{current.omitted.length === 1 ? '' : 's'} not consolidated.</strong>{' '}
+              These entities forecast on a template whose rows have no counterpart in{' '}
+              {template.name}, so their values are excluded from the totals above:{' '}
+              {current.omitted
+                .map(
+                  (o) =>
+                    `${o.label} (${o.entities.join(', ')}, ${Math.round(o.total).toLocaleString()} €k)`,
+                )
+                .join(' · ')}
+              . Add matching rows to {template.name} to bring them in.
+            </div>
+          )}
           <div className="forecast-grid-wrap">
             <ForecastGrid
               categories={template.categories}

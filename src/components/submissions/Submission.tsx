@@ -59,6 +59,12 @@ export interface SubmissionTarget {
   entity?: string;
   week?: string;
   templateId?: string;
+  /**
+   * A flagged cell (`${catIdx}-${dayIdx}`) whose commentary dialog should open
+   * on arrival. Comments Review sends this so "Explain" lands on the exact
+   * cell instead of leaving the submitter to hunt for it in the grid.
+   */
+  focusCell?: string;
 }
 
 interface SubmissionProps {
@@ -126,6 +132,7 @@ export function Submission({ initial, allowedEntities, readOnly = false }: Submi
         entity={entity}
         week={week}
         template={template}
+        focusCell={initial?.focusCell}
         orientation={orientationOverride ?? template.layout}
         onChangeOrientation={setOrientationOverride}
         readOnly={readOnly}
@@ -216,6 +223,8 @@ interface EditorProps {
   entity: string;
   week: string;
   template: ForecastTemplate;
+  /** Flagged cell to open the commentary dialog on, if deep-linked. */
+  focusCell?: string;
   orientation: TemplateLayout;
   onChangeOrientation: (layout: TemplateLayout) => void;
   /** Viewer role: render everything, allow no changes. */
@@ -246,6 +255,7 @@ function SubmissionEditor({
   entity,
   week,
   template,
+  focusCell,
   orientation,
   onChangeOrientation,
   readOnly,
@@ -586,6 +596,25 @@ function SubmissionEditor({
       current: values[key] || 0,
     });
   };
+
+  // Deep link from Comments Review: open that cell's commentary dialog as
+  // soon as the grid is up, so "Explain" lands on the right cell.
+  const focusedOnce = useRef(false);
+  useEffect(() => {
+    if (!focusCell || focusedOnce.current) return;
+    const [c, d] = focusCell.split('-').map(Number);
+    if (!Number.isFinite(c) || !Number.isFinite(d)) return;
+    focusedOnce.current = true;
+    openVariance(c, d);
+    // Scroll the cell itself into view behind the dialog.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`)
+        ?.scrollIntoView({ block: 'center', inline: 'center' });
+    });
+    // openVariance is stable for a given render of this editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCell]);
 
   const saveComment = () => {
     if (!varianceCell) return;

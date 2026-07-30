@@ -19,10 +19,10 @@ import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
   currentWeekKey,
-  dayLabelsForWeek,
-  HORIZON_DAYS,
+  periodsOf,
   prevWeekKey,
-  WORKDAYS_PER_WEEK,
+  rollShift,
+  templateDayLabels,
 } from './periods';
 import {
   listSubmissions,
@@ -112,25 +112,87 @@ export function peekSubmission(
   return stored ? normalizeSubmission(stored) : buildSubmission(entity, week, template);
 }
 
+/** A line item an entity forecasts on that the display template has no row for. */
+export interface OmittedLine {
+  label: string;
+  entities: string[];
+  /** Total value left out of the consolidated grid, in the grid's units. */
+  total: number;
+}
+
 /** Aggregated grid across all entities for one week (standard template). */
 export interface ConsolidatedData {
   values: GridValues;
   startingBalance: number;
   entityCount: number;
+  /**
+   * Line items that could not be mapped onto the display template and are
+   * therefore absent from `values` — surfaced so the consolidated total is
+   * never quietly smaller than the sum of its parts.
+   */
+  omitted: OmittedLine[];
 }
 
-export function consolidatedValues(week: string, template: ForecastTemplate): ConsolidatedData {
+/**
+ * Aggregated grid for one week, laid out on `display`.
+ *
+ * Entities can be on different templates, so values are matched by line-item
+ * LABEL rather than by position: an entity's "Receivables" lands on the
+ * display template's "Receivables" whatever index it has in its own template.
+ * Anything with no counterpart in the display template is left out rather
+ * than silently landing on an unrelated row.
+ */
+export function consolidatedValues(
+  week: string,
+  display: ForecastTemplate,
+  /** Restrict the aggregate to these entities (role scoping); omit for all. */
+  onlyEntities?: string[],
+): ConsolidatedData {
+  const templates = loadTemplates();
+  const displayIdxByLabel = new Map<string, number>();
+  display.categories.forEach((cat, i) => {
+    if (!cat.subtotal) displayIdxByLabel.set(cat.label.trim().toLowerCase(), i);
+  });
+
   const values: GridValues = {};
   let startingBalance = 0;
-  const all = listEntities();
+  const dropped = new Map<string, OmittedLine>();
+  const all = onlyEntities
+    ? listEntities().filter((e) => onlyEntities.includes(e.name))
+    : listEntities();
   for (const e of all) {
+    const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
+    // Map this entity's category indexes onto the display template's.
+    const remap = new Map<number, number>();
+    template.categories.forEach((cat, i) => {
+      if (cat.subtotal) return;
+      const target = displayIdxByLabel.get(cat.label.trim().toLowerCase());
+      if (target !== undefined) remap.set(i, target);
+    });
     for (const [key, v] of Object.entries(sub.values)) {
-      if (v) values[key] = (values[key] || 0) + v;
+      if (!v) continue;
+      const [c, d] = key.split('-').map(Number);
+      const target = remap.get(c);
+      if (target === undefined) {
+        // Nothing on the display template matches this line, so it is left
+        // out. Record it rather than dropping it silently.
+        const cat = template.categories[c];
+        if (!cat || cat.subtotal) continue;
+        const label = cat.label.trim();
+        const entry = dropped.get(label.toLowerCase()) ?? { label, entities: [], total: 0 };
+        if (!entry.entities.includes(e.name)) entry.entities.push(e.name);
+        entry.total += v;
+        dropped.set(label.toLowerCase(), entry);
+        continue;
+      }
+      const outKey = `${target}-${d}`;
+      values[outKey] = (values[outKey] || 0) + v;
     }
     startingBalance += sub.startingBalance ?? 0;
   }
-  return { values, startingBalance, entityCount: all.length };
+  const omitted = [...dropped.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  return { values, startingBalance, entityCount: all.length, omitted };
 }
 
 /**
@@ -176,14 +238,20 @@ export function getPriorValues(
 
 /**
  * The prior-week value that corresponds to a current-horizon cell. Horizons
- * roll by one week, so current day d falls on the same calendar date as
- * prior day d + 5 working days. Returns null for the final week of the
- * horizon, which the prior submission did not cover.
+ * roll by one week, so on a daily template current day d falls on the same
+ * calendar date as prior day d + 5 working days. Returns null for the tail of
+ * the horizon, which the prior submission did not cover.
  */
 export function priorValueFor(
   prior: GridValues,
   catIdx: number,
   dayIdx: number,
+  /**
+   * The template the cell belongs to — it decides both the horizon length and
+   * how far the horizon rolls. Omitted, the classic 20-working-day horizon
+   * applies, which is what an uploaded workbook uses.
+   */
+  template?: Pick<ForecastTemplate, 'periods'> | null,
 ): number | null {
   // No prior forecast at all (a live instance's first week, or a template
   // never submitted before): there is nothing to compare against, so no
@@ -195,8 +263,8 @@ export function priorValueFor(
     break;
   }
   if (!hasPrior) return null;
-  const shifted = dayIdx + WORKDAYS_PER_WEEK;
-  if (shifted >= HORIZON_DAYS) return null;
+  const shifted = dayIdx + rollShift(template);
+  if (shifted >= periodsOf(template).count) return null;
   return prior[`${catIdx}-${shifted}`] || 0;
 }
 
@@ -235,10 +303,37 @@ export function templatesForEntity(
   return ordered.length > 0 ? ordered : templates;
 }
 
+/**
+ * The template an entity actually submits on — Legal Entity Setup decides.
+ *
+ * Every aggregate screen used to assume the standard template, so a forecast
+ * submitted on any other one was invisible: it never reached the dashboard,
+ * the consolidated position, the comparisons or the approval queue.
+ */
+export function templateForEntity(
+  templates: ForecastTemplate[],
+  entity: string,
+): ForecastTemplate | null {
+  return templatesForEntity(templates, entity)[0] ?? null;
+}
+
+/** An entity's current submission, read on its own template. */
+export function peekEntitySubmission(
+  entity: string,
+  week: string,
+  templates: ForecastTemplate[],
+): { submission: Submission; template: ForecastTemplate } | null {
+  const template = templateForEntity(templates, entity);
+  if (!template) return null;
+  return { submission: peekSubmission(entity, week, template), template };
+}
+
 /** One cell-level week-over-week variance, computed from live data. */
 export interface VarianceRow {
   entity: string;
   category: string;
+  /** Cell coordinates, so a caller can deep-link straight to it. */
+  catIdx: number;
   dayIdx: number;
   prior: number;
   current: number;
@@ -258,21 +353,31 @@ export function largestVariances(
   template: ForecastTemplate,
   settings: Settings,
   limit = 12,
+  /** Restrict the scan to these entities (role scoping); omit for all. */
+  onlyEntities?: string[],
 ): VarianceRow[] {
   const rows: VarianceRow[] = [];
-  for (const e of listEntities()) {
-    const sub = peekSubmission(e.name, week, template);
-    const prior = getPriorValues(e.name, week, template);
-    template.categories.forEach((cat, catIdx) => {
-      for (let d = 0; d < HORIZON_DAYS; d++) {
+  const templates = loadTemplates();
+  const scanned = onlyEntities
+    ? listEntities().filter((e) => onlyEntities.includes(e.name))
+    : listEntities();
+  for (const e of scanned) {
+    // Each entity is scanned on the template it actually submits on.
+    const entityTemplate = templateForEntity(templates, e.name) ?? template;
+    const sub = peekSubmission(e.name, week, entityTemplate);
+    const prior = getPriorValues(e.name, week, entityTemplate);
+    const periods = periodsOf(entityTemplate).count;
+    entityTemplate.categories.forEach((cat, catIdx) => {
+      for (let d = 0; d < periods; d++) {
         const key = `${catIdx}-${d}`;
         const current = sub.values[key] || 0;
-        const prev = priorValueFor(prior, catIdx, d);
+        const prev = priorValueFor(prior, catIdx, d, entityTemplate);
         if (prev === null) continue; // beyond the prior horizon
         if (!isVariance(current, prev, settings)) continue;
         rows.push({
           entity: e.name,
           category: cat.label,
+          catIdx,
           dayIdx: d,
           prior: prev,
           current,
@@ -359,14 +464,16 @@ export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[
       if (sub.flags.length === 0 && Object.keys(sub.dayComments).length === 0) continue;
 
       const template = templates.find((t) => t.id === sub.templateId);
-      const labels = dayLabelsForWeek(sub.period);
+      // Labels follow the submission's own template, so a 30-period forecast
+      // still names every flagged column instead of falling back to "Day n".
+      const labels = templateDayLabels(template, sub.period);
       const prior = template ? getPriorValues(sub.entity, sub.period, template) : {};
       const resolved = new Set(sub.resolvedFlags);
 
       const items: ReviewItem[] = sub.flags.map((key) => {
         const [c, d] = key.split('-').map(Number);
         const current = sub.values[key] || 0;
-        const prev = template ? priorValueFor(prior, c, d) : null;
+        const prev = template ? priorValueFor(prior, c, d, template) : null;
         return {
           key,
           catIdx: c,
