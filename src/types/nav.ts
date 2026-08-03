@@ -67,7 +67,8 @@ export function navFor(p: Permissions): NavSections {
   if (p.canApproveForecasts) workspace.push({ view: 'approvals', label: 'Approvals' });
   // Submitters and approvers need to see this week against last week for the
   // entities they own — the same question Treasury asks, scoped to them.
-  if (p.canSubmitForecasts) workspace.push({ view: 'comparison', label: 'Comparisons' });
+  if (p.canSubmitForecasts || p.canApproveForecasts)
+    workspace.push({ view: 'comparison', label: 'Comparisons' });
   workspace.push({ view: 'review', label: 'Comments / Feedback' });
   return { workspace, admin: [] };
 }

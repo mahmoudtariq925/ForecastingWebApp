@@ -12,10 +12,10 @@ later).
 | Screen | What it does |
 | --- | --- |
 | **Dashboard** (Treasury) | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
-| **My Dashboard** (submitter / approver) | The landing page for both roles: the active cycle, an **Up next** line, and an ordered three-step checklist — submit forecast → complete any review → await treasury feedback — each step green when done, grey when not yet actionable, red when something has come back |
+| **My Dashboard** (submitter / approver / viewer) | The landing page for the three analyst roles: the active cycle, an **Up next** line, and an ordered three-step checklist, worded per role — a submitter is asked to *submit*, an approver to *review & approve* what their submitters sent, a viewer just watches progress. Steps are green when done, grey when not actionable (or someone else's move), red when something has come back |
 | **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
 | **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart with **prior cycles overlaid for comparison**, paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, **pre-submit validation** of unfilled cells, per-period history |
-| **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
+| **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
 | **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
@@ -217,7 +217,11 @@ The four global roles:
   session on a fresh browser; users stored under the old `admin` role are
   migrated to Treasury on load.
 - **Approver** — reviews, approves and returns forecasts for assigned
-  entities; scoped approval queue.
+  entities; scoped approval queue. **Review is read-only**: an approver
+  opens the same grid the submitter filled in, with commentary on the
+  flagged cells, but never edits or submits a forecast — approving and
+  returning are their only actions, so judging a forecast can never
+  accidentally change it.
 - **Submitter** — edits, comments on and submits forecasts for assigned
   entities, and answers Treasury's questions on individual cells.
 - **Viewer** — read-only forecast access for assigned entities: the grid

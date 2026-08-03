@@ -38,6 +38,12 @@ interface CommentsReviewProps {
   scopeEntities?: string[];
   /** Whether the user may mark comments reviewed/resolved (admin/treasury). */
   canResolve?: boolean;
+  /**
+   * Whether the user is the one who WRITES commentary (submitters). Approvers
+   * and viewers read this screen: an Explain/Reply button would deep-link
+   * them into a read-only grid with a disabled text box.
+   */
+  canExplain?: boolean;
 }
 
 function ItemStatePill({ item }: { item: ReviewItem }) {
@@ -60,6 +66,7 @@ export function CommentsReview({
   onOpenSubmission,
   scopeEntities,
   canResolve = true,
+  canExplain = true,
 }: CommentsReviewProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const { confirm, notify } = useDialog();
@@ -491,23 +498,25 @@ export function CommentsReview({
                               </td>
                               <td>
                                 {!canResolve ? (
-                                  <button
-                                    className="btn btn-ghost"
-                                    style={{ padding: '4px 10px', fontSize: 11 }}
-                                    title="Open the forecast to add your commentary"
-                                    onClick={() =>
-                                      onOpenSubmission?.({
-                                        entity: g.entity,
-                                        week: g.period,
-                                        templateId: g.templateId,
-                                        // Land on this exact cell with its
-                                        // commentary dialog already open.
-                                        focusCell: item.key,
-                                      })
-                                    }
-                                  >
-                                    {item.request ? 'Reply' : 'Explain'}
-                                  </button>
+                                  canExplain && (
+                                    <button
+                                      className="btn btn-ghost"
+                                      style={{ padding: '4px 10px', fontSize: 11 }}
+                                      title="Open the forecast to add your commentary"
+                                      onClick={() =>
+                                        onOpenSubmission?.({
+                                          entity: g.entity,
+                                          week: g.period,
+                                          templateId: g.templateId,
+                                          // Land on this exact cell with its
+                                          // commentary dialog already open.
+                                          focusCell: item.key,
+                                        })
+                                      }
+                                    >
+                                      {item.request ? 'Reply' : 'Explain'}
+                                    </button>
+                                  )
                                 ) : (
                                   <button
                                     className="btn btn-ghost"

@@ -21,7 +21,7 @@ import {
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
-import { listEntities } from './appData';
+import { listCycles, listEntities } from './appData';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
@@ -33,8 +33,11 @@ import {
 } from './periods';
 import {
   listSubmissions,
+  loadApprovals,
+  loadCycles,
   loadSubmission,
   loadTemplates,
+  saveApprovals,
   saveSubmission,
   type ApprovalMap,
 } from '../storage/localStorage';
@@ -625,6 +628,46 @@ export function answerCommentRequest(sub: Submission, key: string): Submission['
   return rest;
 }
 
+/** The cycle decisions are recorded against: the open one, else the latest. */
+export function activeCycleId(): string {
+  const cycles = loadCycles(listCycles());
+  return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
+}
+
+/**
+ * Record an approver's decision so BOTH stores agree: the cycle's approval
+ * map (what the queue reads) and the stored submission itself (what the
+ * submitter's screen reads). Writing only the map meant a decision on a
+ * never-opened forecast was invisible to its submitter.
+ */
+export function applyApprovalDecision(
+  week: string,
+  entity: string,
+  templateId: string,
+  status: SubmissionStatus,
+): ApprovalMap {
+  const cycleId = activeCycleId();
+  const next = { ...loadApprovals(cycleId), [entity]: status };
+  saveApprovals(cycleId, next);
+  const sub = materializeSubmission(week, entity, templateId);
+  if (sub) saveSubmission({ ...sub, status, updatedAt: new Date().toISOString() });
+  return next;
+}
+
+/**
+ * Reopen an entity's decision when its forecast is (re)submitted. Without
+ * this, a rejection stuck to the entity forever: the resubmitted forecast
+ * arrived in the queue already showing "rejected", with no way to approve it.
+ */
+export function clearApprovalDecision(entity: string): void {
+  const cycleId = activeCycleId();
+  const overrides = loadApprovals(cycleId);
+  if (!(entity in overrides)) return;
+  const next = { ...overrides };
+  delete next[entity];
+  saveApprovals(cycleId, next);
+}
+
 /**
  * Entities whose forecast is in an approver's queue for a week.
  *
@@ -637,10 +680,14 @@ export function approvalQueue(week: string, onlyEntities?: string[]): Entity[] {
     if (onlyEntities && !onlyEntities.includes(e.name)) return false;
     const template = templateForEntity(templates, e.name);
     const stored = template ? loadSubmission(week, e.name, template.id) : null;
+    // Anything that ARRIVED this cycle stays listed — including forecasts
+    // already decided, shown with their decision. Restricting to
+    // status==='submitted' made a row vanish the moment it was approved or
+    // rejected, so the approver lost sight of what they had just done.
     return (
       e.status === 'submitted' ||
       e.status === 'pending' ||
-      (stored !== null && stored.status === 'submitted')
+      (stored !== null && stored.status !== 'draft')
     );
   });
 }
@@ -651,8 +698,12 @@ export function pendingApprovalCount(
   overrides: ApprovalMap,
   onlyEntities?: string[],
 ): number {
+  const templates = loadTemplates();
   return approvalQueue(week, onlyEntities).filter((e) => {
-    const status = overrides[e.name] ?? e.status;
+    // The stored submission outranks the seed status — a resubmitted
+    // forecast is pending again even if the entity was seeded as decided.
+    const templateId = templateForEntity(templates, e.name)?.id ?? '';
+    const status = mergedEntityStatus(e, week, templateId, overrides);
     return status !== 'approved' && status !== 'rejected';
   }).length;
 }

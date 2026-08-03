@@ -144,6 +144,7 @@ export default function App() {
         onOpenSubmission={openSubmission}
         scopeEntities={scopedEntities}
         canResolve={permissions.canReviewComments}
+        canExplain={permissions.canSubmitForecasts}
       />
     ),
     templates: <Templates />,

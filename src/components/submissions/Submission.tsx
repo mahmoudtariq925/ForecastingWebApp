@@ -36,6 +36,7 @@ import {
 } from '../../data/periods';
 import {
   answerCommentRequest,
+  clearApprovalDecision,
   getOrCreateSubmission,
   getPriorValues,
   isVariance,
@@ -786,6 +787,10 @@ function SubmissionEditor({
     setNeedInput(null);
     setStatus('submitted');
     persist({ status: 'submitted' });
+    // A fresh submission reopens the decision: without this, a rejection
+    // stuck in the cycle's approval map forever and the approver saw the
+    // resubmitted forecast as already "rejected" with no way to approve it.
+    clearApprovalDecision(entity);
     await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
   };
 
@@ -941,7 +946,7 @@ function SubmissionEditor({
           <>
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
             {readOnly ? (
-              <ViewOnlyBadge hint="Viewers have read-only access to forecasts" />
+              <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />
             ) : (
               <>
                 <button className="btn btn-ghost" onClick={saveDraft}>

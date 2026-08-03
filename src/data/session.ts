@@ -74,11 +74,13 @@ function permissionsForRole(role: Role): Permissions {
         canViewConsolidated: true,
         canViewForecasts: true,
       };
+    // Approvers REVIEW forecasts; they never edit or submit them. Granting
+    // canSubmitForecasts here put "Save Draft" / "Submit for Approval" on the
+    // very forecasts they were meant to be judging.
     case 'approver':
       return {
         ...NO_ACCESS,
         canApproveForecasts: true,
-        canSubmitForecasts: true,
         canViewForecasts: true,
       };
     case 'submitter':

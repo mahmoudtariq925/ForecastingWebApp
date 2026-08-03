@@ -48,16 +48,16 @@ const COMMENTS_STEP: TourStep = {
   view: 'review',
   selector: '[data-tour="nav-review"]',
   title: 'Comments and feedback',
-  body: 'Anything Treasury has queried on your forecasts collects here, so you can see what still needs an explanation from you.',
+  body: 'Every question Treasury has raised on your entities collects here, together with the answers, so the state of the conversation is never in doubt.',
   side: 'right',
 };
 
 const SUBMITTER_STEPS: TourStep[] = [
   {
     view: 'analystHome',
-    selector: '[data-tour="analyst-kpis"]',
-    title: 'Your dashboard',
-    body: 'Your current forecast cycle, the deadline, the entities you are responsible for, and how many things still need your attention.',
+    selector: '[data-tour="analyst-todo"]',
+    title: 'Your cycle checklist',
+    body: 'The three steps of every cycle, in order: submit your forecast, clear any review, then wait for Treasury. The “Up next” line above always says what to do now.',
     side: 'bottom',
   },
   {
@@ -108,9 +108,9 @@ const SUBMITTER_STEPS: TourStep[] = [
 const APPROVER_STEPS: TourStep[] = [
   {
     view: 'analystHome',
-    selector: '[data-tour="analyst-kpis"]',
-    title: 'Your dashboard',
-    body: 'The current cycle, its deadline, and the entities you’re responsible for approving.',
+    selector: '[data-tour="analyst-todo"]',
+    title: 'Your cycle checklist',
+    body: 'The cycle in three steps: your submitters get their forecasts in, you review and approve them, then Treasury closes the cycle. The “Up next” line says whose move it is.',
     side: 'bottom',
   },
   {
@@ -137,8 +137,8 @@ const APPROVER_STEPS: TourStep[] = [
   {
     view: 'submission',
     selector: '[data-tour="forecast-grid"]',
-    title: 'My Forecasts',
-    body: 'You can prepare and submit forecasts for your own entities here too — the same grid your submitters use.',
+    title: 'Read the full forecast',
+    body: 'Every forecast for your entities opens here read-only — the same grid your submitters fill in, with their commentary on the flagged cells. Reviewing never risks changing their numbers.',
     side: 'top',
   },
   COMMENTS_STEP,
@@ -147,7 +147,7 @@ const APPROVER_STEPS: TourStep[] = [
 const VIEWER_STEPS: TourStep[] = [
   {
     view: 'analystHome',
-    selector: '[data-tour="analyst-kpis"]',
+    selector: '[data-tour="analyst-todo"]',
     title: 'What you can see',
     body: 'You have read-only access to the entities assigned to you — useful for keeping an eye on the numbers without changing them.',
     side: 'bottom',
