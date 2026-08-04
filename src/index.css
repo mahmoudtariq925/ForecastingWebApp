@@ -815,9 +815,53 @@ td.num {
 .forecast-grid td.cell.comment-requested::after {
   background: var(--blue);
 }
-/* Any cell treasury can ask about reads as clickable. */
+/* A read-only cell that opens the commentary dialog reads as clickable. */
 .forecast-grid td.cell.cell-askable {
   cursor: pointer;
+}
+/* ...but an EDITABLE one keeps the text caret: clicking it edits the number.
+   The dialog gets this small button instead, so typing is never hijacked. */
+.forecast-grid td.cell.cell-askable:has(input) {
+  cursor: text;
+}
+.cell-note-btn {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  /* Out of the way until the cell is in play — the numbers are the content. */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.forecast-grid td.cell:hover .cell-note-btn,
+.forecast-grid td.cell:focus-within .cell-note-btn,
+.cell-note-btn:focus-visible {
+  opacity: 1;
+}
+.cell-note-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* A cell that already carries a flag or an open question always shows it,
+   so there is something to aim at without hunting. */
+.forecast-grid td.cell.variance-flag .cell-note-btn,
+.forecast-grid td.cell.comment-requested .cell-note-btn {
+  opacity: 0.75;
+}
+.forecast-grid td.cell.comment-requested .cell-note-btn {
+  color: var(--blue);
+  border-color: var(--blue);
 }
 
 /* Focus mode: spotlight the cells that need attention and mute the rest, so
@@ -1329,6 +1373,18 @@ td.num {
 }
 .comment-request-note strong {
   color: var(--text);
+}
+/* Someone else's text, shown for context rather than offered for editing. */
+.readback {
+  padding: 10px 12px;
+  min-height: 60px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
 }
 /* Prior-cycle overlay pickers: one row of week checkboxes, wrapping. */
 .chart-controls.compare-controls {

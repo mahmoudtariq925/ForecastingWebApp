@@ -195,23 +195,28 @@ function EditableCell({
   }
 
   const val = catValue(values, catIdx, dayIdx);
-  const clickable = onCellClick && (clickableCells === 'all' || flagged);
+  const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged);
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     clickable ? 'cell-askable' : ''
   } ${extraClass}${focus}`.replace(/\s+/g, ' ').trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
-  const open = clickable ? () => onCellClick(catIdx, dayIdx) : undefined;
+  const open = () => onCellClick?.(catIdx, dayIdx);
 
+  // A read-only grid has nothing else a click could mean, so the whole cell
+  // opens the dialog.
   if (!editable) {
     return (
-      <td className={cls} style={style} onClick={open}>
+      <td className={cls} style={style} onClick={clickable ? open : undefined}>
         {fmt(val)}
       </td>
     );
   }
+  // An EDITABLE cell must stay editable: clicking it puts the caret in the
+  // number, and the commentary/request dialog gets its own small button
+  // rather than hijacking every click on the grid.
   return (
-    <td className={cls} style={style} onClick={open}>
+    <td className={cls} style={style}>
       <NumberCell
         value={val}
         catIdx={catIdx}
@@ -219,6 +224,22 @@ function EditableCell({
         onChange={(n) => onChangeCell?.(catIdx, dayIdx, n)}
         onPaste={(e) => onPaste?.(catIdx, dayIdx, e)}
       />
+      {clickable && (
+        <button
+          type="button"
+          className="cell-note-btn"
+          tabIndex={-1}
+          title={asked ? 'Open the question on this cell' : 'Comment on this cell'}
+          aria-label={`Comment on ${categories[catIdx]?.label ?? 'this cell'}, period ${dayIdx + 1}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+        >
+          ✎
+        </button>
+      )}
     </td>
   );
 }

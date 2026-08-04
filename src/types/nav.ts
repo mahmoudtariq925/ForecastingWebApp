@@ -41,7 +41,7 @@ export function navFor(p: Permissions): NavSections {
       workspace: [
         { view: 'dashboard', label: 'Dashboard' },
         { view: 'cycles', label: 'Forecast Cycles' },
-        { view: 'submission', label: 'My Submissions' },
+        { view: 'submission', label: 'Submissions' },
         { view: 'approvals', label: 'Approvals' },
         { view: 'consolidated', label: 'Consolidated' },
         { view: 'comparison', label: 'Comparisons' },
@@ -60,9 +60,14 @@ export function navFor(p: Permissions): NavSections {
 
   // Focused analyst experience: submitters, approvers and viewers see only
   // their own work — never users, settings or legal entity configuration.
+  // Only a submitter owns the forecasts on this screen; an approver or
+  // viewer is looking at someone else's, so "My" would be a lie.
   const workspace: NavEntry[] = [
     { view: 'analystHome', label: 'My Dashboard' },
-    { view: 'submission', label: 'My Forecasts' },
+    {
+      view: 'submission',
+      label: p.canSubmitForecasts ? 'My Forecasts' : 'Submissions',
+    },
   ];
   if (p.canApproveForecasts) workspace.push({ view: 'approvals', label: 'Approvals' });
   // Submitters and approvers need to see this week against last week for the

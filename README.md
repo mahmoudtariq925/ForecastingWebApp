@@ -138,6 +138,13 @@ unchanged; a real one starts blank until the submitter fills it in.
 Reset, not just a keystroke; a run of typing in one cell is a single step.
 Free-text commentary boxes keep the browser's own undo.
 
+**Clicking a cell edits it.** On an editable grid a click puts the caret in
+the number and nothing else happens — type, press `Enter`, move on. The
+commentary/request dialog has its own small `✎` button inside the cell,
+shown on hover and kept visible on cells that already carry a flag or an open
+question. On a read-only grid there is nothing else a click could mean, so
+the whole cell opens the dialog.
+
 **Keyboard navigation** works like a spreadsheet: arrow keys move between
 cells, `Enter` / `Shift+Enter` move down and up, and `Tab` moves along the
 row. Arrow keys only leave a cell once the caret is at the end of the text,
@@ -174,11 +181,13 @@ to the same demo data every other screen uses.
 A variance flag comes from the numbers. A **comment request** comes from a
 person, so it can land on any cell:
 
-- **From the forecast** — Treasury clicks any cell, flagged or not, and
-  writes a question in its dialog. **Send Request** marks the cell, flags it
-  so it joins the review queue, and opens an Outlook draft to that entity's
-  submitter with the line item, period, current and prior values already in
-  the body.
+- **From the forecast** — Treasury *and approvers* open any cell, flagged or
+  not, and write a question in its dialog. **Send Request** marks the cell,
+  flags it so it joins the review queue, and opens an Outlook draft to that
+  entity's submitter with the line item, period, current and prior values
+  already in the body. Whoever is asking sees the submitter's commentary
+  **read-only** for context and gets one box — the question — because
+  writing the submitter's explanation for them is not the job.
 - **From Comments Review** — the per-comment action is **Request further
   comment**: it opens a message box showing the cell, its movement and
   whatever the submitter said so far, then does the same two things.
@@ -219,16 +228,19 @@ The four global roles:
 - **Approver** — reviews, approves and returns forecasts for assigned
   entities; scoped approval queue. **Review is read-only**: an approver
   opens the same grid the submitter filled in, with commentary on the
-  flagged cells, but never edits or submits a forecast — approving and
-  returning are their only actions, so judging a forecast can never
-  accidentally change it.
+  flagged cells, but never edits or submits a forecast — approving,
+  returning and **asking the submitter to explain a cell** are their only
+  actions, so judging a forecast can never accidentally change it.
 - **Submitter** — edits, comments on and submits forecasts for assigned
   entities, and answers Treasury's questions on individual cells.
 - **Viewer** — read-only forecast access for assigned entities: the grid
   renders without inputs, and Save/Submit/Reset are all absent.
 
 Approvers, submitters and viewers never see Users, Settings or Legal Entity
-Setup, and only ever the entities assigned to them.
+Setup, and only ever the entities assigned to them. The forecast screen is
+called **My Forecasts** only for the submitter who owns those forecasts;
+Treasury, approvers and viewers — who are looking at someone else's — get
+**Submissions**.
 
 **Approvers and submitters get Comparisons too**, scoped to their own
 entities — they need to see this week against last week for what they
