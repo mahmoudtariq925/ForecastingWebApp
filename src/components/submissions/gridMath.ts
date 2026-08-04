@@ -153,6 +153,39 @@ export function categoryGroups(categories: TemplateCategory[]): CategoryGroup[] 
 }
 
 /**
+ * A section's own total for one period: the sum of its INPUT line items.
+ *
+ * Computed from the items rather than read off a subtotal row, so a section
+ * collapses to a correct number whether or not the template happens to carry
+ * one — and subtotals are excluded so nothing is counted twice.
+ */
+export function groupValue(
+  categories: TemplateCategory[],
+  values: GridValues,
+  idxs: number[],
+  dayIdx: number,
+): number {
+  let sum = 0;
+  for (const i of idxs) {
+    if (categories[i]?.subtotal) continue;
+    sum += catValue(values, i, dayIdx);
+  }
+  return sum;
+}
+
+/** A section's total across the whole horizon. */
+export function groupTotal(
+  categories: TemplateCategory[],
+  values: GridValues,
+  idxs: number[],
+  numDays: number,
+): number {
+  let sum = 0;
+  for (let d = 0; d < numDays; d++) sum += groupValue(categories, values, idxs, d);
+  return sum;
+}
+
+/**
  * Value of a computed subtotal row: the sum of the input line items above it
  * that share its group (or, for ungrouped subtotals, everything above it
  * since the previous subtotal). Subtotal rows never hold stored values, so

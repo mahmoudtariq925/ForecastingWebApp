@@ -139,27 +139,6 @@ export function Sidebar({
       <div className="user-card-wrap" ref={switcherRef}>
         {showSwitcher && (
           <div className="user-switcher" role="menu" aria-label="User menu">
-            {onReplayTour && (
-              <>
-                <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
-                  Help
-                </div>
-                <button
-                  className="user-switch-item"
-                  data-tour="replay-walkthrough"
-                  onClick={() => {
-                    setSwitcherOpen(false);
-                    onReplayTour();
-                  }}
-                >
-                  <span className="tour-replay-icon" aria-hidden="true">
-                    ?
-                  </span>
-                  <span className="user-switch-name">Replay walkthrough</span>
-                </button>
-                <div className="user-switcher-divider" />
-              </>
-            )}
             {newJoiners.length > 0 && (
               <>
                 <div className="nav-label" style={{ padding: '4px 8px 8px' }}>
@@ -207,6 +186,24 @@ export function Sidebar({
               </button>
             ))}
           </div>
+        )}
+        {/* Replaying the tour is help, not an identity action — it was buried
+            in the switcher menu, two clicks from anyone who needed it. */}
+        {onReplayTour && (
+          <button
+            className="tour-replay-btn"
+            data-tour="replay-walkthrough"
+            title="Replay the guided walkthrough for your role"
+            onClick={() => {
+              setSwitcherOpen(false);
+              onReplayTour();
+            }}
+          >
+            <span className="tour-replay-icon" aria-hidden="true">
+              ?
+            </span>
+            <span className="nav-item-label">Replay walkthrough</span>
+          </button>
         )}
         <button
           className="user-card"

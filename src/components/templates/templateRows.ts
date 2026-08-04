@@ -104,6 +104,58 @@ export function sectionSpan(rows: EditorRow[], sectionIdx: number): number[] {
 }
 
 /**
+ * Guarantee every section ends with exactly one subtotal.
+ *
+ * A section without a total is never what anyone wants, and making the user
+ * remember to add one — after every insert, reorder and delete, in both
+ * orientations — is busywork the editor can just do. Sections that already
+ * end in a subtotal are left alone, so a renamed one ("Operating Net") keeps
+ * its name; a stray second subtotal inside a section is dropped.
+ */
+export function withSectionSubtotals(rows: EditorRow[]): EditorRow[] {
+  const out: EditorRow[] = [];
+  /** Rows of the section being assembled, subtotals held back. */
+  let body: EditorRow[] = [];
+  let subtotal: EditorRow | null = null;
+  let inSection = false;
+
+  const flush = () => {
+    if (!inSection) return;
+    out.push(...body);
+    // A section with no line items has nothing to total yet.
+    if (body.some((r) => r.kind === 'item')) {
+      out.push(subtotal ?? makeRow('subtotal', 'Subtotal'));
+    }
+    body = [];
+    subtotal = null;
+    inSection = false;
+  };
+
+  for (const row of rows) {
+    if (row.kind === 'section') {
+      flush();
+      out.push(row);
+      inSection = true;
+      continue;
+    }
+    if (!inSection) {
+      out.push(row);
+      continue;
+    }
+    // Hold the section's subtotal back so it lands last however the rows were
+    // reordered — and keep the FIRST one, so a renamed total ("Operating
+    // Net") is moved rather than replaced by a generic one.
+    if (row.kind === 'subtotal') {
+      if (!subtotal) subtotal = row;
+      continue;
+    }
+    body.push(row);
+  }
+  flush();
+  return out;
+}
+
+/**
  * Index of the section each row belongs to (-1 = outside any section), so the
  * canvas can band alternating sections in either orientation.
  */

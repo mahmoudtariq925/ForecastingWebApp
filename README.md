@@ -56,15 +56,23 @@ opens a spreadsheet-style builder where the grid *is* the template:
 - **Rows** are the forecast structure — each row is a *section* band, an
   input *line item*, or a computed *subtotal* (which sums the line items
   above it inside its section and is never typed into). Rows can be renamed
-  inline, retyped between the three kinds and deleted. **Adding a section
-  creates its subtotal automatically**, so a section is never left without
-  one.
-- **Reordering** is drag-and-drop: grab a row or column by its `⠿` handle and
-  drop it where it belongs, instead of stepping it past its neighbours one
-  arrow-click at a time. Dragging a section moves the whole band — its line
-  items and subtotal travel with it. Every row and column also carries a `+`
-  that inserts directly *after* it, so a new line item goes where it belongs
-  rather than at the end.
+  inline, retyped between the three kinds and deleted.
+- **Every section totals itself.** A subtotal is added automatically at the
+  end of each section and kept there through every insert, reorder and
+  delete, in both orientations — there is no "+ Subtotal" button because
+  there is nothing to remember. A renamed total ("Operating Net") is moved
+  rather than replaced.
+- **Reordering** is drag-and-drop from *anywhere* on a row or column — press
+  and move, no handle to hit. A press only becomes a drag once the pointer
+  actually travels, so clicking into a label or a value still just puts the
+  caret there. Dragging a section moves the whole band — its line items and
+  subtotal travel with it. Whatever is under the pointer is highlighted, so a
+  drag is aimed rather than guessed. Every row and column also carries a `+`
+  that inserts directly *after* it.
+
+  (Implementation note: this is pointer-driven, not HTML5 drag-and-drop.
+  Chromium refuses to start a native drag from a table row or cell however
+  `draggable` is set, which is why the handle did nothing.)
 - **Sections are shaded** in alternating bands in both orientations, so where
   one section ends and the next begins is visible at a glance.
 - **Columns** are the forecast periods. The count and granularity (working
@@ -137,6 +145,23 @@ unchanged; a real one starts blank until the submitter fills it in.
 `Ctrl+Y`), plus toolbar buttons. One step undoes a whole pasted block or a
 Reset, not just a keystroke; a run of typing in one cell is a single step.
 Free-text commentary boxes keep the browser's own undo.
+
+### Reading a forecast: collapsible sections
+
+Sections in the forecast grid are **banded apart** so one reads as a
+different block from the next, and each one **collapses to a single total** —
+its line items hidden, the section's own sum shown in their place. It works
+in both orientations: collapsing folds rows in dates-across, and columns in
+dates-down-rows.
+
+Who gets what by default follows what they came to do: **Treasury, approvers
+and viewers open a forecast collapsed**, because the shape is the point and
+every line item is noise; **the submitter entering the numbers opens
+expanded**. Either can toggle any section.
+
+The collapsed number is computed from the section's line items rather than
+read off a subtotal row, so it is correct whether or not the template happens
+to carry one, and subtotals are excluded so nothing is counted twice.
 
 **Clicking a cell edits it.** On an editable grid a click puts the caret in
 the number and nothing else happens — type, press `Enter`, move on. The

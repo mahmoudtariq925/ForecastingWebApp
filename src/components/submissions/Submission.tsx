@@ -7,6 +7,7 @@ import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import {
+  categoryGroups,
   cellKey,
   dayInflows,
   dayNet,
@@ -349,6 +350,27 @@ function SubmissionEditor({
   const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
   // Text held while the starting balance is being typed (see NumberCell).
   const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
+
+  // Sections start collapsed for anyone who came to READ the forecast —
+  // treasury, approvers, viewers — because the shape is the point and every
+  // line item is noise. Whoever is entering the numbers needs them open.
+  const sections = useMemo(
+    () =>
+      categoryGroups(template.categories)
+        .map((g, gi) => (g.label ? gi : -1))
+        .filter((gi) => gi >= 0),
+    [template],
+  );
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() =>
+    readOnly || canRequestComments ? new Set(sections) : new Set(),
+  );
+  const toggleGroup = (gi: number) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(gi)) next.delete(gi);
+      else next.add(gi);
+      return next;
+    });
 
   // ---- Undo / redo -------------------------------------------------------
   // A spreadsheet is expected to undo. The browser's native input undo only
@@ -1143,6 +1165,8 @@ function SubmissionEditor({
               flags={flags}
               requested={requestedCells}
               highlight={needInput}
+              collapsedGroups={collapsedGroups}
+              onToggleGroup={toggleGroup}
               startingBalance={startingBalance}
               dayComments={dayComments}
               editable={!readOnly}
