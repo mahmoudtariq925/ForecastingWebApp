@@ -5,7 +5,9 @@ import { seedFor } from '../../data/mockData';
 import { listCycles, listEntities } from '../../data/appData';
 import { currentWeekKey } from '../../data/periods';
 import {
+  applyApprovalDecision,
   approvalQueue,
+  mergedEntityStatus,
   peekSubmission,
   templateForEntity,
 } from '../../data/submissionService';
@@ -14,8 +16,6 @@ import {
   loadCycles,
   loadSubmission,
   loadTemplates,
-  saveApprovals,
-  saveSubmission,
   type ApprovalMap,
 } from '../../storage/localStorage';
 import type { SubmissionStatus } from '../../types';
@@ -65,13 +65,15 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
   const queue = approvalQueue(week, scopeEntities);
 
   const decide = (entity: string, status: SubmissionStatus) => {
-    const next = { ...overrides, [entity]: status };
-    setOverrides(next);
-    saveApprovals(activeCycleId, next);
-    // Reflect the decision on the stored submission, if there is one.
-    const stored = storedFor(entity);
-    if (stored) saveSubmission({ ...stored, status, updatedAt: new Date().toISOString() });
+    // The service writes both stores — the cycle's approval map and the
+    // stored submission (materializing it if need be) — so the submitter
+    // always sees the decision, not just the queue.
+    setOverrides(applyApprovalDecision(week, entity, entityTemplate(entity)?.id ?? '', status));
   };
+
+  /** Effective status: decision, else the stored submission, else the seed. */
+  const statusOf = (e: (typeof entities)[number]) =>
+    mergedEntityStatus(e, week, entityTemplate(e.name)?.id ?? '', overrides);
 
   const rowData = (name: string) => {
     const stored = storedFor(name);
@@ -111,9 +113,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                   <p className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
                     {covered.length === 1 ? 'Your entity is' : `All ${covered.length} of your entities are`}{' '}
                     already decided —{' '}
-                    {covered
-                      .map((e) => `${e.name} (${overrides[e.name] ?? e.status})`)
-                      .join(', ')}
+                    {covered.map((e) => `${e.name} (${statusOf(e)})`).join(', ')}
                     . New forecasts appear here as soon as they are submitted.
                   </p>
                 ) : (
@@ -140,7 +140,7 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                 <tbody>
                   {queue.map((e) => {
                     const { flags, hours } = rowData(e.name);
-                    const status = overrides[e.name] ?? e.status;
+                    const status = statusOf(e);
                     const deltaClass = e.delta > 0 ? 'up' : 'down';
                     const deltaSign = e.delta > 0 ? '↑' : '↓';
                     const decided = status === 'approved' || status === 'rejected';

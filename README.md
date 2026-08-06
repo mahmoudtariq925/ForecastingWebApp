@@ -12,10 +12,10 @@ later).
 | Screen | What it does |
 | --- | --- |
 | **Dashboard** (Treasury) | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
-| **My Dashboard** (submitter / approver) | The landing page for both roles: the active cycle, an **Up next** line, and an ordered three-step checklist — submit forecast → complete any review → await treasury feedback — each step green when done, grey when not yet actionable, red when something has come back |
+| **My Dashboard** (submitter / approver / viewer) | The landing page for the three analyst roles: the active cycle, an **Up next** line, and an ordered three-step checklist, worded per role — a submitter is asked to *submit*, an approver to *review & approve* what their submitters sent, a viewer just watches progress. Steps are green when done, grey when not actionable (or someone else's move), red when something has come back |
 | **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
 | **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart with **prior cycles overlaid for comparison**, paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, **pre-submit validation** of unfilled cells, per-period history |
-| **Approvals** | Approve/reject queue persisted against the active cycle and onto the stored submission, with live flag counts and a deep link into the forecast |
+| **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
 | **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
@@ -56,15 +56,23 @@ opens a spreadsheet-style builder where the grid *is* the template:
 - **Rows** are the forecast structure — each row is a *section* band, an
   input *line item*, or a computed *subtotal* (which sums the line items
   above it inside its section and is never typed into). Rows can be renamed
-  inline, retyped between the three kinds and deleted. **Adding a section
-  creates its subtotal automatically**, so a section is never left without
-  one.
-- **Reordering** is drag-and-drop: grab a row or column by its `⠿` handle and
-  drop it where it belongs, instead of stepping it past its neighbours one
-  arrow-click at a time. Dragging a section moves the whole band — its line
-  items and subtotal travel with it. Every row and column also carries a `+`
-  that inserts directly *after* it, so a new line item goes where it belongs
-  rather than at the end.
+  inline, retyped between the three kinds and deleted.
+- **Every section totals itself.** A subtotal is added automatically at the
+  end of each section and kept there through every insert, reorder and
+  delete, in both orientations — there is no "+ Subtotal" button because
+  there is nothing to remember. A renamed total ("Operating Net") is moved
+  rather than replaced.
+- **Reordering** is drag-and-drop from *anywhere* on a row or column — press
+  and move, no handle to hit. A press only becomes a drag once the pointer
+  actually travels, so clicking into a label or a value still just puts the
+  caret there. Dragging a section moves the whole band — its line items and
+  subtotal travel with it. Whatever is under the pointer is highlighted, so a
+  drag is aimed rather than guessed. Every row and column also carries a `+`
+  that inserts directly *after* it.
+
+  (Implementation note: this is pointer-driven, not HTML5 drag-and-drop.
+  Chromium refuses to start a native drag from a table row or cell however
+  `draggable` is set, which is why the handle did nothing.)
 - **Sections are shaded** in alternating bands in both orientations, so where
   one section ends and the next begins is visible at a glance.
 - **Columns** are the forecast periods. The count and granularity (working
@@ -138,6 +146,30 @@ unchanged; a real one starts blank until the submitter fills it in.
 Reset, not just a keystroke; a run of typing in one cell is a single step.
 Free-text commentary boxes keep the browser's own undo.
 
+### Reading a forecast: collapsible sections
+
+Sections in the forecast grid are **banded apart** so one reads as a
+different block from the next, and each one **collapses to a single total** —
+its line items hidden, the section's own sum shown in their place. It works
+in both orientations: collapsing folds rows in dates-across, and columns in
+dates-down-rows.
+
+Who gets what by default follows what they came to do: **Treasury, approvers
+and viewers open a forecast collapsed**, because the shape is the point and
+every line item is noise; **the submitter entering the numbers opens
+expanded**. Either can toggle any section.
+
+The collapsed number is computed from the section's line items rather than
+read off a subtotal row, so it is correct whether or not the template happens
+to carry one, and subtotals are excluded so nothing is counted twice.
+
+**Clicking a cell edits it.** On an editable grid a click puts the caret in
+the number and nothing else happens — type, press `Enter`, move on. The
+commentary/request dialog has its own small `✎` button inside the cell,
+shown on hover and kept visible on cells that already carry a flag or an open
+question. On a read-only grid there is nothing else a click could mean, so
+the whole cell opens the dialog.
+
 **Keyboard navigation** works like a spreadsheet: arrow keys move between
 cells, `Enter` / `Shift+Enter` move down and up, and `Tab` moves along the
 row. Arrow keys only leave a cell once the caret is at the end of the text,
@@ -174,11 +206,13 @@ to the same demo data every other screen uses.
 A variance flag comes from the numbers. A **comment request** comes from a
 person, so it can land on any cell:
 
-- **From the forecast** — Treasury clicks any cell, flagged or not, and
-  writes a question in its dialog. **Send Request** marks the cell, flags it
-  so it joins the review queue, and opens an Outlook draft to that entity's
-  submitter with the line item, period, current and prior values already in
-  the body.
+- **From the forecast** — Treasury *and approvers* open any cell, flagged or
+  not, and write a question in its dialog. **Send Request** marks the cell,
+  flags it so it joins the review queue, and opens an Outlook draft to that
+  entity's submitter with the line item, period, current and prior values
+  already in the body. Whoever is asking sees the submitter's commentary
+  **read-only** for context and gets one box — the question — because
+  writing the submitter's explanation for them is not the job.
 - **From Comments Review** — the per-comment action is **Request further
   comment**: it opens a message box showing the cell, its movement and
   whatever the submitter said so far, then does the same two things.
@@ -217,14 +251,21 @@ The four global roles:
   session on a fresh browser; users stored under the old `admin` role are
   migrated to Treasury on load.
 - **Approver** — reviews, approves and returns forecasts for assigned
-  entities; scoped approval queue.
+  entities; scoped approval queue. **Review is read-only**: an approver
+  opens the same grid the submitter filled in, with commentary on the
+  flagged cells, but never edits or submits a forecast — approving,
+  returning and **asking the submitter to explain a cell** are their only
+  actions, so judging a forecast can never accidentally change it.
 - **Submitter** — edits, comments on and submits forecasts for assigned
   entities, and answers Treasury's questions on individual cells.
 - **Viewer** — read-only forecast access for assigned entities: the grid
   renders without inputs, and Save/Submit/Reset are all absent.
 
 Approvers, submitters and viewers never see Users, Settings or Legal Entity
-Setup, and only ever the entities assigned to them.
+Setup, and only ever the entities assigned to them. The forecast screen is
+called **My Forecasts** only for the submitter who owns those forecasts;
+Treasury, approvers and viewers — who are looking at someone else's — get
+**Submissions**.
 
 **Approvers and submitters get Comparisons too**, scoped to their own
 entities — they need to see this week against last week for what they

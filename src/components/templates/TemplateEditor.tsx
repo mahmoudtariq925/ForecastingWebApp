@@ -1,4 +1,10 @@
-import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { TopBar } from '../layout/TopBar';
 import { useDialog } from '../common/dialogContext';
 import { ForecastGrid } from '../submissions/ForecastGrid';
@@ -13,6 +19,7 @@ import {
   sectionIndexByRow,
   sectionSpan,
   structureSummary,
+  withSectionSubtotals,
   type EditorRow,
   type EditorRowKind,
 } from './templateRows';
@@ -68,9 +75,16 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   const [name, setName] = useState(template?.name ?? 'New Forecast Template');
   const [description, setDescription] = useState(template?.description ?? '');
   const [layout, setLayout] = useState<TemplateLayout>(template?.layout ?? 'days-across');
-  const [rows, setRows] = useState<EditorRow[]>(() =>
-    template ? rowsFromCategories(template.categories) : starterRows(),
+  // Every write goes through withSectionSubtotals, so a section can never end
+  // up without its total — however it was inserted, reordered or deleted, and
+  // whichever orientation the edit came from.
+  const [rows, setRowsRaw] = useState<EditorRow[]>(() =>
+    withSectionSubtotals(template ? rowsFromCategories(template.categories) : starterRows()),
   );
+  const setRows: typeof setRowsRaw = (update) =>
+    setRowsRaw((prev) =>
+      withSectionSubtotals(typeof update === 'function' ? update(prev) : update),
+    );
   const initialPeriods = periodsOf(template);
   const [periodCount, setPeriodCount] = useState(initialPeriods.count);
   const [granularity, setGranularity] = useState<PeriodGranularity>(initialPeriods.granularity);
@@ -132,14 +146,13 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   /**
-   * Insert at `index`. A new section arrives with its own subtotal already
-   * in place — a section without one has no total, which is never what you
-   * want, and adding it by hand every time is busywork.
+   * Insert at `index`. A new section arrives with a line item; its subtotal is
+   * added by `withSectionSubtotals` on the way into state, like every other
+   * section's.
    */
   const insertRow = (index: number, kind: EditorRowKind) => {
     const row = makeRow(kind);
-    const added: EditorRow[] =
-      kind === 'section' ? [row, makeRow('item'), makeRow('subtotal', 'Subtotal')] : [row];
+    const added: EditorRow[] = kind === 'section' ? [row, makeRow('item')] : [row];
     setRows((prev) => [...prev.slice(0, index), ...added, ...prev.slice(index)]);
     // Focus the new row's label once it has rendered.
     requestAnimationFrame(() => labelRefs.current.get(row.id)?.focus());
@@ -158,37 +171,91 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
     });
 
   // ---- Drag to reorder ----------------------------------------------------
+  // Pointer events, not HTML5 drag-and-drop. `draggable` refuses to start a
+  // drag from a table row or cell in Chromium, and React's delegated
+  // listeners set the attribute too late to help — so dragging did nothing.
+  // Tracking the pointer ourselves works anywhere on the row, in both
+  // orientations, and needs no `draggable` at all.
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  /** Row/column the pointer is over, for the hover highlight. */
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  const onDragStart = (index: number) => (e: DragEvent<HTMLElement>) => {
-    setDragFrom(index);
-    e.dataTransfer.effectAllowed = 'move';
-    // Firefox needs data set for a drag to start at all.
-    e.dataTransfer.setData('text/plain', String(index));
+  /** Which row/column index sits under a screen point, or null. */
+  const indexAtPoint = (x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-row-index]');
+    if (!el) return null;
+    const n = Number(el.dataset.rowIndex);
+    return Number.isFinite(n) ? n : null;
   };
-  const onDragOver = (index: number) => (e: DragEvent<HTMLElement>) => {
+
+  /**
+   * A press becomes a drag only once the pointer has actually MOVED. That is
+   * what lets the whole row be grabbable while its inputs stay editable: a
+   * click lands in the text box as usual, a press-and-move picks the row up.
+   */
+  const pending = useRef<{ index: number; x: number; y: number } | null>(null);
+  const DRAG_THRESHOLD = 5;
+
+  const onGrabPointerDown = (index: number) => (e: ReactPointerEvent<HTMLElement>) => {
+    // The type picker and the +/× buttons are controls, never drag handles.
+    if ((e.target as HTMLElement).closest('select, button')) return;
+    pending.current = { index, x: e.clientX, y: e.clientY };
+  };
+  const onGrabPointerMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const start = pending.current;
+    if (start && dragFrom === null) {
+      if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) < DRAG_THRESHOLD) return;
+      // Committed to a drag: take focus out of whatever text box it began in.
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDragFrom(start.index);
+      setDragOver(start.index);
+      return;
+    }
     if (dragFrom === null) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOver(index);
+    const over = indexAtPoint(e.clientX, e.clientY);
+    if (over !== null) setDragOver(over);
   };
-  const onDrop = (index: number) => (e: DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    if (dragFrom !== null) setRows((prev) => reorderRows(prev, dragFrom, index));
+  const onGrabPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
+    pending.current = null;
+    if (dragFrom === null) return;
+    const to = indexAtPoint(e.clientX, e.clientY);
+    if (to !== null && to !== dragFrom) {
+      // reorderRows splices, so moving DOWN targets the slot after it.
+      setRows((prev) => reorderRows(prev, dragFrom, dragFrom < to ? to + 1 : to));
+    }
     setDragFrom(null);
     setDragOver(null);
   };
-  const endDrag = () => {
-    setDragFrom(null);
-    setDragOver(null);
-  };
+
+  /** Hover tracking, safe on any element. */
+  const dropProps = (index: number) => ({
+    'data-row-index': index,
+    onMouseEnter: () => setHoverIndex(index),
+    onMouseLeave: () => setHoverIndex((h) => (h === index ? null : h)),
+  });
+
+  /** A zone you can press and drag to move its row/column. */
+  const grabProps = (index: number) => ({
+    onPointerDown: onGrabPointerDown(index),
+    onPointerMove: onGrabPointerMove,
+    onPointerUp: onGrabPointerUp,
+    onPointerCancel: onGrabPointerUp,
+  });
+
+  /** A column header is both: it carries the drag and is a drop target. */
+  const dragProps = (index: number) => ({ ...dropProps(index), ...grabProps(index) });
+
   /** Where the drop indicator sits while dragging over `index`. */
   const dropClass = (index: number): string => {
     if (dragFrom === null || dragOver !== index) return '';
     if (dragFrom === index) return ' dragging';
     return dragFrom < index ? ' drop-after' : ' drop-before';
   };
+  /** Hover highlight, suppressed while a drag shows its own indicator. */
+  const hoverClass = (index: number): string =>
+    hoverIndex === index && dragFrom === null ? ' sheet-hover' : '';
 
   const onLabelKeyDown = (e: KeyboardEvent<HTMLInputElement>, index: number) => {
     if (e.key === 'Enter') {
@@ -293,16 +360,18 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   /** Drag handle + insert-after + delete, shared by both orientations. */
   const RowControls = ({ index, vertical }: { index: number; vertical: boolean }) => (
     <div className={`sheet-row-actions${vertical ? '' : ' horizontal'}`}>
-      <button
+      <span
         className="drag-handle"
-        draggable
-        onDragStart={onDragStart(index)}
-        onDragEnd={endDrag}
-        title={vertical ? 'Drag to reorder row' : 'Drag to reorder column'}
+        role="img"
+        title={
+          vertical
+            ? 'Drag anywhere on this row to reorder it'
+            : 'Drag anywhere on this column to reorder it'
+        }
         aria-label={vertical ? `Reorder row ${index + 1}` : `Reorder column ${index + 1}`}
       >
         ⠿
-      </button>
+      </span>
       <button
         title={vertical ? 'Insert a row below' : 'Insert a column after'}
         aria-label={vertical ? `Insert row after ${index + 1}` : `Insert column after ${index + 1}`}
@@ -483,10 +552,10 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                               `day-h sheet-col-item${row.kind === 'section' ? ' section' : ''}` +
                               `${row.kind === 'subtotal' ? ' subtotal' : ''}` +
                               bandClass(index) +
+                              hoverClass(index) +
                               dropClass(index)
                             }
-                            onDragOver={onDragOver(index)}
-                            onDrop={onDrop(index)}
+                            {...dragProps(index)}
                           >
                             <div className="sheet-col-item-head">
                               <div className="sheet-col-item-top">
@@ -615,10 +684,11 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                             className={
                               `${isSection ? 'section-row' : ''}${isSubtotal ? ' subtotal-row' : ''}` +
                               bandClass(index) +
+                              hoverClass(index) +
                               dropClass(index)
                             }
-                            onDragOver={onDragOver(index)}
-                            onDrop={onDrop(index)}
+                            {...dropProps(index)}
+                            {...grabProps(index)}
                           >
                             <td className="sheet-gutter">
                               <RowControls index={index} vertical />
@@ -718,12 +788,6 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                     onClick={() => insertRow(rows.length, 'section')}
                   >
                     + Section
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => insertRow(rows.length, 'subtotal')}
-                  >
-                    + Subtotal
                   </button>
                 </div>
                 <div className="grid-info">

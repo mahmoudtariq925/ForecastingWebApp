@@ -142,6 +142,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
               index={1}
               step={todo.steps[0]}
               action={
+                canEditForecasts &&
                 first &&
                 todo.steps[0].state !== 'done' && (
                   <button
@@ -164,6 +165,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
               index={2}
               step={todo.steps[1]}
               action={
+                (isApprover || canEditForecasts) &&
                 todo.steps[1].state === 'active' && (
                   <button
                     className="btn btn-primary"
@@ -227,12 +229,12 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   </span>
                 </div>
                 <div className="row-flex" data-tour="analyst-forecast-actions">
-                  {w.openQuestions > 0 && (
+                  {canEditForecasts && w.openQuestions > 0 && (
                     <span className="badge-num warn">
                       {w.openQuestions} question{w.openQuestions === 1 ? '' : 's'} to answer
                     </span>
                   )}
-                  {w.needCommentary > 0 && (
+                  {canEditForecasts && w.needCommentary > 0 && (
                     <span className="badge-num">
                       {w.needCommentary} variance{w.needCommentary === 1 ? '' : 's'} to explain
                     </span>
@@ -267,7 +269,8 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   </button>
                 </div>
               </div>
-              {(w.openQuestions > 0 || w.needCommentary > 0 || w.returnedForUpdate) && (
+              {canEditForecasts &&
+                (w.openQuestions > 0 || w.needCommentary > 0 || w.returnedForUpdate) && (
                 <div
                   className={`variance-panel${w.openQuestions > 0 ? ' comment-request-panel' : ''}`}
                   style={{ margin: '0 20px 16px', borderRadius: 4 }}

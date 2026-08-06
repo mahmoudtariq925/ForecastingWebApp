@@ -14,6 +14,8 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
+  groupTotal,
+  groupValue,
   isPartialNumber,
   parseCellNumber,
   runningBalance,
@@ -57,6 +59,13 @@ export interface ForecastGridProps {
   heatmap?: boolean;
   /** Extra pinned row/column summing every line item per period. */
   showColumnTotals?: boolean;
+  /**
+   * Section indices currently collapsed to a single total. Reviewers open a
+   * forecast to read its shape, not its twelve line items, so they start
+   * collapsed; the submitter entering numbers starts expanded.
+   */
+  collapsedGroups?: Set<number>;
+  onToggleGroup?: (groupIndex: number) => void;
 }
 
 /**
@@ -195,23 +204,28 @@ function EditableCell({
   }
 
   const val = catValue(values, catIdx, dayIdx);
-  const clickable = onCellClick && (clickableCells === 'all' || flagged);
+  const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged);
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     clickable ? 'cell-askable' : ''
   } ${extraClass}${focus}`.replace(/\s+/g, ' ').trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
-  const open = clickable ? () => onCellClick(catIdx, dayIdx) : undefined;
+  const open = () => onCellClick?.(catIdx, dayIdx);
 
+  // A read-only grid has nothing else a click could mean, so the whole cell
+  // opens the dialog.
   if (!editable) {
     return (
-      <td className={cls} style={style} onClick={open}>
+      <td className={cls} style={style} onClick={clickable ? open : undefined}>
         {fmt(val)}
       </td>
     );
   }
+  // An EDITABLE cell must stay editable: clicking it puts the caret in the
+  // number, and the commentary/request dialog gets its own small button
+  // rather than hijacking every click on the grid.
   return (
-    <td className={cls} style={style} onClick={open}>
+    <td className={cls} style={style}>
       <NumberCell
         value={val}
         catIdx={catIdx}
@@ -219,6 +233,22 @@ function EditableCell({
         onChange={(n) => onChangeCell?.(catIdx, dayIdx, n)}
         onPaste={(e) => onPaste?.(catIdx, dayIdx, e)}
       />
+      {clickable && (
+        <button
+          type="button"
+          className="cell-note-btn"
+          tabIndex={-1}
+          title={asked ? 'Open the question on this cell' : 'Comment on this cell'}
+          aria-label={`Comment on ${categories[catIdx]?.label ?? 'this cell'}, period ${dayIdx + 1}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+        >
+          ✎
+        </button>
+      )}
     </td>
   );
 }
@@ -399,6 +429,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
           <GroupRows
             key={gi}
             group={g}
+            groupIndex={gi}
             props={props}
             scale={scales.values}
             totalScale={scales.totals}
@@ -466,53 +497,103 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
 
 function GroupRows({
   group,
+  groupIndex,
   props,
   scale,
   totalScale,
 }: {
   group: ReturnType<typeof categoryGroups>[number];
+  groupIndex: number;
   props: ForecastGridProps;
   scale: HeatScale;
   totalScale: HeatScale;
 }) {
-  const { categories, dayLabels, values } = props;
+  const { categories, dayLabels, values, collapsedGroups, onToggleGroup } = props;
   const numDays = dayLabels.length;
+  // Only a named section can collapse — loose line items have nothing to
+  // collapse into.
+  const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
+  const collapsed = collapsible && (collapsedGroups?.has(groupIndex) ?? false);
+  // Alternating tint so one section is visibly a different block from the
+  // next, rather than twelve identical rows running together.
+  const band = groupIndex % 2 === 0 ? ' band-a' : ' band-b';
+
   return (
     <>
       {group.label && (
-        <tr className="section-row">
-          <td className="row-label">{group.label}</td>
-          {Array.from({ length: numDays + 1 }).map((_, i) => (
-            <td key={i} />
-          ))}
-        </tr>
-      )}
-      {group.idxs.map((catIdx) => {
-        const isSubtotal = categories[catIdx].subtotal === true;
-        return (
-          <tr key={catIdx}>
-            <td className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}`}>
-              {categories[catIdx].label}
-            </td>
-            {dayLabels.map((_dl, d) => (
-              <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} scale={scale} />
-            ))}
-            {(() => {
-              const rowTotal = isSubtotal
-                ? subtotalTotal(categories, values, catIdx, numDays)
-                : catTotal(values, catIdx, numDays);
+        <tr className={`section-row${band}${collapsed ? ' section-collapsed' : ''}`}>
+          <td className="row-label">
+            {collapsible ? (
+              <button
+                className="section-toggle"
+                aria-expanded={!collapsed}
+                title={collapsed ? 'Show the line items' : 'Collapse to the section total'}
+                onClick={() => onToggleGroup?.(groupIndex)}
+              >
+                <span className="section-caret" aria-hidden="true">
+                  {collapsed ? '▸' : '▾'}
+                </span>
+                {group.label}
+              </button>
+            ) : (
+              group.label
+            )}
+          </td>
+          {/* Collapsed, the band itself carries the section's numbers. */}
+          {collapsed
+            ? dayLabels.map((_dl, d) => {
+                const v = groupValue(categories, values, group.idxs, d);
+                return (
+                  <td key={d} className="cell subtotal-cell" style={fill(v, scale)}>
+                    {fmt(v)}
+                  </td>
+                );
+              })
+            : Array.from({ length: numDays }).map((_, i) => <td key={i} />)}
+          {collapsed ? (
+            (() => {
+              const t = groupTotal(categories, values, group.idxs, numDays);
               return (
                 <td
                   className="cell row-total-cell"
-                  style={{ fontWeight: 600, ...(fill(rowTotal, totalScale) ?? {}) }}
+                  style={{ fontWeight: 600, ...(fill(t, totalScale) ?? {}) }}
                 >
-                  {rowTotal.toLocaleString()}
+                  {t.toLocaleString()}
                 </td>
               );
-            })()}
-          </tr>
-        );
-      })}
+            })()
+          ) : (
+            <td />
+          )}
+        </tr>
+      )}
+      {!collapsed &&
+        group.idxs.map((catIdx) => {
+          const isSubtotal = categories[catIdx].subtotal === true;
+          return (
+            <tr key={catIdx} className={band + (isSubtotal ? ' subtotal-row' : '')}>
+              <td className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}`}>
+                {categories[catIdx].label}
+              </td>
+              {dayLabels.map((_dl, d) => (
+                <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} scale={scale} />
+              ))}
+              {(() => {
+                const rowTotal = isSubtotal
+                  ? subtotalTotal(categories, values, catIdx, numDays)
+                  : catTotal(values, catIdx, numDays);
+                return (
+                  <td
+                    className="cell row-total-cell"
+                    style={{ fontWeight: 600, ...(fill(rowTotal, totalScale) ?? {}) }}
+                  >
+                    {rowTotal.toLocaleString()}
+                  </td>
+                );
+              })()}
+            </tr>
+          );
+        })}
     </>
   );
 }
@@ -530,6 +611,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     editable,
     onChangeDayComment,
     showColumnTotals,
+    collapsedGroups,
+    onToggleGroup,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -538,11 +621,25 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   // A running balance only means something once an opening balance is given,
   // so the whole column appears and disappears with it.
   const hasBalance = startingBalance !== null;
-  // Only the final column of each band gets a vertical rule.
-  const groupEnds = useMemo(
-    () => new Set(groups.map((g) => g.idxs[g.idxs.length - 1])),
-    [groups],
-  );
+  // With sections across the columns, collapsing one replaces its columns with
+  // a single total column — so the body renders this list, not `categories`.
+  const isCollapsed = (gi: number) =>
+    Boolean(groups[gi].label) && Boolean(onToggleGroup) && (collapsedGroups?.has(gi) ?? false);
+  const columns = useMemo(() => {
+    const out: { gi: number; catIdx: number | null; band: string; end: boolean }[] = [];
+    groups.forEach((g, gi) => {
+      const band = gi % 2 === 0 ? ' band-a' : ' band-b';
+      if (isCollapsed(gi)) {
+        out.push({ gi, catIdx: null, band, end: true });
+        return;
+      }
+      g.idxs.forEach((catIdx, i) =>
+        out.push({ gi, catIdx, band, end: i === g.idxs.length - 1 }),
+      );
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, collapsedGroups, onToggleGroup]);
 
   return (
     <table className="forecast-grid" data-rows="days">
@@ -553,8 +650,28 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           </th>
           {groups.map((g, gi) =>
             g.label ? (
-              <th key={gi} colSpan={g.idxs.length} className="day-h">
-                {g.label}
+              <th
+                key={gi}
+                colSpan={isCollapsed(gi) ? 1 : g.idxs.length}
+                className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}`}
+              >
+                {onToggleGroup ? (
+                  <button
+                    className="section-toggle"
+                    aria-expanded={!isCollapsed(gi)}
+                    title={
+                      isCollapsed(gi) ? 'Show the line items' : 'Collapse to the section total'
+                    }
+                    onClick={() => onToggleGroup(gi)}
+                  >
+                    <span className="section-caret" aria-hidden="true">
+                      {isCollapsed(gi) ? '▸' : '▾'}
+                    </span>
+                    {g.label}
+                  </button>
+                ) : (
+                  g.label
+                )}
               </th>
             ) : (
               g.idxs.map((i) => <th key={`u${i}`} rowSpan={1} className="day-h" />)
@@ -573,9 +690,12 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           )}
         </tr>
         <tr>
-          {categories.map((cat, i) => (
-            <th key={i} className={`day-h${groupEnds.has(i) ? ' group-end' : ''}`}>
-              {cat.label}
+          {columns.map((col) => (
+            <th
+              key={col.catIdx ?? `g${col.gi}`}
+              className={`day-h${col.end ? ' group-end' : ''}${col.band}`}
+            >
+              {col.catIdx === null ? 'Section total' : categories[col.catIdx].label}
             </th>
           ))}
         </tr>
@@ -584,7 +704,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         {hasBalance && (
           <tr className="section-row">
             <td className="row-label">Starting Balance</td>
-            {Array.from({ length: numCats + 1 }).map((_, i) => (
+            {/* One filler per visible column, plus the Comments column —
+                collapsing a section changes how many that is. */}
+            {Array.from({ length: columns.length + 1 }).map((_, i) => (
               <td key={i} />
             ))}
             <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
@@ -596,16 +718,31 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             <td className="row-label">
               {dl.dow} · {dl.dm}
             </td>
-            {categories.map((_cat, catIdx) => (
-              <EditableCell
-                key={catIdx}
-                catIdx={catIdx}
-                dayIdx={dayIdx}
-                props={props}
-                scale={scales.values}
-                extraClass={groupEnds.has(catIdx) ? 'group-end' : ''}
-              />
-            ))}
+            {columns.map((col) =>
+              col.catIdx === null ? (
+                (() => {
+                  const v = groupValue(categories, values, groups[col.gi].idxs, dayIdx);
+                  return (
+                    <td
+                      key={`g${col.gi}`}
+                      className={`cell subtotal-cell group-end${col.band}`}
+                      style={fill(v, scales.values)}
+                    >
+                      {fmt(v)}
+                    </td>
+                  );
+                })()
+              ) : (
+                <EditableCell
+                  key={col.catIdx}
+                  catIdx={col.catIdx}
+                  dayIdx={dayIdx}
+                  props={props}
+                  scale={scales.values}
+                  extraClass={`${col.end ? 'group-end' : ''}${col.band}`}
+                />
+              ),
+            )}
             <td className="cell comment-cell">
               {editable ? (
                 <input
@@ -642,12 +779,14 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         {showColumnTotals && (
           <tr className="column-totals-row">
             <td className="row-label total">Column Total</td>
-            {categories.map((cat, catIdx) => (
-              <td key={catIdx} className="cell total-cell">
+            {columns.map((col) => (
+              <td key={col.catIdx ?? `g${col.gi}`} className="cell total-cell">
                 {fmt(
-                  cat.subtotal
-                    ? subtotalTotal(categories, values, catIdx, numDays)
-                    : catTotal(values, catIdx, numDays),
+                  col.catIdx === null
+                    ? groupTotal(categories, values, groups[col.gi].idxs, numDays)
+                    : categories[col.catIdx].subtotal
+                      ? subtotalTotal(categories, values, col.catIdx, numDays)
+                      : catTotal(values, col.catIdx, numDays),
                 )}
               </td>
             ))}

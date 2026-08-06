@@ -29,6 +29,12 @@ export interface Permissions {
   canSubmitForecasts: boolean;
   canViewAllEntities: boolean;
   canReviewComments: boolean;
+  /**
+   * Ask a submitter to explain a cell. Distinct from `canReviewComments`
+   * (which is the triage screen): an approver judging a forecast needs to
+   * ask about a number without also owning the group-wide review queue.
+   */
+  canRequestCommentary: boolean;
   canViewConsolidated: boolean;
   /** Read forecasts for the entities they are assigned to. */
   canViewForecasts: boolean;
@@ -46,6 +52,7 @@ const NO_ACCESS: Permissions = {
   canSubmitForecasts: false,
   canViewAllEntities: false,
   canReviewComments: false,
+  canRequestCommentary: false,
   canViewConsolidated: false,
   canViewForecasts: false,
 };
@@ -71,14 +78,18 @@ function permissionsForRole(role: Role): Permissions {
         canSubmitForecasts: true,
         canViewAllEntities: true,
         canReviewComments: true,
+        canRequestCommentary: true,
         canViewConsolidated: true,
         canViewForecasts: true,
       };
+    // Approvers REVIEW forecasts; they never edit or submit them. Granting
+    // canSubmitForecasts here put "Save Draft" / "Submit for Approval" on the
+    // very forecasts they were meant to be judging.
     case 'approver':
       return {
         ...NO_ACCESS,
         canApproveForecasts: true,
-        canSubmitForecasts: true,
+        canRequestCommentary: true,
         canViewForecasts: true,
       };
     case 'submitter':

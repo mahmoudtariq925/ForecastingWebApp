@@ -133,7 +133,7 @@ export default function App() {
         initial={submissionTarget ?? undefined}
         allowedEntities={scopedEntities}
         readOnly={!permissions.canSubmitForecasts}
-        canRequestComments={permissions.canReviewComments}
+        canRequestComments={permissions.canRequestCommentary}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
@@ -144,6 +144,7 @@ export default function App() {
         onOpenSubmission={openSubmission}
         scopeEntities={scopedEntities}
         canResolve={permissions.canReviewComments}
+        canExplain={permissions.canSubmitForecasts}
       />
     ),
     templates: <Templates />,
