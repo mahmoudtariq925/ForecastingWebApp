@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,6 +25,7 @@ import {
   type GridValues,
 } from './gridMath';
 import { heatColor, NEUTRAL_SCALE, useHeatScale, type HeatScale } from './heatmap';
+import { useCrosshair } from './useCrosshair';
 
 const fmt = (v: number) => (v === 0 ? '—' : v.toLocaleString());
 
@@ -389,6 +391,9 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  // Row + column highlight under the pointer, so a wide grid stays readable.
+  const gridRef = useRef<HTMLTableElement>(null);
+  useCrosshair(gridRef);
 
   const computedRows: { label: string; day: (d: number) => number; kind: string }[] = [
     { label: 'Total Inflows', day: (d) => dayInflows(numCats, values, d), kind: 'subtotal' },
@@ -407,7 +412,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   ];
 
   return (
-    <table className="forecast-grid" data-rows="categories">
+    <table className="forecast-grid" data-rows="categories" ref={gridRef}>
       <thead>
         <tr>
           <th className="row-label-h">Cash Flow Category</th>
@@ -618,6 +623,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  // Row + column highlight under the pointer, so a wide grid stays readable.
+  const gridRef = useRef<HTMLTableElement>(null);
+  useCrosshair(gridRef);
   // A running balance only means something once an opening balance is given,
   // so the whole column appears and disappears with it.
   const hasBalance = startingBalance !== null;
@@ -642,7 +650,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   }, [groups, collapsedGroups, onToggleGroup]);
 
   return (
-    <table className="forecast-grid" data-rows="days">
+    <table className="forecast-grid" data-rows="days" ref={gridRef}>
       <thead>
         <tr>
           <th className="row-label-h" rowSpan={2}>

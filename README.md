@@ -163,6 +163,22 @@ The collapsed number is computed from the section's line items rather than
 read off a subtotal row, so it is correct whether or not the template happens
 to carry one, and subtotals are excluded so nothing is counted twice.
 
+**The pointer draws a crosshair.** Hovering a cell rules and washes its whole
+row and its whole column, lights both labels, and rings the cell itself, so
+"which line item, which day" is answered by looking rather than by tracing
+across with a finger. A focused input keeps its own ring on top — the
+crosshair says where you are pointing, the ring says where you are typing.
+
+CSS can hover a row but has no selector for a column, so the column half is
+done in `useCrosshair`. It matches columns by **geometry, not `cellIndex`**:
+the grouped header spans both ways (`colSpan` per section, `rowSpan` for the
+label and total columns), so the same DOM index is a different visual column
+in the header than in the body — index-matching silently highlights the wrong
+one. Overlap against a cell's horizontal extent is exact for a table, and it
+lights a section header above whichever of its items you are on. The hook
+stays imperative on purpose: holding the hovered column in React state would
+re-render the whole grid on every pixel of pointer movement.
+
 **Clicking a cell edits it.** On an editable grid a click puts the caret in
 the number and nothing else happens — type, press `Enter`, move on. The
 commentary/request dialog has its own small `✎` button inside the cell,

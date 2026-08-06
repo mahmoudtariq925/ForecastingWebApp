@@ -20,6 +20,10 @@
   --text-muted: #6b7080;
   --accent: #8a6d3b;
   --accent-soft: rgba(138, 109, 59, 0.1);
+  /* Crosshair rules: the accent at the weight of a pencil guide line. */
+  --crosshair: rgba(138, 109, 59, 0.45);
+  /* Low enough to sit over the heat-map tints without muddying them. */
+  --crosshair-wash: rgba(138, 109, 59, 0.05);
   --green: #2f8a5c;
   --green-soft: rgba(47, 138, 92, 0.1);
   --red: #b8484a;
@@ -965,15 +969,77 @@ td.num {
 
 /* Row hover: an inset ring rather than a background, so it still reads on
    heat-mapped cells whose background is set inline. */
+/* ------------------------------------------------------------------
+   Crosshair. A wide grid is hard to read across — by the twelfth column
+   you have lost the line item, by the twentieth row the date. The row
+   and column under the pointer are ruled, and their labels lit, so
+   "where am I" is answered by looking.
+   ------------------------------------------------------------------ */
+.forecast-grid td,
+.forecast-grid th {
+  transition:
+    background-color 0.1s ease,
+    box-shadow 0.1s ease,
+    color 0.1s ease;
+}
 .forecast-grid tbody tr:hover td {
-  box-shadow: inset 0 1px 0 rgba(138, 109, 59, 0.25), inset 0 -1px 0 rgba(138, 109, 59, 0.25);
+  box-shadow:
+    inset 0 1px 0 var(--crosshair),
+    inset 0 -1px 0 var(--crosshair);
 }
 .forecast-grid tbody tr:hover td.row-label {
+  color: var(--accent);
   box-shadow:
-    inset 0 1px 0 rgba(138, 109, 59, 0.25),
-    inset 0 -1px 0 rgba(138, 109, 59, 0.25),
+    inset 0 1px 0 var(--crosshair),
+    inset 0 -1px 0 var(--crosshair),
     1px 0 0 var(--border),
     4px 0 8px -6px rgba(20, 22, 28, 0.3);
+}
+/* The column half — no CSS selector can reach it, so useCrosshair marks it. */
+.forecast-grid td.col-hover,
+.forecast-grid th.col-hover {
+  box-shadow:
+    inset 1px 0 0 var(--crosshair),
+    inset -1px 0 0 var(--crosshair);
+}
+/* Ruled edges alone are easy to lose on a dense grid, so both bands also get
+   a wash. Two pseudo-elements rather than one shared rule: the column paints
+   ::before and the row ::after, so only the cell you are actually on takes
+   both and the crossing point reads darker than either band. Data cells need
+   a containing block for that; the sticky ones (header, row label, pinned
+   totals) already establish their own and must keep it. */
+.forecast-grid tbody tr:not(.column-totals-row) td.cell {
+  position: relative;
+}
+.forecast-grid td.col-hover::before,
+.forecast-grid th.col-hover::before,
+.forecast-grid tbody tr:hover td::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--crosshair-wash);
+  pointer-events: none;
+}
+.forecast-grid thead th.col-hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+/* Row and column rules meet on the hovered row's cells in that column. */
+.forecast-grid tbody tr:hover td.col-hover {
+  box-shadow:
+    inset 1px 0 0 var(--crosshair),
+    inset -1px 0 0 var(--crosshair),
+    inset 0 1px 0 var(--crosshair),
+    inset 0 -1px 0 var(--crosshair);
+}
+/* ...and the cell you are actually on gets the full ring. */
+.forecast-grid td.cell-hover,
+.forecast-grid th.cell-hover {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* A focused input outranks the crosshair: it says where you are TYPING. */
+.forecast-grid td.cell:has(input:focus) {
+  box-shadow: inset 0 0 0 1px var(--accent) !important;
 }
 
 /* === TEMPLATE BUILDER (spreadsheet editor) === */
