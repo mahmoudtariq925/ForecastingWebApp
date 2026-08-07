@@ -99,10 +99,86 @@ const SUBMITTER_STEPS: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="submit-forecast"]',
     title: 'Send it for approval',
-    body: 'When the numbers look right, submit. Your approver is notified and takes it from there.',
+    body: 'Save Draft keeps a checkpoint you can reset back to; Submit sends the forecast on. Both live here with the rest of the grid actions.',
     side: 'bottom',
   },
-  COMMENTS_STEP,
+];
+
+// ---------------------------------------------------------------------------
+// Journeys. After the controls have been introduced, walk the same screens
+// again IN THE ORDER A WEEK ACTUALLY HAPPENS — a guided run-through of the
+// submitter's and the approver's week, like a narrated demo video. Treasury
+// runs the whole system and gets no journey; their tour covers every screen.
+// ---------------------------------------------------------------------------
+
+const SUBMITTER_JOURNEY: TourStep[] = [
+  {
+    title: 'Now — a week in your shoes',
+    body: 'Those were the controls. Next, the journey: the same screens in the order you will actually use them, from the cycle opening to Treasury signing off.',
+  },
+  {
+    view: 'analystHome',
+    selector: '[data-tour="analyst-cycle"]',
+    title: '1 · A cycle opens',
+    body: 'Treasury opens the weekly cycle and sets its deadline. That decides the period you forecast — you never pick dates yourself.',
+    side: 'bottom',
+  },
+  {
+    view: 'analystHome',
+    selector: '[data-tour="todo-submit"]',
+    title: '2 · Start from the checklist',
+    body: 'Submit Forecast shows you the saved forecast and chart in one box. Submit from there when it is ready, or open the full page to keep working.',
+    side: 'left',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="cycle-scope"]',
+    title: '3 · The period is set for you',
+    body: 'On the forecast page, the cycle badge shows exactly which dates you are forecasting. The template is fixed too — Treasury configures it per entity.',
+    side: 'bottom',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="forecast-grid"]',
+    title: '4 · Fill in the numbers',
+    body: 'Type or paste your cash flows. Cells that moved a lot versus last week get an amber flag — click one to explain it, or leave them for submit time.',
+    side: 'top',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="save-draft"]',
+    title: '5 · Save as you go',
+    body: 'Save Draft keeps a checkpoint. If an experiment goes wrong, Reset returns to your last saved draft — and Ctrl+Z / Ctrl+Y undo and redo.',
+    side: 'bottom',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="submit-forecast"]',
+    title: '6 · Submit',
+    body: 'On submit, any unexplained variance is spotlighted in the grid with a comment box beside it — write each note and the forecast goes to your approver by itself.',
+    side: 'bottom',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="forecast-chart"]',
+    title: '7 · Sense-check the shape',
+    body: 'The chart redraws as you type, and can overlay your recent cycles — a quick way to spot something odd before your approver does.',
+    side: 'top',
+  },
+  {
+    view: 'analystHome',
+    selector: '[data-tour="todo-feedback"]',
+    title: '8 · After you submit',
+    body: 'Your approver reviews and approves, then Treasury consolidates. If anything comes back — a question or a returned forecast — it appears on this checklist.',
+    side: 'top',
+  },
+  {
+    view: 'review',
+    selector: '[data-tour="nav-review"]',
+    title: '9 · The conversation',
+    body: 'Every question on your numbers and every answer you give collects under Comments / Feedback, so nothing gets lost in email.',
+    side: 'right',
+  },
 ];
 
 const APPROVER_STEPS: TourStep[] = [
@@ -114,25 +190,11 @@ const APPROVER_STEPS: TourStep[] = [
     side: 'bottom',
   },
   {
-    view: 'approvals',
-    selector: '[data-tour="approvals-table"]',
-    title: 'Forecasts waiting for you',
-    body: 'Everything submitted for your entities lands here, with how many cells were flagged as unusual and when it arrived.',
+    view: 'analystHome',
+    selector: '[data-tour="todo-approvals"]',
+    title: 'Decide from right here',
+    body: 'Every country you approve for is listed with its status. Review opens the full forecast; Approve shows it once more and signs it off.',
     side: 'top',
-  },
-  {
-    view: 'approvals',
-    selector: '[data-tour="approvals-review"]',
-    title: 'Look before you decide',
-    body: 'Open the full forecast to check the numbers and read the submitter’s explanations.',
-    side: 'left',
-  },
-  {
-    view: 'approvals',
-    selector: '[data-tour="approvals-decide"]',
-    title: 'Approve or send back',
-    body: 'Approve when you’re happy. Rejecting returns it to the submitter to update and resubmit.',
-    side: 'left',
   },
   {
     view: 'submission',
@@ -141,7 +203,55 @@ const APPROVER_STEPS: TourStep[] = [
     body: 'Every forecast for your entities opens here read-only — the same grid your submitters fill in, with their commentary on the flagged cells. Reviewing never risks changing their numbers.',
     side: 'top',
   },
-  COMMENTS_STEP,
+  {
+    view: 'submission',
+    selector: '[data-tour="approve-forecast"]',
+    title: 'Approve in place',
+    body: 'Happy with what you see? Approve without leaving the page — no separate approvals screen to hunt for.',
+    side: 'bottom',
+  },
+];
+
+const APPROVER_JOURNEY: TourStep[] = [
+  {
+    title: 'Now — a cycle through your eyes',
+    body: 'Those were the controls. Next, the journey: how a week runs for you, from the first submission arriving to the cycle closing.',
+  },
+  {
+    view: 'analystHome',
+    selector: '[data-tour="analyst-cycle"]',
+    title: '1 · The cycle opens',
+    body: 'Treasury opens the weekly cycle; your submitters start filling in their forecasts. The banner shows the deadline everyone is working to.',
+    side: 'bottom',
+  },
+  {
+    view: 'analystHome',
+    selector: '[data-tour="todo-approvals"]',
+    title: '2 · Forecasts arrive',
+    body: 'As each country submits, its row turns “submitted” and waits on you. Start with Review — it opens the actual numbers.',
+    side: 'top',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="forecast-grid"]',
+    title: '3 · Review the detail',
+    body: 'Sections open collapsed so you see the shape first; expand what you want to inspect. The ✎ on any cell asks the submitter to explain that number.',
+    side: 'top',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="approve-forecast"]',
+    title: '4 · Approve',
+    body: 'Approve here, or from the checklist’s Approve button — that one shows you the forecast and chart once more before you confirm.',
+    side: 'bottom',
+  },
+  {
+    view: 'review',
+    selector: '[data-tour="nav-review"]',
+    title: '5 · Keep up with the answers',
+    body: 'Questions you or Treasury raise, and the submitters’ answers, collect here — check it before the cycle closes.',
+    side: 'right',
+  },
 ];
 
 const VIEWER_STEPS: TourStep[] = [
@@ -296,9 +406,11 @@ const TREASURY_STEPS: TourStep[] = [
   CLOSING,
 ];
 
+// Submitters and approvers get their journey appended after the control
+// tour; treasury and viewers do not (the whole system / read-only).
 const BY_ROLE: Record<Role, TourStep[]> = {
-  submitter: SUBMITTER_STEPS,
-  approver: APPROVER_STEPS,
+  submitter: [...SUBMITTER_STEPS, ...SUBMITTER_JOURNEY, CLOSING],
+  approver: [...APPROVER_STEPS, ...APPROVER_JOURNEY, CLOSING],
   viewer: VIEWER_STEPS,
   treasury: TREASURY_STEPS,
 };

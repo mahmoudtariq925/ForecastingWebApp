@@ -69,7 +69,8 @@ export function navFor(p: Permissions): NavSections {
       label: p.canSubmitForecasts ? 'My Forecasts' : 'Submissions',
     },
   ];
-  if (p.canApproveForecasts) workspace.push({ view: 'approvals', label: 'Approvals' });
+  // Approvers decide straight from their dashboard checklist (approve /
+  // review per country) — a separate Approvals screen was one page too many.
   // Submitters and approvers need to see this week against last week for the
   // entities they own — the same question Treasury asks, scoped to them.
   if (p.canSubmitForecasts || p.canApproveForecasts)

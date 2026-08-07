@@ -42,6 +42,12 @@ export interface ForecastGridProps {
    * dimmed. Used to point at the cells still needing input before submission.
    */
   highlight?: Set<string> | null;
+  /**
+   * How the focus mode reads: `input` (red, strong dim) points at cells that
+   * still need a number; `comment` (amber, soft dim) walks the guided
+   * commentary flow, where the surrounding numbers must stay readable.
+   */
+  highlightTone?: 'input' | 'comment';
   /** Opening balance; `null` hides the running-total column entirely. */
   startingBalance: number | null;
   dayComments?: Record<string, string>;
@@ -180,6 +186,7 @@ function EditableCell({
     flags,
     requested,
     highlight,
+    highlightTone = 'input',
     editable,
     onChangeCell,
     onPaste,
@@ -190,7 +197,8 @@ function EditableCell({
   const flagged = flags.has(key);
   const asked = requested?.has(key) ?? false;
   // Focus mode dims everything that isn't being pointed at.
-  const focus = highlight ? (highlight.has(key) ? ' cell-spotlit' : ' cell-dimmed') : '';
+  const spotlit = `cell-spotlit${highlightTone === 'comment' ? ' spotlit-comment' : ''}`;
+  const focus = highlight ? (highlight.has(key) ? ` ${spotlit}` : ' cell-dimmed') : '';
 
   // Computed subtotal rows are never editable — the app derives them.
   if (categories[catIdx]?.subtotal) {
@@ -386,6 +394,8 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
     editable,
     onChangeDayComment,
     showColumnTotals,
+    highlight,
+    highlightTone,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -411,10 +421,13 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
         ]),
   ];
 
+  // The guided commentary flow mutes rather than hides the rest of the grid.
+  const dimSoft = highlight && highlightTone === 'comment' ? ' dim-soft' : '';
+
   return (
-    <table className="forecast-grid" data-rows="categories" ref={gridRef}>
+    <table className={`forecast-grid${dimSoft}`} data-rows="categories" ref={gridRef}>
       <thead>
-        <tr>
+        <tr className="label-row">
           <th className="row-label-h">Cash Flow Category</th>
           {dayLabels.map((dl, i) => (
             <th key={i} className="day-h">
@@ -618,6 +631,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     showColumnTotals,
     collapsedGroups,
     onToggleGroup,
+    highlight,
+    highlightTone,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -629,6 +644,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   // A running balance only means something once an opening balance is given,
   // so the whole column appears and disappears with it.
   const hasBalance = startingBalance !== null;
+  // The per-day Comments column renders only where the screen passes the
+  // day-comment store in — the submission grid no longer does.
+  const showComments = dayComments !== undefined;
+  // The guided commentary flow mutes rather than hides the rest of the grid.
+  const dimSoft = highlight && highlightTone === 'comment' ? ' dim-soft' : '';
   // With sections across the columns, collapsing one replaces its columns with
   // a single total column — so the body renders this list, not `categories`.
   const isCollapsed = (gi: number) =>
@@ -650,12 +670,13 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   }, [groups, collapsedGroups, onToggleGroup]);
 
   return (
-    <table className="forecast-grid" data-rows="days" ref={gridRef}>
+    <table className={`forecast-grid${dimSoft}`} data-rows="days" ref={gridRef}>
+      {/* Two separate header strips: the section bands float in their own box
+          above, and every column label sits together in the box below — so
+          "which section" and "which line item" never blur into one row. */}
       <thead>
-        <tr>
-          <th className="row-label-h" rowSpan={2}>
-            Date
-          </th>
+        <tr className="band-row">
+          <th className="row-label-h band-spacer" aria-hidden="true" />
           {groups.map((g, gi) =>
             g.label ? (
               <th
@@ -682,22 +703,15 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 )}
               </th>
             ) : (
-              g.idxs.map((i) => <th key={`u${i}`} rowSpan={1} className="day-h" />)
+              <th key={`u${gi}`} colSpan={g.idxs.length} className="band-spacer" aria-hidden="true" />
             ),
           )}
-          <th className="day-h" rowSpan={2} style={{ minWidth: 160 }}>
-            Comments
-          </th>
-          <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
-            Total
-          </th>
-          {hasBalance && (
-            <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
-              Running Total
-            </th>
-          )}
+          {showComments && <th className="band-spacer" aria-hidden="true" />}
+          <th className="band-spacer" aria-hidden="true" />
+          {hasBalance && <th className="band-spacer" aria-hidden="true" />}
         </tr>
-        <tr>
+        <tr className="label-row">
+          <th className="row-label-h">Date</th>
           {columns.map((col) => (
             <th
               key={col.catIdx ?? `g${col.gi}`}
@@ -706,15 +720,22 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               {col.catIdx === null ? 'Section total' : categories[col.catIdx].label}
             </th>
           ))}
+          {showComments && (
+            <th className="day-h" style={{ minWidth: 160 }}>
+              Comments
+            </th>
+          )}
+          <th className="day-h total-h">Total</th>
+          {hasBalance && <th className="day-h total-h">Running Total</th>}
         </tr>
       </thead>
       <tbody>
         {hasBalance && (
           <tr className="section-row">
             <td className="row-label">Starting Balance</td>
-            {/* One filler per visible column, plus the Comments column —
+            {/* One filler per visible column (plus Comments where shown) —
                 collapsing a section changes how many that is. */}
-            {Array.from({ length: columns.length + 1 }).map((_, i) => (
+            {Array.from({ length: columns.length + (showComments ? 1 : 0) }).map((_, i) => (
               <td key={i} />
             ))}
             <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
@@ -751,19 +772,21 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 />
               ),
             )}
-            <td className="cell comment-cell">
-              {editable ? (
-                <input
-                  type="text"
-                  className="comment-input"
-                  value={dayComments?.[String(dayIdx)] ?? ''}
-                  placeholder=""
-                  onChange={(e) => onChangeDayComment?.(dayIdx, e.target.value)}
-                />
-              ) : (
-                <span style={{ padding: '0 8px' }}>{dayComments?.[String(dayIdx)] ?? ''}</span>
-              )}
-            </td>
+            {showComments && (
+              <td className="cell comment-cell">
+                {editable ? (
+                  <input
+                    type="text"
+                    className="comment-input"
+                    value={dayComments?.[String(dayIdx)] ?? ''}
+                    placeholder=""
+                    onChange={(e) => onChangeDayComment?.(dayIdx, e.target.value)}
+                  />
+                ) : (
+                  <span style={{ padding: '0 8px' }}>{dayComments?.[String(dayIdx)] ?? ''}</span>
+                )}
+              </td>
+            )}
             {(() => {
               const net = dayNet(numCats, values, dayIdx);
               return (
@@ -798,7 +821,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 )}
               </td>
             ))}
-            <td className="cell total-cell" />
+            {showComments && <td className="cell total-cell" />}
             <td className="cell total-cell">
               {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
                 .reduce((a, b) => a + b, 0)
@@ -813,16 +836,20 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         )}
         <tr>
           <td className="row-label total">TOTAL</td>
-          {categories.map((cat, catIdx) => (
-            <td key={catIdx} className="cell total-cell">
+          {/* Per visible column, so the row stays aligned when a section is
+              collapsed down to its single total column. */}
+          {columns.map((col) => (
+            <td key={col.catIdx ?? `g${col.gi}`} className="cell total-cell">
               {fmt(
-                cat.subtotal
-                  ? subtotalTotal(categories, values, catIdx, numDays)
-                  : catTotal(values, catIdx, numDays),
+                col.catIdx === null
+                  ? groupTotal(categories, values, groups[col.gi].idxs, numDays)
+                  : categories[col.catIdx].subtotal
+                    ? subtotalTotal(categories, values, col.catIdx, numDays)
+                    : catTotal(values, col.catIdx, numDays),
               )}
             </td>
           ))}
-          <td className="cell total-cell" />
+          {showComments && <td className="cell total-cell" />}
           <td className="cell total-cell">
             {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
               .reduce((a, b) => a + b, 0)

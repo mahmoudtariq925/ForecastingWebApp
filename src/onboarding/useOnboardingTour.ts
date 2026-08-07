@@ -212,7 +212,9 @@ export function useOnboardingTour({
       const instance = driver({
         showProgress: true,
         allowClose: true,
-        overlayOpacity: 0.55,
+        // Light veil, not a blackout: the page around the highlighted element
+        // stays readable, the spotlight still reads as a spotlight.
+        overlayOpacity: 0.25,
         stagePadding: 6,
         stageRadius: 8,
         popoverClass: 'liquid-tour',
