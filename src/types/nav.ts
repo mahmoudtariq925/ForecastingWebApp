@@ -9,7 +9,6 @@ export type ViewId =
   | 'cycles'
   | 'submission'
   | 'approvals'
-  | 'consolidated'
   | 'comparison'
   | 'review'
   | 'templates'
@@ -37,14 +36,15 @@ export interface NavSections {
  */
 export function navFor(p: Permissions): NavSections {
   if (p.canViewTreasuryDashboard) {
+    // The consolidated position and forecast-vs-forecast are no longer
+    // screens: both are read from the dashboard's outlook chart, one click
+    // from the number that raised the question.
     return {
       workspace: [
         { view: 'dashboard', label: 'Dashboard' },
         { view: 'cycles', label: 'Forecast Cycles' },
         { view: 'submission', label: 'Submissions' },
         { view: 'approvals', label: 'Approvals' },
-        { view: 'consolidated', label: 'Consolidated' },
-        { view: 'comparison', label: 'Comparisons' },
       ],
       admin: [
         { view: 'review', label: 'Comments Review' },

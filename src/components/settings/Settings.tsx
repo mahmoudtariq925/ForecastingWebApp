@@ -24,39 +24,41 @@ export function Settings() {
         title="Settings"
         actions={canEdit ? undefined : <ViewOnlyBadge />}
       />
+      {/* One setting per row, stacked — a two-column grid of unrelated
+          dropdowns reads as a form to fill in rather than a list of rules. */}
       <div className="content">
         <div className="panel">
           <div className="panel-header">
             <h3>Cycle Configuration</h3>
           </div>
-          <div className="panel-body">
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Forecast Horizon</label>
-                <select
-                  className="form-select"
-                  value={settings.horizon}
-                  disabled={!canEdit}
-                  onChange={(e) => update('horizon', e.target.value)}
-                >
-                  <option>30 days</option>
-                  <option>13 weeks</option>
-                  <option>90 days</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Cycle Frequency</label>
-                <select
-                  className="form-select"
-                  value={settings.frequency}
-                  disabled={!canEdit}
-                  onChange={(e) => update('frequency', e.target.value)}
-                >
-                  <option>Weekly (Mon → Fri close)</option>
-                  <option>Bi-weekly</option>
-                  <option>Monthly</option>
-                </select>
-              </div>
+          <div className="panel-body settings-stack">
+            <div className="form-group">
+              <label className="form-label">Forecast Horizon</label>
+              <select
+                className="form-select"
+                value={settings.horizon}
+                disabled={!canEdit}
+                onChange={(e) => update('horizon', e.target.value)}
+              >
+                <option>30 days</option>
+                <option>13 weeks</option>
+                <option>90 days</option>
+              </select>
+              <div className="settings-hint">How far ahead every forecast looks</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Cycle Frequency</label>
+              <select
+                className="form-select"
+                value={settings.frequency}
+                disabled={!canEdit}
+                onChange={(e) => update('frequency', e.target.value)}
+              >
+                <option>Weekly (Mon → Fri close)</option>
+                <option>Bi-weekly</option>
+                <option>Monthly</option>
+              </select>
+              <div className="settings-hint">How often a new cycle opens for entry</div>
             </div>
           </div>
         </div>
@@ -65,31 +67,30 @@ export function Settings() {
           <div className="panel-header">
             <h3>Variance Rules</h3>
           </div>
-          <div className="panel-body">
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Variance Threshold</label>
-                <input
-                  className="form-input"
-                  value={settings.varianceThreshold}
-                  disabled={!canEdit}
-                  onChange={(e) => update('varianceThreshold', Number(e.target.value) || 0)}
-                />
-                <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
-                  Cells exceeding ±X% vs prior cycle require commentary
-                </div>
+          <div className="panel-body settings-stack">
+            {/* The threshold itself is set per entity, in Legal Entity Setup —
+                a group-wide percentage flagged small entities constantly and
+                large ones never. */}
+            <div className="variance-panel" style={{ marginBottom: 0 }}>
+              <h4>Variance threshold</h4>
+              <div className="row">
+                <span>
+                  The percentage that flags a cell for commentary is set per entity, under{' '}
+                  <strong>Legal Entity Setup</strong>. Entities without one fall back to ±
+                  {settings.varianceThreshold}%.
+                </span>
               </div>
-              <div className="form-group">
-                <label className="form-label">Minimum Value to Trigger</label>
-                <input
-                  className="form-input"
-                  value={settings.minValueToTrigger}
-                  disabled={!canEdit}
-                  onChange={(e) => update('minValueToTrigger', e.target.value)}
-                />
-                <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
-                  Variances on cells below this absolute value are ignored
-                </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Minimum Value to Trigger</label>
+              <input
+                className="form-input"
+                value={settings.minValueToTrigger}
+                disabled={!canEdit}
+                onChange={(e) => update('minValueToTrigger', e.target.value)}
+              />
+              <div className="settings-hint">
+                Variances on cells below this absolute value are ignored
               </div>
             </div>
             <div className="form-group">
@@ -103,6 +104,9 @@ export function Settings() {
                 <option>Yes — never flag days outside prior cycle's horizon</option>
                 <option>No — always flag</option>
               </select>
+              <div className="settings-hint">
+                Days the previous forecast never covered have nothing to compare against
+              </div>
             </div>
           </div>
         </div>
@@ -111,7 +115,7 @@ export function Settings() {
           <div className="panel-header">
             <h3>Authentication</h3>
           </div>
-          <div className="panel-body">
+          <div className="panel-body settings-stack">
             <div className="form-group">
               <label className="form-label">SSO Provider</label>
               <input className="form-input" value={settings.ssoProvider} disabled />
@@ -124,6 +128,7 @@ export function Settings() {
                 disabled={!canEdit}
                 onChange={(e) => update('allowedDomains', e.target.value)}
               />
+              <div className="settings-hint">Only these email domains can sign in</div>
             </div>
           </div>
         </div>

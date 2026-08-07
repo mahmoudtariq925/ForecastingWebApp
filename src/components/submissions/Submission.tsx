@@ -48,6 +48,7 @@ import {
   priorValueFor,
   requestComment,
   saveDraftCheckpoint,
+  settingsForEntity,
   templatesForEntity,
 } from '../../data/submissionService';
 import { currentUser } from '../../data/session';
@@ -95,10 +96,16 @@ interface SubmissionProps {
   allowedEntities?: string[];
   /** Viewer role: the grid and all write actions are read-only. */
   readOnly?: boolean;
-  /** Treasury: may ask the submitter for commentary on any cell. */
+  /** Treasury and approvers: may ask the submitter for commentary on a cell. */
   canRequestComments?: boolean;
   /** Approver: may approve the forecast straight from this screen. */
   canApprove?: boolean;
+  /**
+   * Treasury proper. Approvers share `canRequestComments`, but only treasury
+   * chases an approver by email — to an approver that button writes to
+   * themselves, and a submitter's approver is notified on submit.
+   */
+  isTreasury?: boolean;
 }
 
 export function Submission({
@@ -107,6 +114,7 @@ export function Submission({
   readOnly = false,
   canRequestComments = false,
   canApprove = false,
+  isTreasury = false,
 }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const entities = useMemo(() => listEntities(), []);
@@ -175,6 +183,7 @@ export function Submission({
         readOnly={readOnly}
         canRequestComments={canRequestComments}
         canApprove={canApprove}
+        isTreasury={isTreasury}
         autoSubmit={initial?.autoSubmit === true}
         selectors={
           <>
@@ -310,6 +319,8 @@ interface EditorProps {
   canRequestComments: boolean;
   /** Approver: may approve this forecast in place. */
   canApprove: boolean;
+  /** Treasury proper — the only role that emails an approver from here. */
+  isTreasury: boolean;
   /** Kick off the submit flow once the grid is up (checklist deep link). */
   autoSubmit: boolean;
   selectors: React.ReactNode;
@@ -358,11 +369,23 @@ function SubmissionEditor({
   readOnly,
   canRequestComments,
   canApprove,
+  isTreasury,
   autoSubmit,
   selectors,
 }: EditorProps) {
-  const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
+  // Variance rules are per entity (Legal Entity Setup), falling back to the
+  // group defaults — so a small entity can be held to a wider threshold.
+  const settings = useMemo(
+    () => settingsForEntity(entity, loadSettings(DEFAULT_SETTINGS)),
+    [entity],
+  );
   const { confirm, notify } = useDialog();
+  /**
+   * Who gets the data-entry actions. Treasury opens forecasts to read and
+   * correct them, never to run the submission workflow, so undo/redo, reset,
+   * copy-prior, save-draft and submit are the submitter's alone.
+   */
+  const editorActions = !readOnly && !canRequestComments;
   // Column set comes from the template (editor-authored ones can define
   // their own periods); templates without a `periods` block keep the
   // standard 20-working-day horizon.
@@ -419,6 +442,9 @@ function SubmissionEditor({
     outflows: false,
   });
   const [balanceStyle, setBalanceStyle] = useState<'solid' | 'dashed' | 'area'>('solid');
+  // The chart sits above the grid and folds away — a submitter filling in
+  // twenty days of numbers wants the rows, not the picture, most of the time.
+  const [chartOpen, setChartOpen] = useState(false);
   /** Earlier forecast weeks overlaid on the chart for comparison. */
   const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
   const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
@@ -1287,26 +1313,47 @@ function SubmissionEditor({
             </div>
           </div>
         )}
-        {flags.size > 0 && (
-          <div className="variance-panel" data-tour="variance-panel">
-            <h4>⚠ Variance Flags Detected</h4>
-            <div className="row">
-              <span>
-                Cells exceeding ±{settings.varianceThreshold}% vs the prior week require
-                commentary before submission. Click a flagged cell to explain it.
-              </span>
-              <span>
-                {flags.size} flagged · {uncommented.length} need commentary
-              </span>
-            </div>
-          </div>
-        )}
+        {/* The variance banner is now the small ⚠ badge in the toolbar below —
+            a whole panel of prose for a number the grid already colours in
+            cost more space than it earned. */}
 
-        <div className="panel">
+        <div className="panel settings-panel">
           <div className="grid-toolbar">
             <div className="grid-toolbar-left" data-tour="submission-filters">{selectors}</div>
             <div className="row-flex">
-              {!readOnly && (
+              {/* Flagged cells are announced by a badge rather than a banner:
+                  it says the same thing in a tenth of the space, and clicking
+                  it walks straight to the first cell that needs explaining. */}
+              {flags.size > 0 && (
+                <button
+                  className={`variance-badge${uncommented.length > 0 ? ' open' : ' clear'}`}
+                  data-tour="variance-badge"
+                  title={
+                    uncommented.length > 0
+                      ? `${uncommented.length} of ${flags.size} flagged cell${flags.size === 1 ? '' : 's'} still need commentary — click to explain the first`
+                      : `${flags.size} flagged cell${flags.size === 1 ? '' : 's'}, all explained`
+                  }
+                  onClick={() => {
+                    const [first] = orderedUncommented();
+                    if (!first) return;
+                    if (readOnly) {
+                      const [c, d] = first.split('-').map(Number);
+                      openVariance(c, d);
+                    } else {
+                      focusFlowCell(first);
+                    }
+                  }}
+                >
+                  <span aria-hidden="true">⚠</span>
+                  {uncommented.length > 0 ? uncommented.length : flags.size}
+                  <span className="variance-badge-label">
+                    {uncommented.length > 0 ? 'to explain' : 'flagged'}
+                  </span>
+                </button>
+              )}
+              {/* Treasury reads and fixes forecasts but never submits one, so
+                  the entry actions are the submitter's alone. */}
+              {editorActions && (
                 <>
                   <button
                     className="btn btn-ghost"
@@ -1339,10 +1386,14 @@ function SubmissionEditor({
               <button className="btn btn-ghost" data-tour="export-excel" onClick={exportGrid}>
                 Export Excel
               </button>
-              <button className="btn btn-ghost" onClick={emailApprover}>
-                Email Approver
-              </button>
-              {!readOnly && (
+              {/* Only treasury chases an approver — the approver IS the
+                  recipient, and a submitter's approver is emailed on submit. */}
+              {isTreasury && (
+                <button className="btn btn-ghost" data-tour="email-approver" onClick={emailApprover}>
+                  Email Approver
+                </button>
+              )}
+              {editorActions && (
                 <>
                   <button className="btn btn-ghost" onClick={copyPrior}>
                     Copy Prior Forecast
@@ -1454,6 +1505,128 @@ function SubmissionEditor({
               )}
             </div>
           </div>
+        </div>
+
+        {/* The outlook sits ABOVE the numbers: the shape of the week is what
+            you check a figure against, and it folds away when it is not. */}
+        <div className="panel chart-panel" data-tour="forecast-chart">
+          <button
+            className="panel-collapse-head"
+            aria-expanded={chartOpen}
+            onClick={() => setChartOpen((v) => !v)}
+          >
+            <span className="section-caret" aria-hidden="true">
+              {chartOpen ? '▾' : '▸'}
+            </span>
+            <strong>Running Balance Outlook</strong>
+            <span className="text-muted">
+              {weekLabelShort(week)} · €k
+              {hasBalance ? ` · closing ${fmtK(closingBalance)}` : ''}
+            </span>
+          </button>
+          {chartOpen && (
+            <>
+              <div className="chart-controls">
+                {hasBalance && (
+                  <label className="series-check">
+                    <input
+                      type="checkbox"
+                      checked={chartOptions.balance}
+                      onChange={() => toggleChartOption('balance')}
+                    />
+                    Running Balance
+                  </label>
+                )}
+                <label className="series-check">
+                  <input
+                    type="checkbox"
+                    checked={chartOptions.net}
+                    onChange={() => toggleChartOption('net')}
+                  />
+                  Net Cash Flow
+                </label>
+                <label className="series-check">
+                  <input
+                    type="checkbox"
+                    checked={chartOptions.inflows}
+                    onChange={() => toggleChartOption('inflows')}
+                  />
+                  Inflows
+                </label>
+                <label className="series-check">
+                  <input
+                    type="checkbox"
+                    checked={chartOptions.outflows}
+                    onChange={() => toggleChartOption('outflows')}
+                  />
+                  Outflows
+                </label>
+                <select
+                  className="form-select"
+                  style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                  value={balanceStyle}
+                  onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
+                  aria-label="Balance line style"
+                >
+                  <option value="solid">Balance · solid line</option>
+                  <option value="dashed">Balance · dashed line</option>
+                  <option value="area">Balance · area</option>
+                </select>
+              </div>
+              {/* Overlay earlier cycles on the same axes, so this week's shape
+                  can be read against the ones it replaced. */}
+              <div className="chart-controls compare-controls" data-tour="compare-cycles">
+                <span className="grid-info">
+                  <strong>Compare with</strong>
+                </span>
+                {priorWeekOptions.map((o) => (
+                  <label
+                    key={o.week}
+                    className={`series-check${o.saved ? '' : ' text-muted'}`}
+                    title={o.saved ? 'Saved forecast' : 'No saved forecast for this week'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={compareWeeks.includes(o.week)}
+                      onChange={() => toggleCompareWeek(o.week)}
+                    />
+                    {o.label}
+                    {o.saved ? ' ●' : ''}
+                  </label>
+                ))}
+                <select
+                  className="form-select"
+                  style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                  value={compareMetric}
+                  onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
+                  aria-label="Comparison metric"
+                >
+                  {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
+                    <option key={m} value={m}>
+                      Compare · {COMPARE_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {chartSeries.length + overlaySeries.length === 0 ? (
+                <div className="empty-state" style={{ padding: '30px 20px' }}>
+                  <p>Select at least one series to plot.</p>
+                </div>
+              ) : (
+                <Chart
+                  labels={dayLabels.map((dl) => dl.dm)}
+                  series={[...overlaySeries, ...chartSeries]}
+                  unit="k"
+                  height={176}
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        {/* The forecast itself, in its own box — the controls above are
+            settings, not part of the grid. */}
+        <div className="panel grid-panel">
           {/* The commentary dock sits BESIDE the grid (left when the spotlit
               cell is on the right half), so the numbers stay in view while
               the explanation is written. */}
@@ -1485,108 +1658,6 @@ function SubmissionEditor({
           </div>
         </div>
 
-        <div className="section-header">
-          <h2>Running Balance Outlook</h2>
-          <span className="tag">
-            {weekLabelShort(week)} · €k · updates as you type
-          </span>
-        </div>
-        <div className="panel" data-tour="forecast-chart">
-          <div className="chart-controls">
-            {hasBalance && (
-              <label className="series-check">
-                <input
-                  type="checkbox"
-                  checked={chartOptions.balance}
-                  onChange={() => toggleChartOption('balance')}
-                />
-                Running Balance
-              </label>
-            )}
-            <label className="series-check">
-              <input
-                type="checkbox"
-                checked={chartOptions.net}
-                onChange={() => toggleChartOption('net')}
-              />
-              Net Cash Flow
-            </label>
-            <label className="series-check">
-              <input
-                type="checkbox"
-                checked={chartOptions.inflows}
-                onChange={() => toggleChartOption('inflows')}
-              />
-              Inflows
-            </label>
-            <label className="series-check">
-              <input
-                type="checkbox"
-                checked={chartOptions.outflows}
-                onChange={() => toggleChartOption('outflows')}
-              />
-              Outflows
-            </label>
-            <select
-              className="form-select"
-              style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
-              value={balanceStyle}
-              onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
-              aria-label="Balance line style"
-            >
-              <option value="solid">Balance · solid line</option>
-              <option value="dashed">Balance · dashed line</option>
-              <option value="area">Balance · area</option>
-            </select>
-          </div>
-          {/* Overlay earlier cycles on the same axes, so this week's shape can
-              be read against the ones it replaced. */}
-          <div className="chart-controls compare-controls" data-tour="compare-cycles">
-            <span className="grid-info">
-              <strong>Compare with</strong>
-            </span>
-            {priorWeekOptions.map((o) => (
-              <label
-                key={o.week}
-                className={`series-check${o.saved ? '' : ' text-muted'}`}
-                title={o.saved ? 'Saved forecast' : 'No saved forecast for this week'}
-              >
-                <input
-                  type="checkbox"
-                  checked={compareWeeks.includes(o.week)}
-                  onChange={() => toggleCompareWeek(o.week)}
-                />
-                {o.label}
-                {o.saved ? ' ●' : ''}
-              </label>
-            ))}
-            <select
-              className="form-select"
-              style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
-              value={compareMetric}
-              onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
-              aria-label="Comparison metric"
-            >
-              {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
-                <option key={m} value={m}>
-                  Compare · {COMPARE_LABELS[m]}
-                </option>
-              ))}
-            </select>
-          </div>
-          {chartSeries.length + overlaySeries.length === 0 ? (
-            <div className="empty-state" style={{ padding: '40px 20px' }}>
-              <p>Select at least one series to plot.</p>
-            </div>
-          ) : (
-            <Chart
-              labels={dayLabels.map((dl) => dl.dm)}
-              series={[...overlaySeries, ...chartSeries]}
-              unit="k"
-              height={176}
-            />
-          )}
-        </div>
       </div>
 
       <Modal

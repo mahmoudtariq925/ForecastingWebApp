@@ -151,6 +151,52 @@ export function CommentsReview({
   const pageRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
   const visibleComments = filtered.reduce((s, r) => s + r.items.length, 0);
 
+  /**
+   * Group the page into regions, countries inside a region ordered by their
+   * largest variance. Treasury works the group from the top down — biggest
+   * mover first — and a flat list of eighteen forecasts hides that ordering
+   * completely.
+   */
+  const regionGroups = useMemo(() => {
+    const regionOf = new Map(listEntities().map((e) => [e.name, e.region]));
+    const worstPct = (items: ReviewItem[]) =>
+      items.reduce((m, i) => Math.max(m, Math.abs(i.pct ?? 0)), 0);
+    const order: string[] = [];
+    const byRegion = new Map<string, { group: ReviewGroup; items: ReviewItem[] }[]>();
+    for (const row of pageRows) {
+      const region = regionOf.get(row.group.entity) ?? 'Unassigned';
+      if (!byRegion.has(region)) {
+        byRegion.set(region, []);
+        order.push(region);
+      }
+      byRegion.get(region)!.push(row);
+    }
+    return order
+      .map((name) => {
+        const rows = byRegion
+          .get(name)!
+          .sort((a, b) => worstPct(b.items) - worstPct(a.items));
+        return {
+          name,
+          rows,
+          unresolved: rows.reduce((s, r) => s + r.group.unresolved, 0),
+          needsCommentary: rows.reduce((s, r) => s + r.group.needsCommentary, 0),
+          worstPct: worstPct(rows.flatMap((r) => r.items)),
+        };
+      })
+      .sort((a, b) => b.worstPct - a.worstPct);
+  }, [pageRows]);
+
+  // Regions with nothing outstanding start folded away.
+  const [closedRegions, setClosedRegions] = useState<Set<string>>(new Set());
+  const toggleRegion = (name: string) =>
+    setClosedRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const resetPage = () => setPage(0);
 
   const toggleExpanded = (id: string) => {
@@ -373,9 +419,36 @@ export function CommentsReview({
             </div>
           </div>
         ) : (
-          pageRows.map(({ group: g, items }) => {
-            const isOpen = expanded.has(g.id);
-            return (
+          regionGroups.map((region) => (
+            <div className="review-region" key={region.name}>
+              {/* Region band: one dropdown per region, biggest mover first,
+                  so a group-wide queue can be worked one region at a time. */}
+              <button
+                className="review-region-head"
+                aria-expanded={!closedRegions.has(region.name)}
+                onClick={() => toggleRegion(region.name)}
+              >
+                <span className="review-caret">
+                  {closedRegions.has(region.name) ? '▸' : '▾'}
+                </span>
+                <strong>{region.name}</strong>
+                <span className="text-muted">
+                  {region.rows.length} forecast{region.rows.length === 1 ? '' : 's'}
+                </span>
+                {region.needsCommentary > 0 && (
+                  <span className="badge-num warn">{region.needsCommentary} need commentary</span>
+                )}
+                {region.unresolved > 0 && (
+                  <span className="badge-num">{region.unresolved} unresolved</span>
+                )}
+                <span className="review-region-worst">
+                  largest {region.worstPct.toFixed(0)}%
+                </span>
+              </button>
+              {!closedRegions.has(region.name) &&
+                region.rows.map(({ group: g, items }) => {
+                  const isOpen = expanded.has(g.id);
+                  return (
               // Blocked forecasts carry visual weight so the sort order
               // (most blocked first) is actually legible.
               <div className={`panel${g.unresolved > 0 ? ' review-blocked' : ''}`} key={g.id}>
@@ -551,8 +624,10 @@ export function CommentsReview({
                   </div>
                 )}
               </div>
-            );
-          })
+                  );
+                })}
+            </div>
+          ))
         )}
 
         {pageCount > 1 && (

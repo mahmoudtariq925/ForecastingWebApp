@@ -540,13 +540,35 @@ function GroupRows({
     <>
       {group.label && (
         <tr className={`section-row${band}${collapsed ? ' section-collapsed' : ''}`}>
-          <td className="row-label">
+          {/* The whole label cell toggles the section — the caret button is
+              signage, not the only target. */}
+          <td
+            className={`row-label${collapsible ? ' row-label-toggle' : ''}`}
+            onClick={collapsible ? () => onToggleGroup?.(groupIndex) : undefined}
+            role={collapsible ? 'button' : undefined}
+            tabIndex={collapsible ? 0 : undefined}
+            aria-expanded={collapsible ? !collapsed : undefined}
+            onKeyDown={
+              collapsible
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onToggleGroup?.(groupIndex);
+                    }
+                  }
+                : undefined
+            }
+          >
             {collapsible ? (
               <button
                 className="section-toggle"
                 aria-expanded={!collapsed}
+                tabIndex={-1}
                 title={collapsed ? 'Show the line items' : 'Collapse to the section total'}
-                onClick={() => onToggleGroup?.(groupIndex)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleGroup?.(groupIndex);
+                }}
               >
                 <span className="section-caret" aria-hidden="true">
                   {collapsed ? '▸' : '▾'}
@@ -679,25 +701,44 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           <th className="row-label-h band-spacer" aria-hidden="true" />
           {groups.map((g, gi) =>
             g.label ? (
+              // The whole band is the toggle, so a section can always be
+              // reopened AND reclosed by clicking its name — not only the
+              // caret, which is easy to miss on a wide expanded section.
               <th
                 key={gi}
                 colSpan={isCollapsed(gi) ? 1 : g.idxs.length}
-                className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}`}
+                className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}${
+                  onToggleGroup ? ' band-toggle' : ''
+                }`}
+                onClick={onToggleGroup ? () => onToggleGroup(gi) : undefined}
+                role={onToggleGroup ? 'button' : undefined}
+                tabIndex={onToggleGroup ? 0 : undefined}
+                aria-expanded={onToggleGroup ? !isCollapsed(gi) : undefined}
+                title={
+                  onToggleGroup
+                    ? isCollapsed(gi)
+                      ? 'Show the line items'
+                      : 'Collapse to the section total'
+                    : undefined
+                }
+                onKeyDown={
+                  onToggleGroup
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onToggleGroup(gi);
+                        }
+                      }
+                    : undefined
+                }
               >
                 {onToggleGroup ? (
-                  <button
-                    className="section-toggle"
-                    aria-expanded={!isCollapsed(gi)}
-                    title={
-                      isCollapsed(gi) ? 'Show the line items' : 'Collapse to the section total'
-                    }
-                    onClick={() => onToggleGroup(gi)}
-                  >
+                  <span className="section-toggle">
                     <span className="section-caret" aria-hidden="true">
                       {isCollapsed(gi) ? '▸' : '▾'}
                     </span>
                     {g.label}
-                  </button>
+                  </span>
                 ) : (
                   g.label
                 )}
@@ -712,14 +753,39 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         </tr>
         <tr className="label-row">
           <th className="row-label-h">Date</th>
-          {columns.map((col) => (
-            <th
-              key={col.catIdx ?? `g${col.gi}`}
-              className={`day-h${col.end ? ' group-end' : ''}${col.band}`}
-            >
-              {col.catIdx === null ? 'Section total' : categories[col.catIdx].label}
-            </th>
-          ))}
+          {columns.map((col) =>
+            // A collapsed section's single column header reopens it, so the
+            // way back is never further than the thing you are looking at.
+            col.catIdx === null ? (
+              <th
+                key={`g${col.gi}`}
+                className={`day-h group-end${col.band}${onToggleGroup ? ' band-toggle' : ''}`}
+                onClick={onToggleGroup ? () => onToggleGroup(col.gi) : undefined}
+                role={onToggleGroup ? 'button' : undefined}
+                tabIndex={onToggleGroup ? 0 : undefined}
+                title="Show the line items"
+                onKeyDown={
+                  onToggleGroup
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onToggleGroup(col.gi);
+                        }
+                      }
+                    : undefined
+                }
+              >
+                Section total
+              </th>
+            ) : (
+              <th
+                key={col.catIdx}
+                className={`day-h${col.end ? ' group-end' : ''}${col.band}`}
+              >
+                {categories[col.catIdx].label}
+              </th>
+            ),
+          )}
           {showComments && (
             <th className="day-h" style={{ minWidth: 160 }}>
               Comments

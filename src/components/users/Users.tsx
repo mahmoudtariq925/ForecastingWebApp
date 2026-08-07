@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
+import { ActionMenu } from '../common/ActionMenu';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
@@ -25,14 +26,6 @@ const ROLE_HINTS: Record<Role, string> = {
   submitter: 'Prepares and submits forecasts for assigned entities.',
   viewer: 'Read-only access to assigned entity forecasts.',
 };
-
-const initials = (name: string) =>
-  name
-    .split(' ')
-    .map((s) => s[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
 const EMPTY_FORM = {
   name: '',
@@ -259,12 +252,7 @@ export function Users() {
                 {users.map((u) => (
                   <tr key={u.email} className={u.status === 'inactive' ? 'row-inactive' : undefined}>
                     <td>
-                      <div className="row-flex">
-                        <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>
-                          {initials(u.name)}
-                        </div>
-                        <strong>{u.name}</strong>
-                      </div>
+                      <strong>{u.name}</strong>
                     </td>
                     <td className="text-dim">{u.email}</td>
                     <td>
@@ -285,41 +273,34 @@ export function Users() {
                       {u.last}
                     </td>
                     <td>
-                      <div className="row-flex">
-                        <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
-                          title="Open a prefilled setup email in Outlook"
-                          onClick={() => openSetupEmail(u, responsibilities.get(u.email) ?? [])}
-                        >
-                          Email Setup
-                        </button>
-                        {canManage && (
-                          <>
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => openEdit(u)}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => toggleStatus(u)}
-                            >
-                              {u.status === 'inactive' ? 'Activate' : 'Deactivate'}
-                            </button>
-                            <button
-                              className="btn btn-danger"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => removeUser(u)}
-                            >
-                              Remove
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {/* One button per row rather than four: the actions are
+                          the same, the table is readable. */}
+                      <ActionMenu
+                        ariaLabel={`Actions for ${u.name}`}
+                        items={[
+                          {
+                            label: 'Edit details',
+                            onSelect: () => openEdit(u),
+                            hidden: !canManage,
+                          },
+                          {
+                            label: u.status === 'inactive' ? 'Activate' : 'Deactivate',
+                            onSelect: () => toggleStatus(u),
+                            hidden: !canManage,
+                          },
+                          {
+                            label: 'Email setup',
+                            onSelect: () =>
+                              openSetupEmail(u, responsibilities.get(u.email) ?? []),
+                          },
+                          {
+                            label: 'Remove user',
+                            onSelect: () => removeUser(u),
+                            danger: true,
+                            hidden: !canManage,
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}
