@@ -6,8 +6,9 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   footer: ReactNode;
-  /** `wide` for dialogs holding a form with several sections side by side. */
-  size?: 'default' | 'wide';
+  /** `wide` for dialogs holding a form with several sections side by side;
+   *  `xl` for dialogs presenting a whole forecast grid. */
+  size?: 'default' | 'wide' | 'xl';
 }
 
 /** Elements a keyboard user can land on inside the dialog. */
@@ -70,7 +71,7 @@ export function Modal({ open, title, onClose, children, footer, size = 'default'
       aria-hidden={!open}
     >
       <div
-        className={`modal${size === 'wide' ? ' modal-wide' : ''}`}
+        className={`modal${size === 'wide' ? ' modal-wide' : ''}${size === 'xl' ? ' modal-xl' : ''}`}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"

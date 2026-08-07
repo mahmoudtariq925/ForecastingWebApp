@@ -134,6 +134,9 @@ export default function App() {
         allowedEntities={scopedEntities}
         readOnly={!permissions.canSubmitForecasts}
         canRequestComments={permissions.canRequestCommentary}
+        // Approvers decide on the forecast itself; treasury keeps its own
+        // Approvals screen for the group-wide queue.
+        canApprove={permissions.canApproveForecasts && !permissions.canSubmitForecasts}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,

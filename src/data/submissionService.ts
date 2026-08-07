@@ -35,9 +35,11 @@ import {
   listSubmissions,
   loadApprovals,
   loadCycles,
+  loadData,
   loadSubmission,
   loadTemplates,
   saveApprovals,
+  saveData,
   saveSubmission,
   type ApprovalMap,
 } from '../storage/localStorage';
@@ -139,6 +141,73 @@ export function peekSubmission(
 ): Submission {
   const stored = loadSubmission(week, entity, template.id);
   return stored ? normalizeSubmission(stored) : buildSubmission(entity, week, template);
+}
+
+// ---------------------------------------------------------------------------
+// Draft checkpoints. The grid autosaves every keystroke, so "the stored
+// submission" is always the latest edit — useless as a restore point. The
+// Save Draft button records an explicit checkpoint here, and Reset returns
+// to it (rather than to the seeded starting data).
+// ---------------------------------------------------------------------------
+const checkpointKey = (period: string, entity: string, templateId: string) =>
+  `draftCheckpoint:${period}:${entity}:${templateId}`;
+
+/** Record the state Save Draft was pressed on, as the restore point for Reset. */
+export function saveDraftCheckpoint(sub: Submission): void {
+  saveData(checkpointKey(sub.period, sub.entity, sub.templateId), sub);
+}
+
+/** The last explicitly saved draft for (week, entity, template), if any. */
+export function loadDraftCheckpoint(
+  period: string,
+  entity: string,
+  templateId: string,
+): Submission | null {
+  const raw = loadData<unknown>(checkpointKey(period, entity, templateId), null);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  return normalizeSubmission(raw as Submission);
+}
+
+/** What still blocks a clean submission: unfilled cells and unexplained flags. */
+export interface SubmissionGaps {
+  emptyCells: string[];
+  uncommented: string[];
+}
+
+/**
+ * Pre-submit validation, shared by the Submission screen and the checklist's
+ * preview modal so both agree on what "ready to submit" means. Subtotal rows
+ * are computed and never count; a stored 0 is a real answer.
+ */
+export function submissionGaps(sub: Submission, template: ForecastTemplate): SubmissionGaps {
+  const periods = periodsOf(template).count;
+  const emptyCells: string[] = [];
+  template.categories.forEach((cat, catIdx) => {
+    if (cat.subtotal) return;
+    for (let d = 0; d < periods; d++) {
+      if (sub.values[`${catIdx}-${d}`] === undefined) emptyCells.push(`${catIdx}-${d}`);
+    }
+  });
+  const uncommented = sub.flags.filter((k) => !sub.comments?.[k]?.trim());
+  return { emptyCells, uncommented };
+}
+
+/**
+ * Submit a forecast without the Submission screen being open (the checklist's
+ * preview modal). Writes the stored submission and reopens the approval
+ * decision, exactly like submitting from the grid.
+ */
+export function submitStoredForecast(
+  week: string,
+  entity: string,
+  templateId: string,
+): Submission | null {
+  const sub = materializeSubmission(week, entity, templateId);
+  if (!sub) return null;
+  const next: Submission = { ...sub, status: 'submitted', updatedAt: new Date().toISOString() };
+  saveSubmission(next);
+  clearApprovalDecision(entity);
+  return next;
 }
 
 /** A line item an entity forecasts on that the display template has no row for. */

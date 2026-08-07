@@ -1,13 +1,23 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { listCycles } from '../../data/appData';
+import { useDialog } from '../common/dialogContext';
+import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
+import { listCycles, listEntities } from '../../data/appData';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
 import { currentWeekKey, prevWeekKey, weekLabel, weekLabelShort } from '../../data/periods';
-import { pendingApprovalCount } from '../../data/submissionService';
+import {
+  applyApprovalDecision,
+  mergedEntityStatus,
+  peekSubmission,
+  pendingApprovalCount,
+  submissionGaps,
+  submitStoredForecast,
+  templateForEntity,
+} from '../../data/submissionService';
 import { analystTodo, type StepState, type TodoStep } from '../../data/todoService';
-import { loadApprovals, loadCycles } from '../../storage/localStorage';
-import type { User } from '../../types';
+import { loadApprovals, loadCycles, loadTemplates } from '../../storage/localStorage';
+import type { SubmissionStatus, User } from '../../types';
 import type { ViewId } from '../../types/nav';
 import type { SubmissionTarget } from '../submissions/Submission';
 
@@ -38,13 +48,15 @@ function ChecklistStep({
   index,
   step,
   action,
+  dataTour,
 }: {
   index: number;
   step: TodoStep;
   action?: React.ReactNode;
+  dataTour?: string;
 }) {
   return (
-    <div className={`todo-step todo-${step.state}`}>
+    <div className={`todo-step todo-${step.state}`} data-tour={dataTour}>
       <span className="todo-mark" aria-hidden="true">
         {STEP_MARK[step.state]}
       </span>
@@ -56,6 +68,12 @@ function ChecklistStep({
       {action}
     </div>
   );
+}
+
+/** What the forecast preview modal was opened for. */
+interface PreviewTarget {
+  entity: string;
+  mode: 'submit' | 'approve';
 }
 
 /**
@@ -70,8 +88,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
   const permissions = permissionsFor(user);
   const isApprover = permissions.canApproveForecasts;
+  const { notify } = useDialog();
+  // Bumped after a submit / approval from this screen so everything re-reads.
+  const [version, setVersion] = useState(0);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  const [countriesOpen, setCountriesOpen] = useState(true);
 
   const todo = useMemo(() => {
+    void version;
     // An approver's queue is scoped to their own entities, same as the
     // Approvals screen — the checklist must not count someone else's work.
     const pending = isApprover
@@ -82,12 +106,60 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         )
       : 0;
     return analystTodo(user, week, activeCycle, pending);
-  }, [user, week, activeCycle, isApprover]);
+  }, [user, week, activeCycle, isApprover, version]);
+
+  // The approver's decision list: every country they cover, with Review /
+  // Approve in place — this replaces the separate Approvals screen.
+  const approverRows = useMemo(() => {
+    if (!isApprover) return [];
+    void version;
+    const scoped = assignedEntitiesFor(user);
+    const templates = loadTemplates();
+    const overrides = loadApprovals(activeCycle?.id ?? '');
+    return listEntities()
+      .filter((e) => scoped.includes(e.name))
+      .map((e) => {
+        const templateId = templateForEntity(templates, e.name)?.id ?? '';
+        return { entity: e.name, templateId, status: mergedEntityStatus(e, week, templateId, overrides) };
+      });
+  }, [isApprover, user, week, activeCycle, version]);
+  const awaitingDecision = (s: SubmissionStatus) => s === 'submitted' || s === 'pending';
+  const waitingCount = approverRows.filter((r) => awaitingDecision(r.status)).length;
 
   const work = todo.entities;
   const canEditForecasts = permissions.canSubmitForecasts;
   const firstName = user.name.split(' ')[0];
   const first = work[0];
+
+  /** Approve straight from the preview modal. */
+  const approveNow = async (entity: string) => {
+    const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
+    applyApprovalDecision(week, entity, templateId, 'approved');
+    setPreview(null);
+    setVersion((n) => n + 1);
+    await notify({ tone: 'success', message: `${entity} forecast approved for ${weekLabel(week)}.` });
+  };
+
+  /** Submit from the preview modal — or, when the forecast still has gaps,
+   * hand over to the Submission screen where the guided fixes live. */
+  const submitNow = async (entity: string) => {
+    const template = templateForEntity(loadTemplates(), entity);
+    if (!template) return;
+    const gaps = submissionGaps(peekSubmission(entity, week, template), template);
+    if (gaps.emptyCells.length > 0 || gaps.uncommented.length > 0) {
+      setPreview(null);
+      onOpenSubmission({ entity, week, templateId: template.id, autoSubmit: true });
+      return;
+    }
+    submitStoredForecast(week, entity, template.id);
+    setPreview(null);
+    setVersion((n) => n + 1);
+    await notify({ tone: 'success', message: `${entity} forecast submitted for approval.` });
+  };
+
+  const previewTemplateId = preview
+    ? templateForEntity(loadTemplates(), preview.entity)?.id
+    : undefined;
 
   return (
     <div className="view active">
@@ -148,15 +220,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   <button
                     className="btn btn-primary"
                     style={{ padding: '6px 12px', fontSize: 12 }}
-                    onClick={() =>
-                      onOpenSubmission({
-                        entity: first.entity,
-                        week,
-                        templateId: first.templateId,
-                      })
-                    }
+                    data-tour="todo-submit"
+                    title="Review the saved forecast and submit it from here"
+                    onClick={() => setPreview({ entity: first.entity, mode: 'submit' })}
                   >
-                    {todo.steps[0].state === 'blocked' ? 'Open Forecast' : 'Enter Forecast'}
+                    Submit Forecast
                   </button>
                 )
               }
@@ -165,21 +233,78 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
               index={2}
               step={todo.steps[1]}
               action={
-                (isApprover || canEditForecasts) &&
+                !isApprover &&
+                canEditForecasts &&
                 todo.steps[1].state === 'active' && (
                   <button
                     className="btn btn-primary"
                     style={{ padding: '6px 12px', fontSize: 12 }}
-                    onClick={() => onNavigate(isApprover ? 'approvals' : 'review')}
+                    onClick={() => onNavigate('review')}
                   >
-                    {isApprover ? 'Open Approvals' : 'Open Comments'}
+                    Open Comments
                   </button>
                 )
               }
             />
+            {/* The approver decides right here: review opens the forecast,
+                approve confirms it over a read-only preview. */}
+            {isApprover && approverRows.length > 0 && (
+              <div className="todo-countries" data-tour="todo-approvals">
+                <button
+                  className="todo-countries-head"
+                  aria-expanded={countriesOpen}
+                  onClick={() => setCountriesOpen((v) => !v)}
+                >
+                  <span className="section-caret" aria-hidden="true">
+                    {countriesOpen ? '▾' : '▸'}
+                  </span>
+                  Your countries · {approverRows.length}
+                  {waitingCount > 0 && (
+                    <span className="badge-num warn">{waitingCount} waiting on you</span>
+                  )}
+                </button>
+                {countriesOpen &&
+                  approverRows.map((r) => (
+                    <div className="todo-country-row" key={r.entity}>
+                      <strong>{r.entity}</strong>
+                      <StatusPill status={r.status} />
+                      <span className="row-flex" style={{ marginLeft: 'auto' }}>
+                        <button
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          title="Open the full forecast read-only"
+                          onClick={() =>
+                            onOpenSubmission({ entity: r.entity, week, templateId: r.templateId })
+                          }
+                        >
+                          Review
+                        </button>
+                        {awaitingDecision(r.status) ? (
+                          <button
+                            className="btn btn-success"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => setPreview({ entity: r.entity, mode: 'approve' })}
+                          >
+                            Approve
+                          </button>
+                        ) : r.status === 'approved' ? (
+                          <span className="text-muted" style={{ fontSize: 11 }}>
+                            Approved ✓
+                          </span>
+                        ) : (
+                          <span className="text-muted" style={{ fontSize: 11 }}>
+                            with submitter
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
             <ChecklistStep
               index={3}
               step={todo.steps[2]}
+              dataTour="todo-feedback"
               action={
                 todo.steps[2].state !== 'waiting' && (
                   <button
@@ -274,6 +399,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                 <div
                   className={`variance-panel${w.openQuestions > 0 ? ' comment-request-panel' : ''}`}
                   style={{ margin: '0 20px 16px', borderRadius: 4 }}
+                  data-tour="analyst-feedback"
                 >
                   <h4>Feedback from Treasury</h4>
                   <div className="row">
@@ -294,6 +420,52 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           ))
         )}
       </div>
+
+      {/* Mounted fresh per open so the sections start collapsed every time. */}
+      {preview && (
+        <ForecastPreviewModal
+          open
+          entity={preview.entity}
+          week={week}
+          title={
+            preview.mode === 'approve'
+              ? `Approve · ${preview.entity} · ${weekLabelShort(week)}`
+              : `Review & Submit · ${preview.entity} · ${weekLabelShort(week)}`
+          }
+          onClose={() => setPreview(null)}
+          actions={
+            preview.mode === 'approve' ? (
+              <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
+                Approve Forecast
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setPreview(null);
+                    onOpenSubmission({
+                      entity: preview.entity,
+                      week,
+                      templateId: previewTemplateId,
+                    });
+                  }}
+                >
+                  Open Full Forecast
+                </button>
+                {canEditForecasts && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void submitNow(preview.entity)}
+                  >
+                    Submit for Approval
+                  </button>
+                )}
+              </>
+            )
+          }
+        />
+      )}
     </div>
   );
 }
