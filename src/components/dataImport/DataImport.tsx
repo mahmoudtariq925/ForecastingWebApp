@@ -184,7 +184,7 @@ export function DataImport({ onNavigate }: DataImportProps) {
         <div className="panel">
           <div className="panel-header">
             <h3>Getting started</h3>
-            <span className="tag">live instance setup</span>
+            <span className="tag">setup</span>
           </div>
           <div className="panel-body">
             <div className="setup-steps">
@@ -209,7 +209,7 @@ export function DataImport({ onNavigate }: DataImportProps) {
         <div className="panel" data-tour="data-import">
           <div className="panel-header">
             <h3>Import a workbook</h3>
-            <span className="tag">.xlsx or .csv · same importer as My Submissions</span>
+            <span className="tag">.xlsx or .csv</span>
           </div>
           <div className="panel-body">
             {entities.length === 0 ? (
@@ -298,15 +298,12 @@ export function DataImport({ onNavigate }: DataImportProps) {
         <div className="panel">
           <div className="panel-header">
             <h3>Imported forecasts</h3>
-            <span className="tag">
-              {stored.length} stored · totals update every screen
-            </span>
+            <span className="tag">{stored.length} stored</span>
           </div>
           <div className="panel-body no-pad">
             {stored.length === 0 ? (
               <p className="text-dim" style={{ margin: 0, padding: 16 }}>
-                Nothing imported yet. Each upload appears here and immediately drives the
-                dashboards, consolidation and comparisons.
+                Nothing imported yet. Each upload appears here and feeds the dashboard.
               </p>
             ) : (
               <table>

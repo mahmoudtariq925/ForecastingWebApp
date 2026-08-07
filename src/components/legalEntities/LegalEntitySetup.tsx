@@ -147,6 +147,7 @@ export function LegalEntitySetup() {
                     <th>Currency</th>
                     <th>Status</th>
                     <th data-tour="entity-template">Forecast Template</th>
+                    <th className="num">Variance</th>
                     <th className="num">Viewers</th>
                     <th className="num">Approvers</th>
                     <th className="num">Submitters</th>
@@ -185,6 +186,13 @@ export function LegalEntitySetup() {
                       </td>
                       <td className="text-dim" style={{ fontSize: 12 }}>
                         {templates.find((t) => t.id === e.forecastTemplateId)?.name ?? '— none —'}
+                      </td>
+                      <td className="num">
+                        {e.varianceThreshold === undefined ? (
+                          <span className="text-muted">default</span>
+                        ) : (
+                          `±${e.varianceThreshold}%`
+                        )}
                       </td>
                       <td className="num">{e.viewers.length}</td>
                       <td className="num">{e.approvers.length}</td>

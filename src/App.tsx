@@ -5,7 +5,6 @@ import { AnalystHome } from './components/home/AnalystHome';
 import { Cycles } from './components/cycles/Cycles';
 import { Submission, type SubmissionTarget } from './components/submissions/Submission';
 import { Approvals } from './components/approvals/Approvals';
-import { Consolidated } from './components/consolidated/Consolidated';
 import { Comparison } from './components/comparisons/Comparison';
 import { CommentsReview } from './components/review/CommentsReview';
 import { LegalEntitySetup } from './components/legalEntities/LegalEntitySetup';
@@ -122,7 +121,7 @@ export default function App() {
   };
 
   const screens: Record<ViewId, JSX.Element> = {
-    dashboard: <Dashboard onOpenModal={setModal} onNavigate={navigate} onOpenSubmission={openSubmission} />,
+    dashboard: <Dashboard onOpenModal={setModal} onOpenSubmission={openSubmission} />,
     analystHome: (
       <AnalystHome user={user} onOpenSubmission={openSubmission} onNavigate={navigate} />
     ),
@@ -137,10 +136,10 @@ export default function App() {
         // Approvers decide on the forecast itself; treasury keeps its own
         // Approvals screen for the group-wide queue.
         canApprove={permissions.canApproveForecasts && !permissions.canSubmitForecasts}
+        isTreasury={permissions.canViewTreasuryDashboard}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
-    consolidated: <Consolidated />,
     comparison: <Comparison scopeEntities={scopedEntities} />,
     review: (
       <CommentsReview

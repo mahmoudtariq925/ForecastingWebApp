@@ -34,6 +34,19 @@ interface ChartProps {
   /** Unit suffix for tooltips / axis labels, e.g. "k". */
   unit?: string;
   height?: number;
+  /**
+   * Stack bar series in one column per slot rather than standing them side by
+   * side. Positives stack up from the baseline and negatives down, so an
+   * inflow and an outflow bar share an x position and their heights read as
+   * one gross-flow column.
+   */
+  stacked?: boolean;
+  /**
+   * Called with the slot index when a column is clicked. Adds a full-height
+   * hit area per slot, so the whole column is the target rather than the few
+   * pixels of a bar.
+   */
+  onPointClick?: (index: number) => void;
 }
 
 const PAD_L = 52;
@@ -52,7 +65,14 @@ function fmtAxis(v: number): string {
 const fmtVal = (v: number, unit: string) => `${Math.round(v).toLocaleString()}${unit}`;
 
 /** Measures its container width and redraws the SVG on resize. */
-export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
+export function Chart({
+  labels,
+  series,
+  unit = '',
+  height = 200,
+  stacked = false,
+  onPointClick,
+}: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
 
@@ -72,9 +92,26 @@ export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
   const plotW = w - PAD_L - PAD_R;
   const plotH = h - PAD_T - PAD_B;
 
+  const barSeries = series.filter((s) => s.kind === 'bar');
   const all = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
-  let min = Math.min(0, ...all);
-  let max = Math.max(0, ...all);
+  // Stacked columns reach further than any single bar in them, so the axis has
+  // to be scaled against the per-slot totals rather than the raw values.
+  const stackExtent: number[] = [];
+  if (stacked) {
+    for (let i = 0; i < n; i++) {
+      let up = 0;
+      let down = 0;
+      for (const s of barSeries) {
+        const v = s.values[i];
+        if (v === null || v === undefined) continue;
+        if (v >= 0) up += v;
+        else down += v;
+      }
+      stackExtent.push(up, down);
+    }
+  }
+  let min = Math.min(0, ...all, ...stackExtent);
+  let max = Math.max(0, ...all, ...stackExtent);
   if (min === max) max = min + 1;
   const span = max - min;
   if (min < 0) min -= span * 0.06;
@@ -84,8 +121,17 @@ export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
   const slotW = plotW / Math.max(n, 1);
   const x = (i: number) => PAD_L + (i + 0.5) * slotW;
 
-  const barSeries = series.filter((s) => s.kind === 'bar');
-  const barW = (slotW * 0.55) / Math.max(barSeries.length, 1);
+  // Stacked: one column per slot. Grouped: one bar per series, side by side.
+  const barW = stacked ? slotW * 0.5 : (slotW * 0.55) / Math.max(barSeries.length, 1);
+  /** Running baseline per slot while stacking, kept per sign. */
+  const stackTops = new Map<string, number>();
+  const stackBase = (i: number, positive: boolean): number => {
+    const key = `${i}:${positive}`;
+    return stackTops.get(key) ?? 0;
+  };
+  const pushStack = (i: number, positive: boolean, v: number) => {
+    stackTops.set(`${i}:${positive}`, stackBase(i, positive) + v);
+  };
 
   /** Path segments for a line/area series, split at null gaps. */
   const segments = (vals: (number | null)[]): { i: number; v: number }[][] => {
@@ -134,6 +180,27 @@ export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
         {barSeries.map((s, si) =>
           s.values.map((v, i) => {
             if (v === null || v === 0) return null;
+            if (stacked) {
+              // Sit this bar on top of whatever the same-signed bars before it
+              // already occupy, so one column shows the gross flow.
+              const from = stackBase(i, v >= 0);
+              pushStack(i, v >= 0, v);
+              const top = Math.min(y(from), y(from + v));
+              const bh = Math.max(Math.abs(y(from + v) - y(from)), 1);
+              return (
+                <rect
+                  key={`${si}-${i}`}
+                  x={x(i) - barW / 2}
+                  y={top}
+                  width={barW}
+                  height={bh}
+                  fill={s.color}
+                  opacity="0.6"
+                >
+                  <title>{`${labels[i]} · ${s.label}: ${fmtVal(v, unit)}`}</title>
+                </rect>
+              );
+            }
             const x0 = x(i) - (barSeries.length * barW) / 2 + si * barW;
             const y0 = Math.min(y(0), y(v));
             const bh = Math.max(Math.abs(y(v) - y(0)), 1);
@@ -185,6 +252,36 @@ export function Chart({ labels, series, unit = '', height = 200 }: ChartProps) {
               ),
             ),
           )}
+
+        {/* Click targets: the whole column, so a thin bar or a single line
+            vertex is not the only thing a pointer can land on. Sitting on top
+            of the marks, each one carries the readout for its whole slot —
+            more than the per-mark tooltips it covers. */}
+        {onPointClick &&
+          labels.map((label, i) => (
+            <rect
+              key={`hit${i}`}
+              className="chart-hit"
+              x={x(i) - slotW / 2}
+              y={PAD_T}
+              width={slotW}
+              height={plotH}
+              fill="transparent"
+              onClick={() => onPointClick(i)}
+            >
+              <title>
+                {[
+                  label,
+                  ...series.map((s) =>
+                    s.values[i] === null || s.values[i] === undefined
+                      ? `${s.label}: —`
+                      : `${s.label}: ${fmtVal(s.values[i] as number, unit)}`,
+                  ),
+                  'Click for the country breakdown',
+                ].join('\n')}
+              </title>
+            </rect>
+          ))}
 
         {/* x labels */}
         {labels.map((label, i) =>

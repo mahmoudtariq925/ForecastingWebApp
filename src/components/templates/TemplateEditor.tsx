@@ -502,7 +502,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
           <>
             <div className="section-header">
               <h2>Preview</h2>
-              <span className="tag">exactly how submitters will see it</span>
+              <span className="tag">as submitters see it</span>
             </div>
             <div className="panel">
               <div className="grid-toolbar">
@@ -510,7 +510,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                   <strong>{previewTemplate.name}</strong> ·{' '}
                   <span className="text-muted">
                     {summary} · {periodCount} {granularity} period
-                    {periodCount === 1 ? '' : 's'} · read-only preview
+                    {periodCount === 1 ? '' : 's'}
                   </span>
                 </div>
               </div>

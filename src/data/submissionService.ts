@@ -366,6 +366,20 @@ export function priorValueFor(
   return prior[`${catIdx}-${shifted}`] || 0;
 }
 
+/**
+ * The variance rules that apply to one entity: the group defaults from
+ * Settings, with the threshold Legal Entity Setup configures for that entity
+ * layered on top. Every variance computation goes through this, so a
+ * per-entity threshold is honoured on the grid, the dashboard and the
+ * comments queue alike.
+ */
+export function settingsForEntity(entity: string, base: Settings): Settings {
+  const configured = listLegalEntities().find((e) => e.name === entity)?.varianceThreshold;
+  return typeof configured === 'number' && configured > 0
+    ? { ...base, varianceThreshold: configured }
+    : base;
+}
+
 /** Does an edited cell breach the variance threshold vs its prior value? */
 export function isVariance(
   current: number,
@@ -460,8 +474,10 @@ export function largestVariances(
     ? listEntities().filter((e) => onlyEntities.includes(e.name))
     : listEntities();
   for (const e of scanned) {
-    // Each entity is scanned on the template it actually submits on.
+    // Each entity is scanned on the template it actually submits on, against
+    // its own variance threshold.
     const entityTemplate = templateForEntity(templates, e.name) ?? template;
+    const entitySettings = settingsForEntity(e.name, settings);
     const sub = peekSubmission(e.name, week, entityTemplate);
     const prior = getPriorValues(e.name, week, entityTemplate);
     const periods = periodsOf(entityTemplate).count;
@@ -471,7 +487,7 @@ export function largestVariances(
         const current = sub.values[key] || 0;
         const prev = priorValueFor(prior, catIdx, d, entityTemplate);
         if (prev === null) continue; // beyond the prior horizon
-        if (!isVariance(current, prev, settings)) continue;
+        if (!isVariance(current, prev, entitySettings)) continue;
         rows.push({
           entity: e.name,
           category: cat.label,

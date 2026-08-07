@@ -102,6 +102,12 @@ export interface LegalEntity {
   submitters: string[];
   /** Forecast template this entity submits on. */
   forecastTemplateId: string;
+  /**
+   * Percentage move versus the prior cycle that flags a cell for commentary.
+   * Set per entity because a small entity's numbers swing far harder than a
+   * large one's. Omitted = fall back to the group default in Settings.
+   */
+  varianceThreshold?: number;
 }
 
 /**
@@ -237,6 +243,10 @@ export interface Submission {
 export interface Settings {
   horizon: string;
   frequency: string;
+  /**
+   * Group-wide default. Legal Entity Setup overrides it per entity, which is
+   * where the threshold is actually managed — see `LegalEntity.varianceThreshold`.
+   */
   varianceThreshold: number;
   minValueToTrigger: string;
   exemptNewPeriods: string;

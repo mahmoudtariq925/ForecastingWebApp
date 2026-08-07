@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { assignmentList, eligibleUsers, withAssignment } from '../../data/legalEntityService';
+import { loadSettings } from '../../storage/localStorage';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { EntityResponsibility, ForecastTemplate, LegalEntity, User } from '../../types';
 
 const RESPONSIBILITIES: {
@@ -67,6 +69,11 @@ export function EntitySetupDialog({
 }: EntitySetupDialogProps) {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [picking, setPicking] = useState<EntityResponsibility | null>(null);
+  // The fallback an entity without its own threshold is held to.
+  const defaultThreshold = useMemo(
+    () => loadSettings(DEFAULT_SETTINGS).varianceThreshold,
+    [],
+  );
 
   const update = <K extends keyof LegalEntity>(key: K, value: LegalEntity[K]) => {
     if (!entity || !canManage) return;
@@ -183,6 +190,45 @@ export function EntitySetupDialog({
               <span className="text-muted" style={{ fontSize: 11 }}>
                 Inactive entities stay configured but drop out of forecast selection.
               </span>
+            </div>
+          </div>
+
+          {/* ---------- Variance rule ---------- */}
+          <h4 className="setup-heading">
+            Variance rule
+            <span className="text-muted"> · when this entity must explain a move</span>
+          </h4>
+          <div className="form-row">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Variance Threshold (%)</label>
+              <input
+                className="form-input"
+                inputMode="numeric"
+                placeholder={`${defaultThreshold} (group default)`}
+                value={entity.varianceThreshold ?? ''}
+                disabled={!canManage}
+                aria-label="Variance threshold percent"
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  // Blank means "follow the group default" rather than 0%,
+                  // which would flag every cell in the grid.
+                  update(
+                    'varianceThreshold',
+                    raw === '' ? undefined : Math.max(0, Number(raw) || 0),
+                  );
+                }}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Effect</label>
+              <div className="text-dim" style={{ fontSize: 12, lineHeight: 1.7 }}>
+                Cells moving more than ±
+                <strong>{entity.varianceThreshold ?? defaultThreshold}%</strong> versus the prior
+                cycle are flagged and need commentary before this entity's forecast can be closed.
+                <div className="text-muted">
+                  Leave blank to follow the group default of ±{defaultThreshold}%.
+                </div>
+              </div>
             </div>
           </div>
 
