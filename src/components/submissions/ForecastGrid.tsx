@@ -42,6 +42,12 @@ export interface ForecastGridProps {
    * dimmed. Used to point at the cells still needing input before submission.
    */
   highlight?: Set<string> | null;
+  /**
+   * How the focus mode shades: `input` (red, pre-submit validation) or
+   * `flow` (amber, the guided commentary walkthrough — a lighter dim so the
+   * surrounding numbers stay readable next to the spotlit cell).
+   */
+  highlightTone?: 'input' | 'flow';
   /** Opening balance; `null` hides the running-total column entirely. */
   startingBalance: number | null;
   dayComments?: Record<string, string>;
@@ -180,6 +186,7 @@ function EditableCell({
     flags,
     requested,
     highlight,
+    highlightTone = 'input',
     editable,
     onChangeCell,
     onPaste,
@@ -190,7 +197,9 @@ function EditableCell({
   const flagged = flags.has(key);
   const asked = requested?.has(key) ?? false;
   // Focus mode dims everything that isn't being pointed at.
-  const focus = highlight ? (highlight.has(key) ? ' cell-spotlit' : ' cell-dimmed') : '';
+  const spotClass = highlightTone === 'flow' ? ' cell-flow-spotlit' : ' cell-spotlit';
+  const dimClass = highlightTone === 'flow' ? ' cell-flow-dimmed' : ' cell-dimmed';
+  const focus = highlight ? (highlight.has(key) ? spotClass : dimClass) : '';
 
   // Computed subtotal rows are never editable — the app derives them.
   if (categories[catIdx]?.subtotal) {
@@ -629,6 +638,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   // A running balance only means something once an opening balance is given,
   // so the whole column appears and disappears with it.
   const hasBalance = startingBalance !== null;
+  // The day-comment column only renders when the screen supplies the data —
+  // the submission grid dropped it, so nothing here may assume it exists.
+  const showComments = dayComments !== undefined;
   // With sections across the columns, collapsing one replaces its columns with
   // a single total column — so the body renders this list, not `categories`.
   const isCollapsed = (gi: number) =>
@@ -685,9 +697,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               g.idxs.map((i) => <th key={`u${i}`} rowSpan={1} className="day-h" />)
             ),
           )}
-          <th className="day-h" rowSpan={2} style={{ minWidth: 160 }}>
-            Comments
-          </th>
+          {showComments && (
+            <th className="day-h" rowSpan={2} style={{ minWidth: 160 }}>
+              Comments
+            </th>
+          )}
           <th className="day-h" rowSpan={2} style={{ background: '#e7e4dc' }}>
             Total
           </th>
@@ -712,9 +726,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         {hasBalance && (
           <tr className="section-row">
             <td className="row-label">Starting Balance</td>
-            {/* One filler per visible column, plus the Comments column —
+            {/* One filler per visible column (plus Comments when shown) —
                 collapsing a section changes how many that is. */}
-            {Array.from({ length: columns.length + 1 }).map((_, i) => (
+            {Array.from({ length: columns.length + (showComments ? 1 : 0) }).map((_, i) => (
               <td key={i} />
             ))}
             <td className="cell total-cell">{startingBalance.toLocaleString()}</td>
@@ -751,19 +765,21 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 />
               ),
             )}
-            <td className="cell comment-cell">
-              {editable ? (
-                <input
-                  type="text"
-                  className="comment-input"
-                  value={dayComments?.[String(dayIdx)] ?? ''}
-                  placeholder=""
-                  onChange={(e) => onChangeDayComment?.(dayIdx, e.target.value)}
-                />
-              ) : (
-                <span style={{ padding: '0 8px' }}>{dayComments?.[String(dayIdx)] ?? ''}</span>
-              )}
-            </td>
+            {showComments && (
+              <td className="cell comment-cell">
+                {editable ? (
+                  <input
+                    type="text"
+                    className="comment-input"
+                    value={dayComments?.[String(dayIdx)] ?? ''}
+                    placeholder=""
+                    onChange={(e) => onChangeDayComment?.(dayIdx, e.target.value)}
+                  />
+                ) : (
+                  <span style={{ padding: '0 8px' }}>{dayComments?.[String(dayIdx)] ?? ''}</span>
+                )}
+              </td>
+            )}
             {(() => {
               const net = dayNet(numCats, values, dayIdx);
               return (
@@ -798,7 +814,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 )}
               </td>
             ))}
-            <td className="cell total-cell" />
+            {showComments && <td className="cell total-cell" />}
             <td className="cell total-cell">
               {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
                 .reduce((a, b) => a + b, 0)
@@ -813,16 +829,20 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
         )}
         <tr>
           <td className="row-label total">TOTAL</td>
-          {categories.map((cat, catIdx) => (
-            <td key={catIdx} className="cell total-cell">
+          {/* Iterate the VISIBLE columns — collapsing a section replaces its
+              member columns with one total column, and this row must follow. */}
+          {columns.map((col) => (
+            <td key={col.catIdx ?? `g${col.gi}`} className="cell total-cell">
               {fmt(
-                cat.subtotal
-                  ? subtotalTotal(categories, values, catIdx, numDays)
-                  : catTotal(values, catIdx, numDays),
+                col.catIdx === null
+                  ? groupTotal(categories, values, groups[col.gi].idxs, numDays)
+                  : categories[col.catIdx].subtotal
+                    ? subtotalTotal(categories, values, col.catIdx, numDays)
+                    : catTotal(values, col.catIdx, numDays),
               )}
             </td>
           ))}
-          <td className="cell total-cell" />
+          {showComments && <td className="cell total-cell" />}
           <td className="cell total-cell">
             {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
               .reduce((a, b) => a + b, 0)

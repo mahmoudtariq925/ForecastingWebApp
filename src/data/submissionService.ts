@@ -655,6 +655,18 @@ export function applyApprovalDecision(
 }
 
 /**
+ * Submit a forecast without the Submission screen being open — used by the
+ * checklist's review-and-submit dialog. Persists the status and reopens the
+ * approval decision exactly the way the Submission screen's own button does.
+ */
+export function submitForecast(week: string, entity: string, templateId: string): void {
+  const sub = materializeSubmission(week, entity, templateId);
+  if (!sub) return;
+  saveSubmission({ ...sub, status: 'submitted', updatedAt: new Date().toISOString() });
+  clearApprovalDecision(entity);
+}
+
+/**
  * Reopen an entity's decision when its forecast is (re)submitted. Without
  * this, a rejection stuck to the entity forever: the resubmitted forecast
  * arrived in the queue already showing "rejected", with no way to approve it.

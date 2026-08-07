@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
-import { TopBar } from '../layout/TopBar';
+import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
@@ -17,7 +17,7 @@ import {
   type GridValues,
 } from './gridMath';
 import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { listEntities, seedUsers } from '../../data/appData';
+import { listCycles, listEntities, seedUsers } from '../../data/appData';
 import { DEMO_DATA } from '../../data/dataSource';
 import {
   currentWeekKey,
@@ -25,6 +25,7 @@ import {
   HORIZON_DAYS,
   HORIZON_WEEKS,
   periodsOf,
+  rollShift,
   templateDates,
   templateDayLabels,
   listYears,
@@ -36,11 +37,14 @@ import {
   weekYearMonth,
 } from '../../data/periods';
 import {
+  activeCycleId,
   answerCommentRequest,
+  applyApprovalDecision,
   clearApprovalDecision,
   getOrCreateSubmission,
   getPriorValues,
   isVariance,
+  mergedEntityStatus,
   peekSubmission,
   priorValueFor,
   requestComment,
@@ -48,11 +52,15 @@ import {
 } from '../../data/submissionService';
 import { currentUser } from '../../data/session';
 import {
+  loadApprovals,
+  loadCycles,
+  loadDraftSnapshot,
   loadSettings,
   loadSubmission,
   loadTemplates,
   loadUsers,
   periodsWithSubmissions,
+  saveDraftSnapshot,
   saveSubmission,
 } from '../../storage/localStorage';
 import { exportSubmissionXlsx, exportTemplateXlsx } from '../../utils/excel';
@@ -86,6 +94,14 @@ interface SubmissionProps {
   readOnly?: boolean;
   /** Treasury: may ask the submitter for commentary on any cell. */
   canRequestComments?: boolean;
+  /**
+   * Non-treasury users don't pick a period or template — the active cycle
+   * decides the period and Legal Entity Setup decides the template, so they
+   * see a read-only cycle chip instead of the year/month/week/template pickers.
+   */
+  cycleManaged?: boolean;
+  /** Approver: an Approve action right on the forecast they are reading. */
+  canApprove?: boolean;
 }
 
 export function Submission({
@@ -93,6 +109,8 @@ export function Submission({
   allowedEntities,
   readOnly = false,
   canRequestComments = false,
+  cycleManaged = false,
+  canApprove = false,
 }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const entities = useMemo(() => listEntities(), []);
@@ -142,8 +160,17 @@ export function Submission({
     );
   }
 
+  // Cycle-managed users see WHEN they are forecasting, not a period picker:
+  // the active cycle decides that, and the template comes from Legal Entity
+  // Setup. Only the entity remains selectable (when they cover more than one).
+  const horizon = templateDates(template, week);
+  const horizonEnd = horizon[horizon.length - 1];
+  const fmtDay = (d: Date) =>
+    d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const isCurrentCycle = week === currentWeekKey();
+
   return (
-    <div className="view active">
+    <div className="view active submission-view">
       {/* Remount the editor whenever the selection changes so state reloads. */}
       <SubmissionEditor
         key={`${entity}:${week}:${template.id}`}
@@ -155,75 +182,110 @@ export function Submission({
         onChangeOrientation={setOrientationOverride}
         readOnly={readOnly}
         canRequestComments={canRequestComments}
+        canApprove={canApprove}
         selectors={
-          <>
-            <select
-              className="form-select"
-              style={{ width: 'auto' }}
-              value={entity}
-              onChange={(e) => setEntity(e.target.value)}
-              aria-label="Entity"
-            >
-              {selectableEntities.map((en) => (
-                <option key={en.name} value={en.name}>
-                  {en.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              style={{ width: 'auto' }}
-              value={year}
-              onChange={(e) => setYearMonth(Number(e.target.value), month)}
-              aria-label="Year"
-            >
-              {listYears().map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              style={{ width: 'auto' }}
-              value={month}
-              onChange={(e) => setYearMonth(year, Number(e.target.value))}
-              aria-label="Month"
-            >
-              {Array.from({ length: 12 }, (_v, i) => i + 1).map((m) => (
-                <option key={m} value={m}>
-                  {monthName(m)}
-                </option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              style={{ width: 'auto' }}
-              value={week}
-              onChange={(e) => setWeek(e.target.value)}
-              aria-label="Week"
-            >
-              {weekOptions.map((w) => (
-                <option key={w} value={w}>
-                  {weekLabel(w)}
-                  {savedWeeks.has(w) ? ' ●' : ''}
-                </option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              style={{ width: 'auto' }}
-              value={template.id}
-              onChange={(e) => setTemplateId(e.target.value)}
-              aria-label="Forecast template"
-            >
-              {available.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </>
+          cycleManaged ? (
+            <>
+              {selectableEntities.length > 1 && (
+                <select
+                  className="form-select"
+                  style={{ width: 'auto' }}
+                  value={entity}
+                  onChange={(e) => setEntity(e.target.value)}
+                  aria-label="Entity"
+                >
+                  {selectableEntities.map((en) => (
+                    <option key={en.name} value={en.name}>
+                      {en.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div
+                className="cycle-chip"
+                data-tour="cycle-chip"
+                title="The forecast period follows the cycle Treasury opened — nothing to pick here"
+              >
+                <span className="dot" />
+                <span className="label">{isCurrentCycle ? 'This cycle' : 'Prior cycle'}</span>
+                <span className="val">
+                  {weekLabel(week)} – {horizonEnd ? fmtDay(horizonEnd) : ''}
+                </span>
+              </div>
+              <span className="cycle-chip-template" title="Template is set by Treasury in Legal Entity Setup">
+                {template.name}
+              </span>
+            </>
+          ) : (
+            <>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={entity}
+                onChange={(e) => setEntity(e.target.value)}
+                aria-label="Entity"
+              >
+                {selectableEntities.map((en) => (
+                  <option key={en.name} value={en.name}>
+                    {en.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={year}
+                onChange={(e) => setYearMonth(Number(e.target.value), month)}
+                aria-label="Year"
+              >
+                {listYears().map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={month}
+                onChange={(e) => setYearMonth(year, Number(e.target.value))}
+                aria-label="Month"
+              >
+                {Array.from({ length: 12 }, (_v, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>
+                    {monthName(m)}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={week}
+                onChange={(e) => setWeek(e.target.value)}
+                aria-label="Week"
+              >
+                {weekOptions.map((w) => (
+                  <option key={w} value={w}>
+                    {weekLabel(w)}
+                    {savedWeeks.has(w) ? ' ●' : ''}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="form-select"
+                style={{ width: 'auto' }}
+                value={template.id}
+                onChange={(e) => setTemplateId(e.target.value)}
+                aria-label="Forecast template"
+              >
+                {available.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )
         }
       />
     </div>
@@ -250,7 +312,19 @@ interface EditorProps {
   readOnly: boolean;
   /** Treasury: may ask the submitter for commentary on any cell. */
   canRequestComments: boolean;
+  /** Approver: an Approve action right on the forecast they are reading. */
+  canApprove: boolean;
   selectors: React.ReactNode;
+}
+
+/**
+ * The guided commentary walkthrough started by Submit when flagged cells
+ * still lack commentary: one variance spotlit at a time, the comment box
+ * alongside, advancing to the next unexplained cell on each save.
+ */
+interface CommentFlow {
+  queue: string[];
+  idx: number;
 }
 
 /** Everything one Ctrl+Z restores: the full editable state of a forecast. */
@@ -295,10 +369,15 @@ function SubmissionEditor({
   onChangeOrientation,
   readOnly,
   canRequestComments,
+  canApprove,
   selectors,
 }: EditorProps) {
   const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
   const { confirm, notify } = useDialog();
+  const activeCycle = useMemo(() => {
+    const cycles = loadCycles(listCycles());
+    return cycles.find((c) => c.status === 'submitted') ?? cycles[0];
+  }, []);
   // Column set comes from the template (editor-authored ones can define
   // their own periods); templates without a `periods` block keep the
   // standard 20-working-day horizon.
@@ -333,6 +412,12 @@ function SubmissionEditor({
   const [commentDraft, setCommentDraft] = useState('');
   /** Treasury's question, while it is being written in the cell dialog. */
   const [requestDraft, setRequestDraft] = useState('');
+  /** Guided commentary walkthrough (submit with unexplained variances). */
+  const [flow, setFlow] = useState<CommentFlow | null>(null);
+  const [flowDraft, setFlowDraft] = useState('');
+  /** Which side of the screen the walkthrough panel sits on — always the
+   *  side AWAY from the spotlit cell, so cell and box are visible together. */
+  const [flowSide, setFlowSide] = useState<'left' | 'right'>('right');
   /**
    * Cells still needing a number, spotlit after a submit attempt. null = not
    * validating; an empty set never happens (nothing to point at → submit).
@@ -354,12 +439,10 @@ function SubmissionEditor({
   // Sections start collapsed for anyone who came to READ the forecast —
   // treasury, approvers, viewers — because the shape is the point and every
   // line item is noise. Whoever is entering the numbers needs them open.
+  const groupsList = useMemo(() => categoryGroups(template.categories), [template]);
   const sections = useMemo(
-    () =>
-      categoryGroups(template.categories)
-        .map((g, gi) => (g.label ? gi : -1))
-        .filter((gi) => gi >= 0),
-    [template],
+    () => groupsList.map((g, gi) => (g.label ? gi : -1)).filter((gi) => gi >= 0),
+    [groupsList],
   );
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() =>
     readOnly || canRequestComments ? new Set(sections) : new Set(),
@@ -586,14 +669,6 @@ function SubmissionEditor({
     }
   };
 
-  const setDayComment = (dayIdx: number, comment: string) => {
-    lastEditedCell.current = null;
-    const next = { ...dayComments, [String(dayIdx)]: comment };
-    if (!comment) delete next[String(dayIdx)];
-    setDayComments(next);
-    persist({ dayComments: next });
-  };
-
   const setBalance = (v: number | null) => {
     if (lastEditedCell.current !== 'starting-balance') {
       pushUndo();
@@ -604,20 +679,41 @@ function SubmissionEditor({
   };
 
   const reset = async () => {
+    // A draft the submitter deliberately saved is the restore point; only
+    // when there is none does reset fall back to the seed (demo) or a clear.
+    const draft = loadDraftSnapshot(week, entity, template.id);
     // The live instance never fabricates numbers: reset always means clear.
     const reseed = DEMO_DATA && template.id === STANDARD_TEMPLATE_ID;
     const confirmed = await confirm({
       title: 'Reset forecast',
-      message: reseed
-        ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
-        : 'Clear all values for this week? Your edits will be lost.',
-      confirmLabel: 'Reset Values',
+      message: draft
+        ? `Reset all values back to the draft you saved${draftAgeLabel(draft.savedAt)}? Everything typed since then will be lost.`
+        : reseed
+          ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
+          : 'Clear all values for this week? Your edits will be lost.',
+      confirmLabel: draft ? 'Reset to Saved Draft' : 'Reset Values',
       danger: true,
     });
     if (!confirmed) return;
     pushUndo();
     lastEditedCell.current = null;
-    if (reseed) {
+    if (draft) {
+      // Restore the full editable state, remounting the grid so no cell keeps
+      // the text that was being typed (same treatment as undo/redo).
+      setRestoreVersion((n) => n + 1);
+      setValues(draft.values);
+      setFlags(new Set(draft.flags));
+      setComments(draft.comments);
+      setDayComments(draft.dayComments);
+      setStartingBalance(draft.startingBalance);
+      persist({
+        values: draft.values,
+        flags: new Set(draft.flags),
+        comments: draft.comments,
+        dayComments: draft.dayComments,
+        startingBalance: draft.startingBalance,
+      });
+    } else if (reseed) {
       const { values: v, flags: f } = generateGridValues(
         template.categories,
         week,
@@ -632,6 +728,18 @@ function SubmissionEditor({
       setFlags(new Set());
       persist({ values: {}, flags: new Set() });
     }
+  };
+
+  /** " from 2h ago" — how old the draft being restored is, when knowable. */
+  const draftAgeLabel = (iso: string): string => {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    const mins = Math.round(ms / 60_000);
+    if (mins < 1) return ' from a moment ago';
+    if (mins < 60) return ` from ${mins} minute${mins === 1 ? '' : 's'} ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return ` from ${hours} hour${hours === 1 ? '' : 's'} ago`;
+    return ` from ${Math.round(hours / 24)} days ago`;
   };
 
   const copyPrior = async () => {
@@ -781,7 +889,19 @@ function SubmissionEditor({
     return out;
   }, [template, values, numPeriods]);
 
+  const finalizeSubmit = async () => {
+    setNeedInput(null);
+    setStatus('submitted');
+    persist({ status: 'submitted' });
+    // A fresh submission reopens the decision: without this, a rejection
+    // stuck in the cycle's approval map forever and the approver saw the
+    // resubmitted forecast as already "rejected" with no way to approve it.
+    clearApprovalDecision(entity);
+    await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
+  };
+
   const submit = async () => {
+    if (flow) return; // the commentary walkthrough is already driving this
     // Point at the gaps before anything else: a missing number is easier to
     // fix while looking at the grid than to read about in a dialog.
     if (emptyCells.size > 0 && needInput === null) {
@@ -793,32 +913,141 @@ function SubmissionEditor({
       });
       return;
     }
+    // Unexplained variances start the guided walkthrough: each one is spotlit
+    // in turn with the comment box alongside, instead of a blocking dialog.
     if (uncommented.length > 0) {
-      const addNow = await confirm({
-        title: 'Commentary required',
-        message: `${uncommented.length} flagged cell${uncommented.length === 1 ? '' : 's'} still need commentary before this forecast can be closed. Add it now?`,
-        confirmLabel: 'Add Commentary',
-        cancelLabel: 'Submit Anyway',
-      });
-      if (addNow) {
-        const [c, d] = uncommented[0].split('-').map(Number);
-        openVariance(c, d);
-        return;
-      }
+      startCommentFlow();
+      return;
     }
-    setNeedInput(null);
-    setStatus('submitted');
-    persist({ status: 'submitted' });
-    // A fresh submission reopens the decision: without this, a rejection
-    // stuck in the cycle's approval map forever and the approver saw the
-    // resubmitted forecast as already "rejected" with no way to approve it.
-    clearApprovalDecision(entity);
-    await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
+    await finalizeSubmit();
   };
+
+  // ---- Guided commentary walkthrough -------------------------------------
+  // Reading order — left to right through the horizon, top to bottom within
+  // a period — so the spotlight sweeps the grid rather than jumping around.
+  const startCommentFlow = () => {
+    const queue = [...uncommented].sort((a, b) => {
+      const [ca, da] = a.split('-').map(Number);
+      const [cb, db] = b.split('-').map(Number);
+      return da - db || ca - cb;
+    });
+    if (queue.length === 0) return;
+    setNeedInput(null);
+    setFlow({ queue, idx: 0 });
+    focusFlowCell(queue[0]);
+  };
+
+  /**
+   * Bring one variance into play: open the section that holds it (a forecast
+   * submitted collapsed must uncollapse to show the cell), scroll it into
+   * view, and dock the comment box on whichever side of the screen the cell
+   * is NOT — numbers and box stay visible side by side.
+   */
+  const focusFlowCell = (key: string) => {
+    const [c, d] = key.split('-').map(Number);
+    setFlowDraft('');
+    const gi = groupsList.findIndex((g) => g.idxs.includes(c));
+    if (gi >= 0) {
+      setCollapsedGroups((prev) => {
+        if (!prev.has(gi)) return prev;
+        const next = new Set(prev);
+        next.delete(gi);
+        return next;
+      });
+    }
+    // Two frames: one for the section to expand, one for layout to settle.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el =
+          document.querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`) ??
+          document.querySelector('.forecast-grid td.cell-flow-spotlit');
+        el?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+        const rect = el?.getBoundingClientRect();
+        if (rect) {
+          setFlowSide(rect.left + rect.width / 2 > window.innerWidth / 2 ? 'left' : 'right');
+        }
+      }),
+    );
+  };
+
+  /** Move to the next cell still lacking commentary, or wrap the flow up. */
+  const advanceFlow = (queue: string[], fromIdx: number, latest: Record<string, string>) => {
+    let next = fromIdx + 1;
+    while (next < queue.length && latest[queue[next]]?.trim()) next++;
+    if (next < queue.length) {
+      setFlow({ queue, idx: next });
+      focusFlowCell(queue[next]);
+      return;
+    }
+    void endFlow(latest);
+  };
+
+  const endFlow = async (latest: Record<string, string>) => {
+    setFlow(null);
+    const remaining = [...flags].filter((k) => !latest[k]?.trim());
+    if (remaining.length > 0) {
+      const anyway = await confirm({
+        title: 'Commentary still missing',
+        message: `${remaining.length} flagged cell${remaining.length === 1 ? ' still has' : 's still have'} no commentary. Treasury will chase these before the cycle can close.`,
+        confirmLabel: 'Submit Anyway',
+        cancelLabel: 'Keep Editing',
+      });
+      if (!anyway) return;
+    }
+    await finalizeSubmit();
+  };
+
+  const saveFlowComment = () => {
+    if (!flow) return;
+    const key = flow.queue[flow.idx];
+    const text = flowDraft.trim();
+    if (!text) return;
+    pushUndo();
+    lastEditedCell.current = null;
+    const nextComments = { ...comments, [key]: text };
+    setComments(nextComments);
+    // Answering counts for an open treasury question on the same cell too.
+    const nextRequests = answerCommentRequest({ ...initial, commentRequests }, key);
+    setCommentRequests(nextRequests ?? {});
+    persist({ comments: nextComments, commentRequests: nextRequests ?? {} });
+    advanceFlow(flow.queue, flow.idx, nextComments);
+  };
+
+  const skipFlowCell = () => {
+    if (!flow) return;
+    advanceFlow(flow.queue, flow.idx, comments);
+  };
+
+  /** The cell the walkthrough is currently pointing at, decorated for display. */
+  const flowCell = useMemo((): VarianceCell | null => {
+    if (!flow) return null;
+    const key = flow.queue[flow.idx];
+    const [c, d] = key.split('-').map(Number);
+    return {
+      key,
+      label: template.categories[c]?.label ?? `Line ${c + 1}`,
+      day: d + 1,
+      prior: priorValueFor(prior, c, d, template),
+      current: values[key] || 0,
+    };
+  }, [flow, template, prior, values]);
 
   const saveDraft = async () => {
     persist();
-    await notify({ tone: 'success', message: 'Draft saved. All values are kept in this browser.' });
+    // The snapshot is what Reset restores — the deliberate save point, as
+    // opposed to the keystroke-by-keystroke persistence of the live state.
+    saveDraftSnapshot(week, entity, template.id, {
+      values,
+      flags: [...flags],
+      comments: { ...comments },
+      dayComments: { ...dayComments },
+      startingBalance,
+      savedAt: new Date().toISOString(),
+    });
+    await notify({
+      tone: 'success',
+      message: 'Draft saved. Reset now returns to this point.',
+    });
   };
 
   const exportGrid = () => {
@@ -878,11 +1107,20 @@ function SubmissionEditor({
   // ---- Prior cycles overlaid on the same axes ----------------------------
   // The forecast is rolling, so the question "is this week's shape different
   // from last week's?" needs both drawn together, not two screens compared
-  // from memory.
+  // from memory. Only the weeks whose horizon still OVERLAPS this one are
+  // offered: a forecast made further back than the horizon covers none of the
+  // dates on this chart, so there is nothing of it to draw.
+  const weeksBack = useCallback(
+    (key: string) => Math.round((Date.parse(week) - Date.parse(key)) / 604_800_000),
+    [week],
+  );
   const priorWeekOptions = useMemo(() => {
     const out: { week: string; label: string; saved: boolean }[] = [];
-    for (let back = 1; back <= 8; back++) {
+    for (let back = 1; back <= HORIZON_WEEKS; back++) {
       const key = shiftWeeks(week, -back);
+      // How many of this chart's periods that older forecast still covers.
+      const overlap = numPeriods - back * rollShift(template);
+      if (overlap <= 0) continue;
       out.push({
         week: key,
         label: weekLabelShort(key),
@@ -890,7 +1128,7 @@ function SubmissionEditor({
       });
     }
     return out;
-  }, [week, entity, template.id]);
+  }, [week, entity, template, numPeriods]);
 
   const overlaySeries: ChartSeries[] = useMemo(
     () =>
@@ -909,15 +1147,22 @@ function SubmissionEditor({
               return dayOutflows(numCats, pastValues, d);
           }
         };
+        // Align by CALENDAR DATE: the horizon rolls between cycles, so this
+        // chart's day d sits `shift` periods into the older forecast. Days the
+        // older forecast never covered are gaps, not zeros — the overlay only
+        // draws where the two forecasts genuinely overlap.
+        const shift = weeksBack(key) * rollShift(template);
         return {
           label: `${weekLabelShort(key)} · ${COMPARE_LABELS[compareMetric]}`,
-          values: Array.from({ length: numPeriods }, (_v, d) => metricAt(d)),
+          values: Array.from({ length: numPeriods }, (_v, d) =>
+            d + shift < periodsOf(template).count ? metricAt(d + shift) : null,
+          ),
           color: OVERLAY_COLORS[i % OVERLAY_COLORS.length],
           kind: 'line' as const,
           dashed: true,
         };
       }),
-    [compareWeeks, compareMetric, entity, template, numCats, numPeriods],
+    [compareWeeks, compareMetric, entity, template, numCats, numPeriods, weeksBack],
   );
 
   const toggleCompareWeek = (key: string) =>
@@ -959,26 +1204,68 @@ function SubmissionEditor({
         100
       : null;
 
+  /** Approver's decision, made without leaving the forecast they just read. */
+  const [decisionVersion, setDecisionVersion] = useState(0);
+  // The entity's EFFECTIVE workflow state (seed + stored + decision map) —
+  // the local record alone reads "draft" for a forecast never opened here,
+  // which would hide the Approve button from the very person it is for.
+  const approvalState = useMemo(() => {
+    if (!canApprove) return null;
+    void decisionVersion;
+    const ent = listEntities().find((e) => e.name === entity);
+    if (!ent) return null;
+    return mergedEntityStatus(ent, week, template.id, loadApprovals(activeCycleId()));
+  }, [canApprove, entity, week, template.id, decisionVersion]);
+  const showApprove =
+    canApprove &&
+    week === currentWeekKey() &&
+    approvalState !== null &&
+    approvalState !== 'approved' &&
+    approvalState !== 'rejected';
+
+  const approveThis = async () => {
+    const confirmed = await confirm({
+      title: 'Approve forecast',
+      message: `Approve the ${entity} forecast for ${weekLabel(week)}? The submitter sees the decision immediately.`,
+      confirmLabel: 'Approve',
+    });
+    if (!confirmed) return;
+    applyApprovalDecision(week, entity, template.id, 'approved');
+    setStatus('approved');
+    setDecisionVersion((n) => n + 1);
+    await notify({ tone: 'success', message: `${entity} approved for ${weekLabelShort(week)}.` });
+  };
+
+  const flowDelta =
+    flowCell && flowCell.prior !== null
+      ? ((flowCell.current - flowCell.prior) / Math.max(Math.abs(flowCell.prior), 1)) * 100
+      : null;
+
   return (
     <>
       <TopBar
-        crumb={`Submission · ${weekLabelShort(week)} · ${entity}`}
+        crumb={`Submission · ${weekLabelShort(week)}`}
         title="Forecast Entry"
         actions={
           <>
-            <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
-            {readOnly ? (
-              <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />
-            ) : (
-              <>
-                <button className="btn btn-ghost" onClick={saveDraft}>
-                  Save Draft
-                </button>
-                <button className="btn btn-primary" data-tour="submit-forecast" onClick={submit}>
-                  Submit for Approval
-                </button>
-              </>
+            <StatusPill
+              status={canApprove && approvalState ? approvalState : status === 'draft' ? 'submitted' : status}
+              label={canApprove && approvalState ? approvalState : status}
+            />
+            {showApprove && (
+              <button
+                className="btn btn-success"
+                data-tour="approve-forecast"
+                title="Approve this forecast — the decision lands on the submitter's screen"
+                onClick={approveThis}
+              >
+                ✓ Approve Forecast
+              </button>
             )}
+            {readOnly && !canApprove && (
+              <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />
+            )}
+            {activeCycle && <CyclePill label="Active cycle" value={activeCycle.id} />}
           </>
         }
       />
@@ -1053,7 +1340,7 @@ function SubmissionEditor({
                   <button
                     className="btn btn-ghost"
                     data-tour="redo"
-                    title="Redo (Ctrl+Shift+Z)"
+                    title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
                     disabled={!canRedo}
                     onClick={redo}
                   >
@@ -1082,6 +1369,19 @@ function SubmissionEditor({
                   </button>
                   <button className="btn btn-ghost" onClick={reset}>
                     Reset
+                  </button>
+                  {/* Saving and submitting live WITH the other actions — the
+                      one place a submitter already works, not a distant bar. */}
+                  <span className="toolbar-sep" aria-hidden="true" />
+                  <button className="btn btn-ghost btn-save-draft" onClick={saveDraft}>
+                    Save Draft
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    data-tour="submit-forecast"
+                    onClick={submit}
+                  >
+                    Submit for Approval
                   </button>
                 </>
               )}
@@ -1155,6 +1455,11 @@ function SubmissionEditor({
               )}
             </div>
           </div>
+        </div>
+
+        {/* The grid gets its own box, so the day/category headers read as the
+            top of the data rather than blending into the toolbar above. */}
+        <div className="panel grid-panel">
           <div className="forecast-grid-wrap" data-tour="forecast-grid">
             <ForecastGrid
               key={restoreVersion}
@@ -1164,17 +1469,16 @@ function SubmissionEditor({
               values={values}
               flags={flags}
               requested={requestedCells}
-              highlight={needInput}
+              highlight={flow ? new Set([flow.queue[flow.idx]]) : needInput}
+              highlightTone={flow ? 'flow' : 'input'}
               collapsedGroups={collapsedGroups}
               onToggleGroup={toggleGroup}
               startingBalance={startingBalance}
-              dayComments={dayComments}
               editable={!readOnly}
               onChangeCell={setCell}
               onPaste={handlePaste}
               onCellClick={openVariance}
               clickableCells={canRequestComments ? 'all' : 'flagged'}
-              onChangeDayComment={setDayComment}
               showColumnTotals={template.columnTotals === true}
             />
           </div>
@@ -1282,6 +1586,67 @@ function SubmissionEditor({
           )}
         </div>
       </div>
+
+      {/* The commentary walkthrough's box: docked to the side away from the
+          spotlit cell so the numbers stay in view, and deliberately NOT a
+          modal — the grid behind it keeps working (collapse, scroll, read). */}
+      {flow && flowCell && (
+        <div
+          className={`comment-flow-panel side-${flowSide}`}
+          role="dialog"
+          aria-label="Explain this variance"
+        >
+          <div className="cfp-head">
+            <h4>Explain this variance</h4>
+            <span className="cfp-progress">
+              {flow.idx + 1} of {flow.queue.length}
+            </span>
+            <button
+              className="close-btn"
+              aria-label="Stop and keep editing"
+              title="Stop — the forecast stays a draft"
+              onClick={() => setFlow(null)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="cfp-cell">
+            <strong>{flowCell.label}</strong> · Day {flowCell.day}
+          </div>
+          <div className="cfp-numbers">
+            <span>
+              Prior:{' '}
+              {flowCell.prior === null ? '—' : `€${flowCell.prior.toLocaleString()}k`}
+            </span>
+            <span>Current: €{flowCell.current.toLocaleString()}k</span>
+            <span className={flowDelta !== null && flowDelta < 0 ? 'delta down' : 'delta up'}>
+              {flowDelta === null
+                ? 'new period'
+                : `${flowDelta > 0 ? '+' : ''}${flowDelta.toFixed(1)}%`}
+            </span>
+          </div>
+          <textarea
+            className="form-textarea"
+            autoFocus
+            placeholder="What is driving this movement?"
+            value={flowDraft}
+            onChange={(e) => setFlowDraft(e.target.value)}
+            aria-label="Variance commentary"
+          />
+          <div className="cfp-actions">
+            <button className="btn btn-ghost" onClick={skipFlowCell}>
+              Skip
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!flowDraft.trim()}
+              onClick={saveFlowComment}
+            >
+              {flow.idx + 1 === flow.queue.length ? 'Save & Submit' : 'Save & Next'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <Modal
         open={varianceCell !== null}

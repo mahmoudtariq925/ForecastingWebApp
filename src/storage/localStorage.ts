@@ -178,6 +178,43 @@ export function periodsWithSubmissions(entity: string): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Draft snapshots — the explicit restore point "Save Draft" creates.
+//
+// Cell edits persist as they are typed, so the stored submission always holds
+// the LIVE state; without a separate snapshot, "Reset" could only ever go back
+// to the seed data. This keeps what the submitter last deliberately saved.
+// ---------------------------------------------------------------------------
+export interface DraftSnapshot {
+  values: Record<string, number>;
+  flags: string[];
+  comments: Record<string, string>;
+  dayComments: Record<string, string>;
+  startingBalance: number | null;
+  savedAt: string;
+}
+
+const draftSnapshotKey = (period: string, entity: string, templateId: string) =>
+  `draftsnap:${period}:${entity}:${templateId}`;
+
+export function saveDraftSnapshot(
+  period: string,
+  entity: string,
+  templateId: string,
+  snap: DraftSnapshot,
+): void {
+  saveData(draftSnapshotKey(period, entity, templateId), snap);
+}
+
+export function loadDraftSnapshot(
+  period: string,
+  entity: string,
+  templateId: string,
+): DraftSnapshot | null {
+  const raw = loadData<unknown>(draftSnapshotKey(period, entity, templateId), null);
+  return isRecord(raw) ? (raw as unknown as DraftSnapshot) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Forecast templates — uploaded .xlsx structures + entity assignments.
 // Seeded with the standard template on first load.
 // ---------------------------------------------------------------------------

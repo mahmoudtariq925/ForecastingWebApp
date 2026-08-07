@@ -134,6 +134,10 @@ export default function App() {
         allowedEntities={scopedEntities}
         readOnly={!permissions.canSubmitForecasts}
         canRequestComments={permissions.canRequestCommentary}
+        // Only treasury picks periods/templates freely; for everyone else the
+        // active cycle and Legal Entity Setup decide, and the screen says so.
+        cycleManaged={!permissions.canManageCycles}
+        canApprove={permissions.canApproveForecasts && !permissions.canSubmitForecasts}
       />
     ),
     approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
