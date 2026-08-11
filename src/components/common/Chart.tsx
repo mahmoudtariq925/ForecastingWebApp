@@ -61,8 +61,6 @@ interface ChartProps {
    * are the week-to-week reference point. One flag per label.
    */
   emphasis?: boolean[];
-  /** Tooltip line appended to each column's readout. */
-  hitHint?: string;
 }
 
 /** How long a single click waits for a second one before acting. */
@@ -96,7 +94,6 @@ export function Chart({
   onPointDoubleClick,
   activeIndex = null,
   emphasis,
-  hitHint,
 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -357,7 +354,6 @@ export function Chart({
                       ? `${s.label}: —`
                       : `${s.label}: ${fmtVal(s.values[i] as number, unit)}`,
                   ),
-                  ...(hitHint ? [hitHint] : []),
                 ].join('\n')}
               </title>
             </rect>

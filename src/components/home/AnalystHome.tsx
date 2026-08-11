@@ -463,7 +463,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
       <div className="content content-compact">
         <div className="section-header">
           <h2>Your Cycle Checklist</h2>
-          <span className="tag">in order · {work.length} entit{work.length === 1 ? 'y' : 'ies'}</span>
+          <span className="tag">
+            {work.length} entit{work.length === 1 ? 'y' : 'ies'}
+          </span>
         </div>
         <div className="panel">
           <div
@@ -553,7 +555,6 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           <>
             <div className="section-header">
               <h2>Your Countries at a Glance</h2>
-              <span className="tag">same view treasury sees · scoped to you</span>
             </div>
             <TreasuryOverview
               week={week}

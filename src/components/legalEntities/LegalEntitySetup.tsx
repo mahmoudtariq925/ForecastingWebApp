@@ -133,7 +133,7 @@ export function LegalEntitySetup() {
               </div>
               <div className="grid-info">
                 <span className="text-muted">
-                  Click an entity to open its setup — details, responsibilities and template.
+                  Open an entity for its details, responsibilities and template.
                 </span>
               </div>
             </div>

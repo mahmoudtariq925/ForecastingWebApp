@@ -22,9 +22,7 @@ import { DEMO_DATA } from '../../data/dataSource';
 import {
   currentWeekKey,
   shiftWeeks,
-  HORIZON_DAYS,
   HORIZON_WEEKS,
-  periodsOf,
   templateDates,
   templateDayLabels,
   listYears,
@@ -1334,8 +1332,8 @@ function SubmissionEditor({
             <div className="row">
               <span>
                 The numbers are locked while this forecast is being reviewed. Commentary is
-                still yours to write — click any flagged cell. If a figure has to change, ask
-                your approver to return the forecast to you.
+                still yours to write. If a figure has to change, ask your approver to return
+                the forecast to you.
               </span>
             </div>
           </div>
@@ -1347,7 +1345,7 @@ function SubmissionEditor({
             </h4>
             <div className="row">
               <span>
-                Cells outlined in blue have a question waiting. Click one to read it and reply.
+Cells outlined in blue have a question waiting.
               </span>
               <span>
                 {openRequests[0].from} · {cellLabelFor(openRequests[0].key)}
@@ -1484,14 +1482,8 @@ function SubmissionEditor({
           <div className="grid-toolbar" style={{ borderTop: 'none' }}>
             <div className="grid-toolbar-left">
               <div className="grid-info">
-                <strong>{template.name}</strong> ·{' '}
-                <span className="text-muted">
-                  EUR thousands ·{' '}
-                  {template.periods
-                    ? `${numPeriods} ${periodsOf(template).granularity} period${numPeriods === 1 ? '' : 's'}`
-                    : `${HORIZON_WEEKS}-week horizon · ${HORIZON_DAYS} working days`}{' '}
-                  · inflows +, outflows −
-                </span>
+                <strong>{template.name}</strong>{' '}
+                <span className="text-muted">EUR thousands · inflows +, outflows −</span>
               </div>
               <div className="seg-toggle" role="group" aria-label="Grid orientation" data-tour="orientation-toggle">
                 <button
@@ -1509,7 +1501,7 @@ function SubmissionEditor({
                   Dates ↓ Rows
                 </button>
               </div>
-              <span className="paste-hint">⌘V · Paste from Excel supported</span>
+
             </div>
             <div className="row-flex">
               <label className="form-label" style={{ margin: 0 }}>
@@ -1542,11 +1534,7 @@ function SubmissionEditor({
                 }}
                 aria-label="Starting balance"
               />
-              {!hasBalance && (
-                <span className="text-muted" style={{ fontSize: 11 }}>
-                  Enter one to show a running balance
-                </span>
-              )}
+
             </div>
           </div>
         </div>
