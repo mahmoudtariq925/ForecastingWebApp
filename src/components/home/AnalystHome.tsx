@@ -10,6 +10,7 @@ import { assignedEntitiesFor, permissionsFor } from '../../data/session';
 import { currentWeekKey, weekLabel, weekLabelShort } from '../../data/periods';
 import {
   applyApprovalDecision,
+  isHandedOver,
   mergedEntityStatus,
   peekSubmission,
   pendingApprovalCount,
@@ -197,15 +198,20 @@ function EntityListModal({
                 {canEdit && w.needCommentary > 0 && (
                   <span className="badge-num">{w.needCommentary} to explain</span>
                 )}
-                {onReview && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: '5px 12px', fontSize: 12 }}
-                    onClick={() => onReview(w)}
-                  >
-                    Review &amp; Submit
-                  </button>
-                )}
+                {onReview &&
+                  (isHandedOver(w.submission.status) ? (
+                    <span className="text-muted" style={{ fontSize: 11 }}>
+                      Submitted ✓
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: '5px 12px', fontSize: 12 }}
+                      onClick={() => onReview(w)}
+                    >
+                      Review &amp; Submit
+                    </button>
+                  ))}
                 <button
                   className="btn btn-primary"
                   style={{ padding: '5px 12px', fontSize: 12 }}
@@ -285,13 +291,19 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const canEditForecasts = permissions.canSubmitForecasts;
   const firstName = user.name.split(' ')[0];
   /**
-   * Once the forecasts are in, submitting is done. The step stays on the
-   * list as a completed one, but its action is greyed out and dead: an
-   * enabled Submit button after submission is an invitation to redo work
-   * that has already moved on to the approver.
+   * Once every forecast has been handed over, submitting is done. The step
+   * stays on the list as a completed one, but its action is greyed out and
+   * dead: an enabled Submit button after submission is an invitation to redo
+   * work that has already moved on to the approver.
+   *
+   * Read off the submissions themselves rather than the step's state, so it
+   * agrees exactly with the lock on the forecast page — a returned forecast
+   * unlocks both, a question from treasury unlocks neither.
    */
   const submitClosed =
-    canEditForecasts && todo.steps.some((s) => s.key === 'submit' && s.state === 'done');
+    canEditForecasts &&
+    work.length > 0 &&
+    work.every((w) => isHandedOver(w.submission.status));
 
   /** Approve straight from the preview modal. */
   const approveNow = async (entity: string) => {
@@ -300,6 +312,17 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     setPreview(null);
     setVersion((n) => n + 1);
     await notify({ tone: 'success', message: `${entity} forecast approved for ${weekLabel(week)}.` });
+  };
+
+  /** Hand an approved forecast back to its submitter so they can change it. */
+  const returnForUpdate = async (entity: string) => {
+    const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
+    applyApprovalDecision(week, entity, templateId, 'rejected');
+    setPreview(null);
+    setVersion((n) => n + 1);
+    await notify({
+      message: `${entity} forecast returned to its submitter for update.`,
+    });
   };
 
   /** Submit from the preview modal — or, when the forecast still has gaps,
@@ -322,6 +345,12 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const previewTemplateId = preview
     ? templateForEntity(loadTemplates(), preview.entity)?.id
     : undefined;
+  /** The forecast the preview is showing is still the submitter's to send. */
+  const previewSubmittable =
+    preview?.mode === 'submit' &&
+    !isHandedOver(
+      work.find((w) => w.entity === preview.entity)?.submission.status ?? 'draft',
+    );
   /** The approver may still decide on the forecast the preview is showing. */
   const previewDecidable =
     preview?.mode === 'approve' &&
@@ -329,9 +358,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
       approverRows.find((r) => r.entity === preview.entity)?.status ?? 'submitted',
     );
 
-  /** The action button that belongs to a checklist step. */
-  const actionFor = (step: TodoStep): React.ReactNode => {
-    if (step.key === 'submit' && work.length > 0) {
+  /**
+   * The action button that belongs to a checklist step. Like the row, it is
+   * offered only on the step the user is standing on — except the closed
+   * Submit button, which stays visible and greyed so the finished step still
+   * reads as a step rather than a bare line of text.
+   */
+  const actionFor = (step: TodoStep, isCurrent: boolean): React.ReactNode => {
+    if (step.key === 'submit' && work.length > 0 && (isCurrent || submitClosed)) {
       return (
         <button
           className="btn btn-primary"
@@ -352,7 +386,13 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         </button>
       );
     }
-    if (step.key === 'review' && !isApprover && canEditForecasts && step.state === 'active') {
+    if (
+      step.key === 'review' &&
+      isCurrent &&
+      !isApprover &&
+      canEditForecasts &&
+      (step.state === 'active' || step.state === 'blocked')
+    ) {
       return (
         <button
           className="btn btn-primary"
@@ -366,7 +406,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         </button>
       );
     }
-    if (step.key === 'feedback' && step.state !== 'waiting') {
+    if (step.key === 'feedback' && isCurrent && step.state !== 'waiting') {
       return (
         <button
           className="btn btn-ghost"
@@ -383,8 +423,15 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     return null;
   };
 
-  /** Where a checklist step goes when the row itself is clicked. */
-  const openFor = (step: TodoStep): (() => void) | undefined => {
+  /**
+   * Where a checklist step goes when the row itself is clicked — and only
+   * the step the user is ON is a door. The others are a record of what has
+   * happened and what is still to come; making them clickable invited people
+   * to jump ahead into work that is not theirs yet, or back into work that
+   * has already moved on.
+   */
+  const openFor = (step: TodoStep, isCurrent: boolean): (() => void) | undefined => {
+    if (!isCurrent) return undefined;
     if (step.key === 'submit') {
       // A closed submit step is deliberately a dead end — the list it opens
       // is the one that submits.
@@ -430,8 +477,8 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   step={step}
                   current={i === todo.currentStep}
                   dataTour={STEP_TOUR_ID[step.key]}
-                  onOpen={openFor(step)}
-                  action={actionFor(step)}
+                  onOpen={openFor(step, i === todo.currentStep)}
+                  action={actionFor(step, i === todo.currentStep)}
                 />
                 {/* The approver decides right here: the row opens the
                     forecast in a dialog and signs it off from inside it. */}
@@ -477,6 +524,19 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                             >
                               {awaitingDecision(r.status) ? 'Review & Approve' : 'View Forecast'}
                             </button>
+                            {/* The submitter's grid locks once they hand over,
+                                so this is their way back in when a figure has
+                                to change after you have signed it off. */}
+                            {r.status === 'approved' && (
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                title="Send this forecast back to its submitter to change"
+                                onClick={() => void returnForUpdate(r.entity)}
+                              >
+                                Return for Update
+                              </button>
+                            )}
                           </span>
                         </div>
                       ))}
@@ -563,7 +623,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                 >
                   Open Full Forecast
                 </button>
-                {canEditForecasts && (
+                {canEditForecasts && previewSubmittable && (
                   <button
                     className="btn btn-primary"
                     onClick={() => void submitNow(preview.entity)}

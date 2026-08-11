@@ -42,6 +42,7 @@ import {
   clearApprovalDecision,
   getOrCreateSubmission,
   getPriorValues,
+  isHandedOver,
   isVariance,
   loadDraftCheckpoint,
   peekSubmission,
@@ -381,11 +382,11 @@ function SubmissionEditor({
   );
   const { confirm, notify } = useDialog();
   /**
-   * Who gets the data-entry actions. Treasury opens forecasts to read and
-   * correct them, never to run the submission workflow, so undo/redo, reset,
-   * copy-prior, save-draft and submit are the submitter's alone.
+   * Whose screen this is. Treasury opens forecasts to read and correct them,
+   * never to run the submission workflow, so undo/redo, reset, copy-prior,
+   * save-draft and submit belong to the submitter alone.
    */
-  const editorActions = !readOnly && !canRequestComments;
+  const isSubmitterView = !readOnly && !canRequestComments;
   // Column set comes from the template (editor-authored ones can define
   // their own periods); templates without a `periods` block keep the
   // standard 20-working-day horizon.
@@ -416,6 +417,20 @@ function SubmissionEditor({
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
+  /**
+   * The forecast is with the approver (or already approved), so the submitter
+   * may no longer change the numbers — only answer questions on them. Greying
+   * the checklist's Submit button was not enough on its own: the forecast page
+   * was still a live grid, and an edit there rewrote what had already been
+   * signed off. Treasury keeps its correcting rights; a returned forecast
+   * comes back to `rejected` and unlocks.
+   */
+  const handedOver = isSubmitterView && isHandedOver(status);
+  /** Numbers can be typed into: never for a reader, never once handed over. */
+  const canEditCells = !readOnly && !handedOver;
+  /** The submitter's own data-entry and workflow actions. */
+  const editorActions = isSubmitterView && !handedOver;
+
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   /** Treasury's question, while it is being written in the cell dialog. */
@@ -462,7 +477,7 @@ function SubmissionEditor({
     [template],
   );
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() =>
-    readOnly || canRequestComments ? new Set(sections) : new Set(),
+    readOnly || canRequestComments || handedOver ? new Set(sections) : new Set(),
   );
   const toggleGroup = (gi: number) =>
     setCollapsedGroups((prev) => {
@@ -581,7 +596,7 @@ function SubmissionEditor({
   // so it works whether or not a cell has focus. Bound on the document
   // because the grid's own inputs would otherwise swallow the keystroke.
   useEffect(() => {
-    if (readOnly) return;
+    if (!canEditCells) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
@@ -802,7 +817,7 @@ function SubmissionEditor({
     // Scroll the cell itself into view behind the dialog.
     requestAnimationFrame(() => {
       document
-        .querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`)
+        .querySelector(`.forecast-grid [data-cat="${c}"][data-day="${d}"]`)
         ?.scrollIntoView({ block: 'center', inline: 'center' });
     });
     // openVariance is stable for a given render of this editor.
@@ -960,12 +975,21 @@ function SubmissionEditor({
     setFlowDraft('');
   };
 
-  /** The actual submission, once every gate has been passed (or waived). */
-  const finishSubmit = async () => {
+  /**
+   * The actual submission, once every gate has been passed (or waived).
+   *
+   * `snap` carries anything saved in the same tick as the submit — the last
+   * variance's commentary, written in the dock and immediately followed by
+   * the submit it triggers. Without it, `persist` fell back to the `comments`
+   * state, which React has not applied yet, and the final explanation was
+   * overwritten by the map from before it was typed. One flagged cell was
+   * therefore left unexplained on every guided submission.
+   */
+  const finishSubmit = async (snap: Snapshot = {}) => {
     setNeedInput(null);
     setCommentFlow(null);
     setStatus('submitted');
-    persist({ status: 'submitted' });
+    persist({ ...snap, status: 'submitted' });
     // A fresh submission reopens the decision: without this, a rejection
     // stuck in the cycle's approval map forever and the approver saw the
     // resubmitted forecast as already "rejected" with no way to approve it.
@@ -986,7 +1010,8 @@ function SubmissionEditor({
     setCommentRequests(nextRequests ?? {});
     persist({ comments: nextComments, commentRequests: nextRequests ?? {} });
     const remaining = orderedUncommented(nextComments);
-    if (remaining.length === 0) void finishSubmit();
+    if (remaining.length === 0)
+      void finishSubmit({ comments: nextComments, commentRequests: nextRequests ?? {} });
     else focusFlowCell(remaining[0]);
   };
 
@@ -1016,7 +1041,7 @@ function SubmissionEditor({
   // spotlights and the commentary dock live.
   const autoSubmitted = useRef(false);
   useEffect(() => {
-    if (!autoSubmit || readOnly || autoSubmitted.current) return;
+    if (!autoSubmit || !editorActions || autoSubmitted.current) return;
     autoSubmitted.current = true;
     // Let the grid render once before spotlighting and scrolling.
     const id = setTimeout(() => void submit(), 300);
@@ -1271,6 +1296,11 @@ function SubmissionEditor({
           <>
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
             {readOnly && <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />}
+            {handedOver && (
+              <ViewOnlyBadge
+                hint={`Submitted — the numbers are locked until this forecast is returned to you. You can still answer questions on any cell.`}
+              />
+            )}
             <CyclePill label="Active cycle" value={activeCycleId()} />
           </>
         }
@@ -1294,6 +1324,18 @@ function SubmissionEditor({
                 <button className="btn btn-primary" onClick={submit}>
                   Submit Anyway
                 </button>
+              </span>
+            </div>
+          </div>
+        )}
+        {handedOver && (
+          <div className="variance-panel handover-panel">
+            <h4>✓ Submitted — {status === 'approved' ? 'approved' : 'with your approver'}</h4>
+            <div className="row">
+              <span>
+                The numbers are locked while this forecast is being reviewed. Commentary is
+                still yours to write — click any flagged cell. If a figure has to change, ask
+                your approver to return the forecast to you.
               </span>
             </div>
           </div>
@@ -1336,11 +1378,13 @@ function SubmissionEditor({
                   onClick={() => {
                     const [first] = orderedUncommented();
                     if (!first) return;
-                    if (readOnly) {
+                    // The guided flow ends by SUBMITTING, so it is only ever
+                    // offered on a forecast that is still the submitter's.
+                    if (editorActions) {
+                      focusFlowCell(first);
+                    } else {
                       const [c, d] = first.split('-').map(Number);
                       openVariance(c, d);
-                    } else {
-                      focusFlowCell(first);
                     }
                   }}
                 >
@@ -1478,7 +1522,7 @@ function SubmissionEditor({
                 // negative opening balance can actually be typed.
                 value={balanceDraft ?? (startingBalance === null ? '' : String(startingBalance))}
                 placeholder="optional"
-                disabled={readOnly}
+                disabled={!canEditCells}
                 onChange={(e) => {
                   const raw = e.target.value;
                   setBalanceDraft(raw);
@@ -1646,7 +1690,7 @@ function SubmissionEditor({
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={toggleGroup}
                 startingBalance={startingBalance}
-                editable={!readOnly}
+                editable={canEditCells}
                 onChangeCell={setCell}
                 onPaste={handlePaste}
                 onCellClick={openVariance}
@@ -1765,6 +1809,12 @@ function SubmissionEditor({
                   disabled={readOnly}
                   onChange={(e) => setCommentDraft(e.target.value)}
                 />
+                {handedOver && (
+                  <span className="text-muted" style={{ fontSize: 11 }}>
+                    The numbers are with your approver, but commentary on them is still yours
+                    to add.
+                  </span>
+                )}
               </div>
             )}
           </>

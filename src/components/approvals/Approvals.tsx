@@ -193,9 +193,27 @@ export function Approvals({ onOpenSubmission, scopeEntities }: ApprovalsProps) {
                               </button>
                             )}
                             {decided ? (
-                              <span className="text-muted" style={{ fontSize: 11 }}>
-                                {status === 'approved' ? 'Approved' : 'Rejected'}
-                              </span>
+                              <>
+                                <span className="text-muted" style={{ fontSize: 11 }}>
+                                  {status === 'approved' ? 'Approved' : 'Rejected'}
+                                </span>
+                                {/* An approval used to be the end of the road:
+                                    the row froze, and with the submitter's grid
+                                    now locked behind the handover a wrong number
+                                    in an approved forecast had no way back to
+                                    the person who owns it. Returning it reopens
+                                    their grid and puts it back in the queue. */}
+                                {status === 'approved' && (
+                                  <button
+                                    className="btn btn-ghost"
+                                    style={{ padding: '4px 10px', fontSize: 11 }}
+                                    title="Send this forecast back to its submitter to change"
+                                    onClick={() => decide(e.name, 'rejected')}
+                                  >
+                                    Return for Update
+                                  </button>
+                                )}
+                              </>
                             ) : (
                               <>
                                 <button
