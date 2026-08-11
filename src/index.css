@@ -1518,6 +1518,16 @@ td.num {
 .variance-panel.needs-input h4 {
   color: var(--red);
 }
+/* Handed over: the forecast is with the approver, so the grid below is a
+   record rather than a form. Green, because nothing is wrong — the work is
+   done and the numbers have moved on. */
+.variance-panel.handover-panel {
+  background: var(--green-soft);
+  border-left-color: var(--green);
+}
+.variance-panel.handover-panel h4 {
+  color: var(--green);
+}
 /* An open treasury question, matching the blue outline on the cell. */
 .variance-panel.comment-request-panel {
   background: var(--blue-soft);

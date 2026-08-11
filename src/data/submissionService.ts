@@ -168,6 +168,23 @@ export function loadDraftCheckpoint(
   return normalizeSubmission(raw as Submission);
 }
 
+/**
+ * Whether a forecast has left the submitter's hands.
+ *
+ * Submitting is a handover, not a save: from that moment the numbers belong
+ * to the approver and, after them, to treasury's consolidation. A submitter
+ * editing them afterwards would silently change what someone else already
+ * signed off on, so their grid goes read-only here and stays that way until
+ * the forecast is RETURNED to them — a rejection puts it back in `draft`-like
+ * territory and reopens editing.
+ *
+ * Commentary is deliberately not covered: answering a question about a cell
+ * is not changing it, and that conversation carries on after the handover.
+ */
+export function isHandedOver(status: SubmissionStatus): boolean {
+  return status === 'submitted' || status === 'approved' || status === 'consolidated';
+}
+
 /** What still blocks a clean submission: unfilled cells and unexplained flags. */
 export interface SubmissionGaps {
   emptyCells: string[];

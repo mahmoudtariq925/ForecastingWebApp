@@ -267,10 +267,17 @@ function EditableCell({
   const open = () => onCellClick?.(catIdx, dayIdx);
 
   // A read-only grid has nothing else a click could mean, so the whole cell
-  // opens the dialog.
+  // opens the dialog. It carries the same cell coordinates as an editable one
+  // so a deep link ("explain THIS cell") can still find and scroll to it.
   if (!editable) {
     return (
-      <td className={cls} style={style} onClick={clickable ? open : undefined}>
+      <td
+        className={cls}
+        style={style}
+        data-cat={catIdx}
+        data-day={dayIdx}
+        onClick={clickable ? open : undefined}
+      >
         {fmt(val)}
       </td>
     );

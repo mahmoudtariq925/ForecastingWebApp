@@ -136,18 +136,20 @@ export function analystTodo(
   const submitDone = unsubmitted === 0 && entities.length > 0;
   let submit: TodoStep;
   if (isSubmitter) {
-    const submitBlocked = openQuestions > 0 || returned > 0;
+    // Only a RETURNED forecast puts this step back in play. A question from
+    // treasury does not: submitting is a handover, the numbers are locked
+    // behind it, and answering the question is step 2's work — reopening
+    // step 1 for it invited a pointless resubmission of unchanged figures.
     submit = {
       key: 'submit',
       label: 'Submit forecast',
-      state: submitBlocked ? 'blocked' : submitDone ? 'done' : 'active',
-      detail: submitBlocked
-        ? returned > 0
+      state: returned > 0 ? 'blocked' : submitDone ? 'done' : 'active',
+      detail:
+        returned > 0
           ? `${returned} forecast${returned === 1 ? ' was' : 's were'} returned for update`
-          : `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from Treasury`
-        : submitDone
-          ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
-          : `${unsubmitted} of ${entities.length} still in draft`,
+          : submitDone
+            ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
+            : `${unsubmitted} of ${entities.length} still in draft`,
     };
   } else {
     // Approvers and viewers never submit — this step tracks the submitters.
@@ -178,21 +180,27 @@ export function analystTodo(
             : 'Nothing waiting — forecasts appear here as they are submitted',
     };
   } else if (isSubmitter) {
+    // Treasury's questions land here, not on step 1: they are answered with
+    // commentary, which stays open to the submitter after the handover.
     review = {
       key: 'review',
       label: 'Complete any review',
       state:
         submit.state === 'active'
           ? 'waiting'
-          : needCommentary > 0
-            ? 'active'
-            : 'done',
+          : openQuestions > 0
+            ? 'blocked'
+            : needCommentary > 0
+              ? 'active'
+              : 'done',
       detail:
         submit.state === 'active'
           ? 'Opens once your forecasts are in'
-          : needCommentary === 0
-            ? 'Nothing waiting on you'
-            : `${needCommentary} variance${needCommentary === 1 ? '' : 's'} to explain`,
+          : openQuestions > 0
+            ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from Treasury`
+            : needCommentary === 0
+              ? 'Nothing waiting on you'
+              : `${needCommentary} variance${needCommentary === 1 ? '' : 's'} to explain`,
     };
   } else {
     // Viewer: purely informational.
