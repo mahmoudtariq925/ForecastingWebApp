@@ -67,7 +67,13 @@ Avoid coupling components directly to storage.
 - Import real treasury templates.
 - Export Excel with formulas.
 - Preserve formatting.
+## Testing Scope
+Test the change, not the whole app.
 
+- Verify what this change touched, and anything that shares code with it.
+- Do not re-walk every screen and every role on every prompt.
+- Always run: type check, lint, build.
+- Reserve a full end-to-end run for a change to the forecast lifecycle (submit → approve → comment → return), or when asked for one.
 ## Never
 - Reintroduce Express.
 - Reintroduce SQLite.
