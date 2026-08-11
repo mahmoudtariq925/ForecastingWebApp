@@ -106,8 +106,7 @@ export function ForecastPreviewModal({
           <div className="preview-meta">
             <StatusPill status={submission.status} />
             <span className="text-dim">
-              {template.name} · {weekLabel(week)} · EUR thousands · sections collapsed — click a
-              caret to expand
+              {template.name} · {weekLabel(week)} · EUR thousands
             </span>
           </div>
           <div className="forecast-grid-wrap preview-grid">

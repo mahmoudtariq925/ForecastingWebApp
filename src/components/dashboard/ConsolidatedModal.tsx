@@ -131,10 +131,10 @@ export function ConsolidatedModal({
       }
     >
       <div className="preview-meta">
-        <span className="text-dim">
-          {report.entityCount} entities · {template.name} · EUR thousands
+        <span className="text-dim">{template.name} · EUR thousands</span>
+        <span className="progress-summary">
+          {report.entityCount} entit{report.entityCount === 1 ? 'y' : 'ies'}
         </span>
-        <span className="progress-summary">Click a line for its country breakdown</span>
       </div>
 
       {report.omitted.length > 0 && (

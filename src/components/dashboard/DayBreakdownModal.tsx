@@ -66,10 +66,9 @@ export function DayBreakdownModal({
     >
       <div className="preview-meta">
         <span className="text-dim">
-          Net {fmtK(groupNet)} · prior forecast {fmtK(groupPrior)} · sorted by contribution to the
-          move
+          Net {fmtK(groupNet)} · prior forecast {fmtK(groupPrior)}
         </span>
-        <span className="progress-summary">Click a country for its line items</span>
+        <span className="progress-summary">{rows.length} countries</span>
       </div>
 
       <div className="panel-body no-pad">

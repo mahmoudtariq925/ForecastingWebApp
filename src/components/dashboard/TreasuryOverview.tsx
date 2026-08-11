@@ -6,6 +6,7 @@ import { AttentionModal } from './AttentionModal';
 import { ConsolidatedModal } from './ConsolidatedModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
+import { MultiSelect } from '../common/MultiSelect';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities, seedUsers } from '../../data/appData';
 import {
@@ -93,16 +94,24 @@ export function TreasuryOverview({
   }, [scopeEntities]);
 
   // ---- Filters: which countries, which template, which period -------------
-  const [countries, setCountries] = useState<string[]>(scopedNames);
+  /**
+   * The country filter. EMPTY MEANS EVERY COUNTRY IN SCOPE — an unset filter,
+   * not an empty page. Nothing else in here has to know that: `countries`
+   * below resolves it once and every aggregate reads that.
+   */
+  const [countryFilter, setCountryFilter] = useState<string[]>([]);
   // Entities can be renamed or reassigned under the user; drop what no longer
   // exists rather than filtering the page against a country that is gone.
-  // A deliberately empty selection stays empty — that is the None button.
   useEffect(() => {
-    setCountries((prev) => {
+    setCountryFilter((prev) => {
       const kept = prev.filter((n) => scopedNames.includes(n));
       return kept.length === prev.length ? prev : kept;
     });
   }, [scopedNames]);
+  const countries = useMemo(
+    () => (countryFilter.length > 0 ? countryFilter : scopedNames),
+    [countryFilter, scopedNames],
+  );
 
   const [templateId, setTemplateId] = useState(
     () =>
@@ -242,11 +251,6 @@ export function TreasuryOverview({
       prev.includes(key) ? prev.filter((w) => w !== key) : [...prev, key],
     );
 
-  const toggleCountry = (name: string) =>
-    setCountries((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    );
-
   // ---- Actions the progress modals hand back ------------------------------
   const openForecast = (target: { entity: string; templateId?: string; focusCell?: string }) =>
     onOpenSubmission?.({ ...target, week });
@@ -268,68 +272,52 @@ export function TreasuryOverview({
     });
   };
 
-  const scopeNote = periodLabel ? `${periodLabel} only` : `${weekLabelShort(week)} · full horizon`;
-
   return (
     <>
       {/* One filter bar for the whole block: which countries, which template,
           and whichever period the chart has been clicked down to. */}
-      <div className="panel overview-filters">
-        <div className="filter-row">
-          <span className="grid-info">
-            <strong>Countries</strong>
-          </span>
-          <span className="filter-chips">
-            {scopedNames.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className={`filter-chip${countries.includes(name) ? ' on' : ''}`}
-                aria-pressed={countries.includes(name)}
-                onClick={() => toggleCountry(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </span>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: '4px 10px', fontSize: 11.5 }}
-            onClick={() => setCountries(scopedNames)}
-          >
-            All
-          </button>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: '4px 10px', fontSize: 11.5 }}
-            onClick={() => setCountries([])}
-          >
-            None
-          </button>
-          <select
-            className="form-select"
-            style={{ width: 'auto', marginLeft: 'auto' }}
-            value={template?.id ?? ''}
-            onChange={(e) => setTemplateId(e.target.value)}
-            aria-label="Display template"
-          >
-            {allTemplates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+      <div className="panel filter-panel" data-tour="overview-filters">
+        <div className="filter-panel-head">
+          <h3>Filter By</h3>
         </div>
-        <div className="filter-row filter-row-state">
-          <span className="text-dim">
-            {countries.length} of {scopedNames.length} countr
-            {scopedNames.length === 1 ? 'y' : 'ies'} · {scopeNote}
-          </span>
+        <div className="filter-row">
+          <div className="filter-field">
+            <span className="filter-field-label">Select Country</span>
+            <MultiSelect
+              ariaLabel="Select country"
+              options={scopedNames}
+              selected={countryFilter}
+              onChange={setCountryFilter}
+              emptyLabel="All countries"
+              noun="countries"
+              placeholder="Search countries…"
+            />
+          </div>
+          <div className="filter-field">
+            <span className="filter-field-label">Select Template</span>
+            <select
+              className="form-select"
+              value={template?.id ?? ''}
+              onChange={(e) => setTemplateId(e.target.value)}
+              aria-label="Select template"
+            >
+              {allTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Only present once the chart has been clicked, so it is a state
+              to clear rather than a control to set. */}
           {period !== null && (
-            <button className="filter-chip on period-chip" onClick={() => setPeriod(null)}>
-              Period · {periodLabel} <span aria-hidden="true">×</span>
-              <span className="sr-only">Clear the period filter</span>
-            </button>
+            <div className="filter-field">
+              <span className="filter-field-label">Period</span>
+              <button className="filter-chip on period-chip" onClick={() => setPeriod(null)}>
+                {periodLabel} <span aria-hidden="true">×</span>
+                <span className="sr-only">Clear the period filter</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -340,11 +328,9 @@ export function TreasuryOverview({
           label="Submissions Received"
           value={`${received} / ${countryRows.length}`}
           sub={
-            countryRows.length === 0
-              ? 'No countries selected'
-              : received === countryRows.length
-                ? 'Every entity has submitted'
-                : `${countryRows.length - received} still outstanding`
+            received === countryRows.length
+              ? 'Every entity has submitted'
+              : `${countryRows.length - received} still outstanding`
           }
           tone={received === countryRows.length ? 'ok' : 'warn'}
           dataTour="stat-received"
@@ -380,21 +366,18 @@ export function TreasuryOverview({
           chart says WHEN the money moves, the matrix says WHO and WHAT. */}
       <div className="outlook-row">
         <div className="panel outlook-panel" data-tour="outlook-chart">
-          <div className="grid-toolbar">
-            <div className="grid-info">
-              <strong>4-Week Outlook</strong>{' '}
-              <span className="text-muted">
-                consolidated · {weekLabelShort(week)} · €k · click a column to filter the page,
-                double-click it for the country breakdown
-              </span>
+          <div className="panel-header">
+            <h3>4-Week Outlook</h3>
+            <div className="row-flex">
+              <span className="panel-unit">€k</span>
+              <button
+                className="btn btn-ghost"
+                data-tour="open-consolidated"
+                onClick={() => setConsolidatedOpen(true)}
+              >
+                Consolidated Forecast
+              </button>
             </div>
-            <button
-              className="btn btn-ghost"
-              data-tour="open-consolidated"
-              onClick={() => setConsolidatedOpen(true)}
-            >
-              Consolidated Forecast
-            </button>
           </div>
           <div className="chart-controls compare-controls">
             <span className="grid-info">
@@ -423,7 +406,6 @@ export function TreasuryOverview({
               // counted off in fives.
               emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
               activeIndex={period}
-              hitHint="Click to filter the page · double-click for the country breakdown"
               onPointClick={(i) => setPeriod((prev) => (prev === i ? null : i))}
               onPointDoubleClick={setDayIdx}
             />
@@ -436,13 +418,9 @@ export function TreasuryOverview({
         </div>
 
         <div className="panel matrix-panel" data-tour="outlook-matrix">
-          <div className="grid-toolbar">
-            <div className="grid-info">
-              <strong>Category × Country</strong>{' '}
-              <span className="text-muted">
-                {periodLabel ? `${periodLabel} · €k` : 'full horizon · €k'}
-              </span>
-            </div>
+          <div className="panel-header">
+            <h3>Breakdown by Category</h3>
+            <span className="panel-unit">{periodLabel ? `${periodLabel} · €k` : '€k'}</span>
           </div>
           {matrix ? (
             <CountryMatrix matrix={matrix} />
@@ -466,11 +444,8 @@ export function TreasuryOverview({
           <span className="section-caret" aria-hidden="true">
             {tableOpen ? '▾' : '▸'}
           </span>
-          <strong>Consolidated Forecast · 4-Week Outlook</strong>
-          <span className="text-muted">
-            {countries.length} countr{countries.length === 1 ? 'y' : 'ies'} ·{' '}
-            {template?.name ?? '—'} · €k
-          </span>
+          <strong>Consolidated Forecast</strong>
+          <span className="panel-unit">€k</span>
         </button>
         {tableOpen &&
           (template && consolidated ? (
