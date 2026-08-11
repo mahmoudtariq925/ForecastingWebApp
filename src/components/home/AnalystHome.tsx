@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { TopBar } from '../layout/TopBar';
+import { Fragment, useMemo, useState } from 'react';
+import { CyclePill, TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
+import { TreasuryOverview } from '../dashboard/TreasuryOverview';
 import { listCycles, listEntities } from '../../data/appData';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
 import { currentWeekKey, weekLabel, weekLabelShort } from '../../data/periods';
@@ -49,27 +50,41 @@ const STEP_MARK: Record<StepState, string> = {
   waiting: '·',
 };
 
+/** Steps the guided tour points at, by key (see tourSteps.ts). */
+const STEP_TOUR_ID: Partial<Record<TodoStep['key'], string>> = {
+  feedback: 'todo-feedback',
+};
+
 /**
  * One numbered step of the cycle checklist. The whole row is the button when
  * the step has somewhere to go — its countries, its comments — so the list
  * reads as a set of doors rather than a status report with a button on it.
+ *
+ * The step the user is ON is raised: a border, a lift off the page, and the
+ * others held back behind it (see `.todo-current` in the CSS). A checklist
+ * whose steps all look alike makes you read all of them to find your place.
  */
 function ChecklistStep({
   index,
   step,
   action,
   dataTour,
+  current,
   onOpen,
 }: {
   index: number;
   step: TodoStep;
   action?: React.ReactNode;
   dataTour?: string;
+  /** The step the user is standing on right now. */
+  current?: boolean;
   onOpen?: () => void;
 }) {
   return (
     <div
-      className={`todo-step todo-${step.state}${onOpen ? ' todo-clickable' : ''}`}
+      className={`todo-step todo-${step.state}${onOpen ? ' todo-clickable' : ''}${
+        current ? ' todo-current' : ''
+      }`}
       data-tour={dataTour}
       role={onOpen ? 'button' : undefined}
       tabIndex={onOpen ? 0 : undefined}
@@ -213,6 +228,11 @@ function EntityListModal({
  * cycle needs from them — get the numbers in, clear whatever review is
  * theirs, then hand over to treasury — rather than a wall of numbers they
  * have to interpret before knowing what to do.
+ *
+ * An APPROVER gets two steps (deciding is the only thing that is theirs) and,
+ * beneath them, the same treasury overview the dashboard shows, scoped to
+ * their own countries: they are judging forecasts, and the group position is
+ * what a forecast is judged against.
  */
 export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeProps) {
   const week = currentWeekKey();
@@ -242,27 +262,36 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     return analystTodo(user, week, activeCycle, pending);
   }, [user, week, activeCycle, isApprover, version]);
 
+  const scopedEntities = useMemo(() => assignedEntitiesFor(user), [user]);
+
   // The approver's decision list: every country they cover, with Review /
   // Approve in place — this replaces the separate Approvals screen.
   const approverRows = useMemo(() => {
     if (!isApprover) return [];
     void version;
-    const scoped = assignedEntitiesFor(user);
     const templates = loadTemplates();
     const overrides = loadApprovals(activeCycle?.id ?? '');
     return listEntities()
-      .filter((e) => scoped.includes(e.name))
+      .filter((e) => scopedEntities.includes(e.name))
       .map((e) => {
         const templateId = templateForEntity(templates, e.name)?.id ?? '';
         return { entity: e.name, templateId, status: mergedEntityStatus(e, week, templateId, overrides) };
       });
-  }, [isApprover, user, week, activeCycle, version]);
+  }, [isApprover, scopedEntities, week, activeCycle, version]);
   const awaitingDecision = (s: SubmissionStatus) => s === 'submitted' || s === 'pending';
   const waitingCount = approverRows.filter((r) => awaitingDecision(r.status)).length;
 
   const work = todo.entities;
   const canEditForecasts = permissions.canSubmitForecasts;
   const firstName = user.name.split(' ')[0];
+  /**
+   * Once the forecasts are in, submitting is done. The step stays on the
+   * list as a completed one, but its action is greyed out and dead: an
+   * enabled Submit button after submission is an invitation to redo work
+   * that has already moved on to the approver.
+   */
+  const submitClosed =
+    canEditForecasts && todo.steps.some((s) => s.key === 'submit' && s.state === 'done');
 
   /** Approve straight from the preview modal. */
   const approveNow = async (entity: string) => {
@@ -293,168 +322,188 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const previewTemplateId = preview
     ? templateForEntity(loadTemplates(), preview.entity)?.id
     : undefined;
+  /** The approver may still decide on the forecast the preview is showing. */
+  const previewDecidable =
+    preview?.mode === 'approve' &&
+    awaitingDecision(
+      approverRows.find((r) => r.entity === preview.entity)?.status ?? 'submitted',
+    );
+
+  /** The action button that belongs to a checklist step. */
+  const actionFor = (step: TodoStep): React.ReactNode => {
+    if (step.key === 'submit' && work.length > 0) {
+      return (
+        <button
+          className="btn btn-primary"
+          style={{ padding: '6px 12px', fontSize: 12 }}
+          data-tour="todo-submit"
+          disabled={submitClosed}
+          title={
+            submitClosed
+              ? 'Already submitted — the forecast is with your approver'
+              : 'See the countries this step covers'
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            setEntityList(true);
+          }}
+        >
+          {canEditForecasts ? 'Submit Forecast' : 'View Forecasts'}
+        </button>
+      );
+    }
+    if (step.key === 'review' && !isApprover && canEditForecasts && step.state === 'active') {
+      return (
+        <button
+          className="btn btn-primary"
+          style={{ padding: '6px 12px', fontSize: 12 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate('review');
+          }}
+        >
+          Open Comments
+        </button>
+      );
+    }
+    if (step.key === 'feedback' && step.state !== 'waiting') {
+      return (
+        <button
+          className="btn btn-ghost"
+          style={{ padding: '6px 12px', fontSize: 12 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate('review');
+          }}
+        >
+          View Comments
+        </button>
+      );
+    }
+    return null;
+  };
+
+  /** Where a checklist step goes when the row itself is clicked. */
+  const openFor = (step: TodoStep): (() => void) | undefined => {
+    if (step.key === 'submit') {
+      // A closed submit step is deliberately a dead end — the list it opens
+      // is the one that submits.
+      if (submitClosed || work.length === 0) return undefined;
+      return () => setEntityList(true);
+    }
+    if (step.key === 'review') {
+      if (isApprover) return () => setCountriesOpen((v) => !v);
+      return canEditForecasts ? () => onNavigate('review') : undefined;
+    }
+    return () => onNavigate('review');
+  };
 
   return (
     <div className="view active">
-      {/* Opening a forecast belongs to the checklist step that asks for it,
-          so the top bar carries no action of its own. */}
+      {/* The cycle is a fact, not an instruction: it belongs in the corner of
+          the top bar like treasury's, not in a banner across the page. What
+          to do next is said by the checklist, which raises the step you are
+          on rather than restating it in prose above. */}
       <TopBar
-        crumb={`My Workspace · ${work.map((w) => w.entity).join(' · ')}`}
+        crumb={`My Workspace · ${weekLabelShort(week)}`}
         title={`Welcome, ${firstName}`}
+        actions={
+          <span data-tour="analyst-cycle">
+            <CyclePill label="Active cycle" value={activeCycle?.id ?? '—'} />
+          </span>
+        }
       />
-      <div className="content">
-        {/* Same cycle banner treasury sees, so both sides quote the same
-            deadline when they talk about "this cycle". */}
-        <div className="cycle-banner" data-tour="analyst-cycle">
-          <div>
-            <span className="nav-label" style={{ padding: 0 }}>
-              Active cycle
-            </span>
-            <div className="cycle-banner-id">{activeCycle?.id ?? '—'}</div>
-          </div>
-          <div className="cycle-banner-meta">
-            <span>
-              <strong>{weekLabelShort(week)}</strong> · {weekLabel(week)}
-            </span>
-            <span className="text-muted">Closes {activeCycle?.closes ?? '—'}</span>
-          </div>
-          <div className={`up-next up-${todo.allDone ? 'done' : 'open'}`} data-tour="up-next">
-            {todo.upNext}
-          </div>
-        </div>
-
+      <div className="content content-compact">
         <div className="section-header">
           <h2>Your Cycle Checklist</h2>
           <span className="tag">in order · {work.length} entit{work.length === 1 ? 'y' : 'ies'}</span>
         </div>
         <div className="panel">
-          <div className="todo-list" data-tour="analyst-todo">
-            <ChecklistStep
-              index={1}
-              step={todo.steps[0]}
-              onOpen={work.length > 0 ? () => setEntityList(true) : undefined}
-              action={
-                work.length > 0 && (
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: '6px 12px', fontSize: 12 }}
-                    data-tour="todo-submit"
-                    title="See the countries this step covers"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEntityList(true);
-                    }}
-                  >
-                    {canEditForecasts ? 'Submit Forecast' : 'View Forecasts'}
-                  </button>
-                )
-              }
-            />
-            <ChecklistStep
-              index={2}
-              step={todo.steps[1]}
-              onOpen={
-                isApprover
-                  ? () => setCountriesOpen((v) => !v)
-                  : canEditForecasts
-                    ? () => onNavigate('review')
-                    : undefined
-              }
-              action={
-                !isApprover &&
-                canEditForecasts &&
-                todo.steps[1].state === 'active' && (
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: '6px 12px', fontSize: 12 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNavigate('review');
-                    }}
-                  >
-                    Open Comments
-                  </button>
-                )
-              }
-            />
-            {/* The approver decides right here: review opens the forecast,
-                approve confirms it over a read-only preview. */}
-            {isApprover && approverRows.length > 0 && (
-              <div className="todo-countries" data-tour="todo-approvals">
-                <button
-                  className="todo-countries-head"
-                  aria-expanded={countriesOpen}
-                  onClick={() => setCountriesOpen((v) => !v)}
-                >
-                  <span className="section-caret" aria-hidden="true">
-                    {countriesOpen ? '▾' : '▸'}
-                  </span>
-                  Your countries · {approverRows.length}
-                  {waitingCount > 0 && (
-                    <span className="badge-num warn">{waitingCount} waiting on you</span>
-                  )}
-                </button>
-                {countriesOpen &&
-                  approverRows.map((r) => (
-                    <div className="todo-country-row" key={r.entity}>
-                      <strong>{r.entity}</strong>
-                      <StatusPill status={r.status} />
-                      <span className="row-flex" style={{ marginLeft: 'auto' }}>
-                        <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
-                          title="Open the full forecast read-only"
-                          onClick={() =>
-                            onOpenSubmission({ entity: r.entity, week, templateId: r.templateId })
-                          }
-                        >
-                          Review
-                        </button>
-                        {awaitingDecision(r.status) ? (
-                          <button
-                            className="btn btn-success"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
-                            onClick={() => setPreview({ entity: r.entity, mode: 'approve' })}
-                          >
-                            Approve
-                          </button>
-                        ) : r.status === 'approved' ? (
-                          <span className="text-muted" style={{ fontSize: 11 }}>
-                            Approved ✓
-                          </span>
-                        ) : (
-                          <span className="text-muted" style={{ fontSize: 11 }}>
-                            with submitter
-                          </span>
-                        )}
+          <div
+            className={`todo-list${todo.currentStep >= 0 ? ' has-current' : ''}`}
+            data-tour="analyst-todo"
+          >
+            {todo.steps.map((step, i) => (
+              <Fragment key={step.key}>
+                <ChecklistStep
+                  index={i + 1}
+                  step={step}
+                  current={i === todo.currentStep}
+                  dataTour={STEP_TOUR_ID[step.key]}
+                  onOpen={openFor(step)}
+                  action={actionFor(step)}
+                />
+                {/* The approver decides right here: the row opens the
+                    forecast in a dialog and signs it off from inside it. */}
+                {step.key === 'review' && isApprover && approverRows.length > 0 && (
+                  <div className="todo-countries" data-tour="todo-approvals">
+                    <button
+                      className="todo-countries-head"
+                      aria-expanded={countriesOpen}
+                      onClick={() => setCountriesOpen((v) => !v)}
+                    >
+                      <span className="section-caret" aria-hidden="true">
+                        {countriesOpen ? '▾' : '▸'}
                       </span>
-                    </div>
-                  ))}
-              </div>
-            )}
-            <ChecklistStep
-              index={3}
-              step={todo.steps[2]}
-              dataTour="todo-feedback"
-              onOpen={() => onNavigate('review')}
-              action={
-                todo.steps[2].state !== 'waiting' && (
-                  <button
-                    className="btn btn-ghost"
-                    style={{ padding: '6px 12px', fontSize: 12 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNavigate('review');
-                    }}
-                  >
-                    View Comments
-                  </button>
-                )
-              }
-            />
+                      Your countries · {approverRows.length}
+                      {waitingCount > 0 && (
+                        <span className="badge-num warn">{waitingCount} waiting on you</span>
+                      )}
+                    </button>
+                    {countriesOpen &&
+                      approverRows.map((r) => (
+                        <div className="todo-country-row" key={r.entity}>
+                          <strong>{r.entity}</strong>
+                          <StatusPill status={r.status} />
+                          <span className="row-flex" style={{ marginLeft: 'auto' }}>
+                            {r.status === 'approved' ? (
+                              <span className="text-muted" style={{ fontSize: 11 }}>
+                                Approved ✓
+                              </span>
+                            ) : (
+                              !awaitingDecision(r.status) && (
+                                <span className="text-muted" style={{ fontSize: 11 }}>
+                                  with submitter
+                                </span>
+                              )
+                            )}
+                            <button
+                              className={`btn ${
+                                awaitingDecision(r.status) ? 'btn-success' : 'btn-ghost'
+                              }`}
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              title="Open the forecast in a dialog and decide on it there"
+                              onClick={() => setPreview({ entity: r.entity, mode: 'approve' })}
+                            >
+                              {awaitingDecision(r.status) ? 'Review & Approve' : 'View Forecast'}
+                            </button>
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </Fragment>
+            ))}
           </div>
         </div>
 
+        {/* An approver is judging forecasts, so they get what treasury judges
+            them against: the group position for their own countries. */}
+        {isApprover && (
+          <>
+            <div className="section-header">
+              <h2>Your Countries at a Glance</h2>
+              <span className="tag">same view treasury sees · scoped to you</span>
+            </div>
+            <TreasuryOverview
+              week={week}
+              cycleId={activeCycle?.id ?? ''}
+              cycleCloses={activeCycle?.closes}
+              scopeEntities={scopedEntities}
+              onOpenSubmission={onOpenSubmission}
+            />
+          </>
+        )}
       </div>
 
       {/* The checklist's countries: what the removed "My Forecasts" section
@@ -494,9 +543,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           onClose={() => setPreview(null)}
           actions={
             preview.mode === 'approve' ? (
-              <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
-                Approve Forecast
-              </button>
+              previewDecidable && (
+                <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
+                  Approve Forecast
+                </button>
+              )
             ) : (
               <>
                 <button

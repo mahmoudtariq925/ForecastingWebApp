@@ -24,10 +24,6 @@
   --text-muted: #5a6070;
   --accent: #7a5f2f;
   --accent-soft: rgba(138, 109, 59, 0.1);
-  /* Crosshair rules: the accent at the weight of a pencil guide line. */
-  --crosshair: rgba(138, 109, 59, 0.45);
-  /* Low enough to sit over the heat-map tints without muddying them. */
-  --crosshair-wash: rgba(138, 109, 59, 0.05);
   --green: #2f8a5c;
   --green-soft: rgba(47, 138, 92, 0.1);
   --red: #b8484a;
@@ -969,6 +965,19 @@ td.num {
   padding: 5px 8px;
   text-align: right;
 }
+/* Net cash flow reads by sign before it reads as a number: money left over
+   is green, a shortfall is red. Only the net figures take this — colouring
+   every line item would leave nothing standing out. */
+.forecast-grid td.cell.net-positive,
+.forecast-grid td.cell.net-positive.subtotal-cell,
+.forecast-grid td.cell.net-positive.total-cell {
+  color: var(--green);
+}
+.forecast-grid td.cell.net-negative,
+.forecast-grid td.cell.net-negative.subtotal-cell,
+.forecast-grid td.cell.net-negative.total-cell {
+  color: var(--red);
+}
 .forecast-grid td.cell.total-cell {
   color: var(--text);
   font-weight: 700;
@@ -1027,77 +1036,50 @@ td.num {
   padding-bottom: 5px;
 }
 
-/* Row hover: an inset ring rather than a background, so it still reads on
-   heat-mapped cells whose background is set inline. */
 /* ------------------------------------------------------------------
-   Crosshair. A wide grid is hard to read across — by the twelfth column
-   you have lost the line item, by the twentieth row the date. The row
-   and column under the pointer are ruled, and their labels lit, so
-   "where am I" is answered by looking.
+   Hovering the grid.
+
+   There used to be a crosshair here: the row and the column under the
+   pointer were both ruled and washed. On a grid this dense that lit up
+   a stripe across the whole forecast on every pointer move, which read
+   as a selection nobody had made — and putting the pointer anywhere
+   near a section band shaded the lot. It is gone.
+
+   What replaces it is smaller and answers the question people actually
+   have: the single cell under the pointer LIFTS off the page, so the
+   number you are about to type into is the one thing standing proud.
+   Only cells a value can be entered into do this (`cell-input`) —
+   totals, subtotals, section bands and read-only grids never move.
    ------------------------------------------------------------------ */
 .forecast-grid td,
 .forecast-grid th {
   transition:
     background-color 0.1s ease,
-    box-shadow 0.1s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease,
     color 0.1s ease;
 }
-.forecast-grid tbody tr:hover td {
-  box-shadow:
-    inset 0 1px 0 var(--crosshair),
-    inset 0 -1px 0 var(--crosshair);
+/* The app-wide `tbody tr:hover` wash does not apply here: on a forecast it
+   shaded a whole row of numbers — section bands and all — every time the
+   pointer crossed the table. */
+.forecast-grid tbody tr:hover {
+  background: none;
 }
-.forecast-grid tbody tr:hover td.row-label {
-  color: var(--accent);
-  box-shadow:
-    inset 0 1px 0 var(--crosshair),
-    inset 0 -1px 0 var(--crosshair),
-    1px 0 0 var(--border),
-    4px 0 8px -6px rgba(20, 22, 28, 0.3);
-}
-/* The column half — no CSS selector can reach it, so useCrosshair marks it. */
-.forecast-grid td.col-hover,
-.forecast-grid th.col-hover {
-  box-shadow:
-    inset 1px 0 0 var(--crosshair),
-    inset -1px 0 0 var(--crosshair);
-}
-/* Ruled edges alone are easy to lose on a dense grid, so both bands also get
-   a wash. Two pseudo-elements rather than one shared rule: the column paints
-   ::before and the row ::after, so only the cell you are actually on takes
-   both and the crossing point reads darker than either band. Data cells need
-   a containing block for that; the sticky ones (header, row label, pinned
-   totals) already establish their own and must keep it. */
+/* A raised cell needs a stacking context of its own to sit above its
+   neighbours, and an opaque background so theirs doesn't show through. */
 .forecast-grid tbody tr:not(.column-totals-row) td.cell {
   position: relative;
 }
-.forecast-grid td.col-hover::before,
-.forecast-grid th.col-hover::before,
-.forecast-grid tbody tr:hover td::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--crosshair-wash);
-  pointer-events: none;
-}
-.forecast-grid thead th.col-hover {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-/* Row and column rules meet on the hovered row's cells in that column. */
-.forecast-grid tbody tr:hover td.col-hover {
+.forecast-grid td.cell.cell-input:hover {
+  z-index: 6;
+  transform: scale(1.09);
+  border-radius: 4px;
+  background-color: var(--bg-elev);
   box-shadow:
-    inset 1px 0 0 var(--crosshair),
-    inset -1px 0 0 var(--crosshair),
-    inset 0 1px 0 var(--crosshair),
-    inset 0 -1px 0 var(--crosshair);
+    inset 0 0 0 1.5px var(--accent),
+    0 8px 18px -6px rgba(20, 22, 28, 0.34);
 }
-/* ...and the cell you are actually on gets the full ring. */
-.forecast-grid td.cell-hover,
-.forecast-grid th.cell-hover {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-}
-/* A focused input outranks the crosshair: it says where you are TYPING. */
+/* A focused input outranks the hover: it says where you are TYPING. */
 .forecast-grid td.cell:has(input:focus) {
   box-shadow: inset 0 0 0 1px var(--accent) !important;
 }
@@ -2545,46 +2527,6 @@ tr.entity-row:focus-visible {
    state of each step is readable at a glance, so colour carries
    it — green done, red needs you, accent actionable, grey not yet.
    ============================================================ */
-.cycle-banner {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  flex-wrap: wrap;
-  padding: 16px 22px;
-  margin-bottom: 20px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.cycle-banner-id {
-  font-family: var(--serif);
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-.cycle-banner-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.up-next {
-  margin-left: auto;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 16px;
-  border-radius: 100px;
-}
-.up-next.up-open {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.up-next.up-done {
-  background: var(--green-soft);
-  color: var(--green);
-}
-
 .todo-list {
   display: flex;
   flex-direction: column;
@@ -2907,12 +2849,9 @@ tr.entity-row:focus-visible {
   text-transform: uppercase;
   color: var(--text-muted);
 }
-/* The flow mutes the rest of the grid GENTLY — the other numbers stay
-   readable behind the spotlight (the pre-submit red flow keeps its
-   stronger dim, where the empty cells are all that matters). */
-.forecast-grid.dim-soft td.cell.cell-dimmed {
-  opacity: 0.55;
-}
+/* The commentary flow spotlights the cell being explained and leaves the
+   rest of the forecast exactly as it was — the surrounding numbers are what
+   the explanation is written against, so shading them defeats the point. */
 .forecast-grid td.cell.cell-spotlit.spotlit-comment {
   background: var(--amber-soft);
   box-shadow:
@@ -3149,52 +3088,12 @@ tbody td {
 /* Panels sit on white; the app background is the only tinted surface, so a
    box always lifts its text off the page rather than blending into it. */
 .panel,
-.kpi-card,
-.cycle-banner {
+.kpi-card {
   background: var(--bg-elev);
 }
 .panel-header,
 .grid-toolbar {
   background: var(--bg-elev-2);
-}
-
-/* ==========================================================================
-   Hovering the grid should light the NUMBERS, not the whole row.
-   The row-wide wash meant putting the pointer anywhere near a section band
-   greyed a whole stripe of the table, which read as a selection nobody made.
-   Only data cells now take the crosshair.
-   ========================================================================== */
-.forecast-grid tbody tr:hover td {
-  box-shadow: none;
-}
-.forecast-grid tbody tr:hover td.cell {
-  box-shadow:
-    inset 0 1px 0 var(--crosshair),
-    inset 0 -1px 0 var(--crosshair);
-}
-.forecast-grid tbody tr:hover td::after {
-  content: none;
-}
-.forecast-grid tbody tr:hover td.cell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--crosshair-wash);
-  pointer-events: none;
-}
-/* Section bands are headings, not data — they never take the hover wash. */
-.forecast-grid tr.section-row:hover td,
-.forecast-grid tr.section-row:hover td.cell {
-  box-shadow: none;
-}
-.forecast-grid tr.section-row:hover td.cell::after {
-  content: none;
-}
-.forecast-grid tbody tr:hover td.row-label {
-  color: var(--accent);
-  box-shadow:
-    1px 0 0 var(--border),
-    4px 0 8px -6px rgba(20, 22, 28, 0.3);
 }
 
 /* Sticky header rows must be opaque — a translucent band let the numbers
@@ -3238,9 +3137,23 @@ tbody td {
 /* ==========================================================================
    Merged dashboard: clickable stat boxes and the single outlook chart.
    ========================================================================== */
+/* Full width, like the outlook and the matrix below them — the stat boxes are
+   the top of one block, not a narrower thing sitting above it. */
 .kpi-grid.kpi-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  max-width: 1040px;
+}
+/* Visible to a screen reader, invisible on screen — used where an icon or a
+   symbol carries the meaning of a control. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .kpi-card.kpi-clickable {
   text-align: left;
@@ -3264,10 +3177,148 @@ tbody td {
 .kpi-card.tone-ok .kpi-value {
   color: var(--green);
 }
-/* Wide enough to read inflows against outflows, narrow enough to stay one
-   glance — a full-width chart of twenty columns is a wall, not a picture. */
+/* ==========================================================================
+   Overview filters: one bar deciding what the whole block below shows.
+   ========================================================================== */
+.overview-filters {
+  padding: 10px 14px;
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.filter-row-state {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-chip {
+  padding: 4px 11px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.filter-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.filter-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* The cross-filter's own chip: click it to go back to the full horizon. */
+.period-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ==========================================================================
+   The outlook and its matrix, side by side. The chart says WHEN the money
+   moves; the matrix beside it says WHO and WHAT — the question you have the
+   moment the chart shows you something you did not expect.
+   ========================================================================== */
+.outlook-row {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  flex-wrap: wrap;
+}
 .outlook-panel {
-  max-width: 1040px;
+  flex: 1 1 520px;
+  min-width: 0;
+}
+.matrix-panel {
+  flex: 1 1 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.matrix-wrap {
+  overflow: auto;
+  max-height: 420px;
+}
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.matrix-table th,
+.matrix-table td {
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.matrix-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-elev-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: right;
+}
+.matrix-table th.matrix-row-h,
+.matrix-table td.matrix-row-label {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-elev);
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.matrix-table thead th.matrix-row-h {
+  z-index: 3;
+  background: var(--bg-elev-2);
+}
+.matrix-table td.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.matrix-table tr.matrix-section td {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--accent-soft);
+  border-top: 2px solid var(--border-strong);
+}
+.matrix-table td.matrix-total,
+.matrix-table th.matrix-total-h {
+  font-weight: 700;
+  background: #ebe9e0;
+}
+.matrix-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  font-weight: 700;
+  background: #ebe9e0;
+  border-top: 2px solid var(--border-strong);
+}
+.matrix-table td.net-positive {
+  color: var(--green);
+}
+.matrix-table td.net-negative {
+  color: var(--red);
 }
 
 /* Region → country lists inside the progress modals. */
@@ -3318,13 +3369,6 @@ tbody td {
 .region-bar.complete span {
   background: var(--green);
 }
-.region-total {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 600;
-  min-width: 96px;
-  text-align: right;
-}
 .region-body {
   padding: 6px 10px 10px;
 }
@@ -3346,18 +3390,9 @@ tbody td {
   color: var(--text-muted);
   font-size: 12px;
 }
-.country-total {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-weight: 600;
-}
-.country-delta {
-  min-width: 76px;
-  text-align: right;
-  font-family: var(--mono);
-  font-size: 12px;
-}
+/* With the totals gone, the actions are what the row ends on. */
 .country-actions {
+  margin-left: auto;
   flex-shrink: 0;
 }
 .progress-summary {
@@ -3396,6 +3431,34 @@ tbody td {
 }
 .chart-hit {
   cursor: pointer;
+}
+
+/* ==========================================================================
+   Chart axes and slot marks.
+
+   The axis values used to be 9px of the lightest grey on the palette, which
+   made the one part of a chart you have to READ the hardest part to see.
+   ========================================================================== */
+.chart-svg .chart-axis-label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-dim);
+}
+/* Fridays: the week-to-week reference point, so they are named at full
+   strength however thinly the rest of the axis is labelled. */
+.chart-svg .chart-axis-marked {
+  font-weight: 700;
+  fill: var(--text);
+}
+.chart-svg .chart-emphasis-band {
+  fill: rgba(138, 109, 59, 0.07);
+}
+/* The period a click has filtered the page to. */
+.chart-svg .chart-active-band {
+  fill: rgba(138, 109, 59, 0.16);
+  stroke: var(--accent);
+  stroke-width: 1;
 }
 
 /* ==========================================================================
@@ -3501,6 +3564,18 @@ tbody td {
 /* ==========================================================================
    Settings: one control per row.
    ========================================================================== */
+/* The remaining groups sit side by side rather than stacked down a column
+   of mostly empty page — two short lists read faster next to each other. */
+.settings-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  align-items: start;
+  max-width: 1040px;
+}
+.settings-columns .panel {
+  margin-bottom: 0;
+}
 .settings-stack {
   display: flex;
   flex-direction: column;
@@ -3560,6 +3635,39 @@ tbody td {
 .todo-step.todo-blocked.todo-clickable:hover {
   background: rgba(184, 72, 74, 0.14);
 }
+
+/* The step you are ON is lifted out of the list — bordered, raised, and the
+   others held back behind it. A checklist whose rows all look alike has to be
+   read end to end before you know where you are. */
+.todo-list.has-current .todo-step:not(.todo-current) {
+  opacity: 0.5;
+}
+.todo-list.has-current .todo-step:not(.todo-current):hover {
+  opacity: 0.75;
+}
+.todo-step.todo-current {
+  position: relative;
+  z-index: 1;
+  opacity: 1;
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: 8px;
+  margin: 4px 6px;
+  background: var(--bg-elev);
+  box-shadow: 0 8px 22px -10px rgba(20, 22, 28, 0.45);
+}
+.todo-step.todo-current.todo-blocked {
+  border-color: var(--red);
+}
+.todo-step.todo-current.todo-done {
+  border-color: var(--green);
+}
+/* A completed action stays on the list, greyed and dead: the step is a
+   record of what happened, not an invitation to do it again. */
+.todo-step .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .entity-list {
   display: flex;
   flex-direction: column;
@@ -3595,8 +3703,6 @@ tbody td {
 .dialog-message.error,
 .cycle-scope .range,
 .paste-hint,
-.up-next,
-.cycle-banner-meta,
 .setup-step-mark,
 .assignment-chip .text-muted,
 .assign-option-text .text-muted,

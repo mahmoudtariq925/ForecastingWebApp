@@ -9,6 +9,8 @@ interface DayBreakdownModalProps {
   week: string;
   dayIdx: number;
   dayLabel: string;
+  /** Countries the dashboard's selector has in scope; omit for all. */
+  onlyEntities?: string[];
   onClose: () => void;
   /** Open a country's forecast from its row. */
   onOpen: (target: { entity: string; templateId: string }) => void;
@@ -29,12 +31,13 @@ export function DayBreakdownModal({
   week,
   dayIdx,
   dayLabel,
+  onlyEntities,
   onClose,
   onOpen,
 }: DayBreakdownModalProps) {
   const rows = useMemo(
-    () => dayContributions(week, dayIdx, loadSettings(DEFAULT_SETTINGS)),
-    [week, dayIdx],
+    () => dayContributions(week, dayIdx, loadSettings(DEFAULT_SETTINGS), onlyEntities),
+    [week, dayIdx, onlyEntities],
   );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
