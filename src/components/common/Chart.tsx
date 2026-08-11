@@ -47,12 +47,33 @@ interface ChartProps {
    * pixels of a bar.
    */
   onPointClick?: (index: number) => void;
+  /**
+   * Called with the slot index on a DOUBLE click. A single click filters the
+   * page to that period; opening the detail behind it is the deliberate
+   * second click, so the two never fight over the same gesture — the single
+   * click is therefore held back briefly to see whether a second one lands.
+   */
+  onPointDoubleClick?: (index: number) => void;
+  /** Slot currently selected by a cross-filter, drawn as a standing column. */
+  activeIndex?: number | null;
+  /**
+   * Slots worth marking out on the axis — Fridays on a daily horizon, which
+   * are the week-to-week reference point. One flag per label.
+   */
+  emphasis?: boolean[];
+  /** Tooltip line appended to each column's readout. */
+  hitHint?: string;
 }
 
-const PAD_L = 52;
+/** How long a single click waits for a second one before acting. */
+const DOUBLE_CLICK_MS = 220;
+
+// Left and bottom leave room for axis labels set at a readable weight and
+// size — at 9px light grey they were decoration you had to lean in to read.
+const PAD_L = 60;
 const PAD_R = 12;
 const PAD_T = 14;
-const PAD_B = 24;
+const PAD_B = 30;
 
 function fmtAxis(v: number): string {
   const abs = Math.abs(v);
@@ -72,9 +93,15 @@ export function Chart({
   height = 200,
   stacked = false,
   onPointClick,
+  onPointDoubleClick,
+  activeIndex = null,
+  emphasis,
+  hitHint,
 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
+  // Pending single click, held for a moment in case a double click follows.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -85,6 +112,35 @@ export function Chart({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(
+    () => () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    },
+    [],
+  );
+
+  const handleClick = (i: number) => {
+    if (!onPointClick) return;
+    // With no double-click handler there is nothing to wait for.
+    if (!onPointDoubleClick) {
+      onPointClick(i);
+      return;
+    }
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+      onPointClick(i);
+    }, DOUBLE_CLICK_MS);
+  };
+
+  const handleDoubleClick = (i: number) => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    onPointDoubleClick?.(i);
+  };
 
   const n = labels.length;
   const w = width;
@@ -155,17 +211,40 @@ export function Chart({
   return (
     <div className="chart-container" ref={ref} style={{ height: height + 40 }}>
       <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        {/* Marked slots (Fridays on a daily horizon) get a standing band, so
+            the week-to-week reference points are findable without counting
+            columns. Drawn first — everything else sits on top of it. */}
+        {emphasis?.map((on, i) =>
+          on ? (
+            <rect
+              key={`em${i}`}
+              className="chart-emphasis-band"
+              x={x(i) - slotW / 2}
+              y={PAD_T}
+              width={slotW}
+              height={plotH}
+            />
+          ) : null,
+        )}
+        {/* The period a cross-filter has selected. */}
+        {activeIndex !== null && activeIndex >= 0 && activeIndex < n && (
+          <rect
+            className="chart-active-band"
+            x={x(activeIndex) - slotW / 2}
+            y={PAD_T}
+            width={slotW}
+            height={plotH}
+          />
+        )}
         {/* horizontal gridlines + axis values */}
         {gridVals.map((v, i) => (
           <g key={i}>
             <line x1={PAD_L} y1={y(v)} x2={w - PAD_R} y2={y(v)} stroke="#ebe9e0" strokeWidth="1" />
             <text
               x={PAD_L - 6}
-              y={y(v) + 3}
+              y={y(v) + 3.5}
               textAnchor="end"
-              fontFamily="JetBrains Mono, monospace"
-              fontSize="9"
-              fill="#8e92a3"
+              className="chart-axis-label"
             >
               {fmtAxis(v)}
             </text>
@@ -267,7 +346,8 @@ export function Chart({
               width={slotW}
               height={plotH}
               fill="transparent"
-              onClick={() => onPointClick(i)}
+              onClick={() => handleClick(i)}
+              onDoubleClick={() => handleDoubleClick(i)}
             >
               <title>
                 {[
@@ -277,23 +357,22 @@ export function Chart({
                       ? `${s.label}: —`
                       : `${s.label}: ${fmtVal(s.values[i] as number, unit)}`,
                   ),
-                  'Click for the country breakdown',
+                  ...(hitHint ? [hitHint] : []),
                 ].join('\n')}
               </title>
             </rect>
           ))}
 
-        {/* x labels */}
+        {/* x labels — a marked slot (Friday) always gets one, whatever the
+            thinning step, since it is the label you are looking for. */}
         {labels.map((label, i) =>
-          i % labelStep === 0 ? (
+          i % labelStep === 0 || emphasis?.[i] ? (
             <text
               key={i}
               x={x(i)}
-              y={h - 6}
+              y={h - 9}
               textAnchor="middle"
-              fontFamily="JetBrains Mono, monospace"
-              fontSize="9"
-              fill="#8e92a3"
+              className={`chart-axis-label${emphasis?.[i] ? ' chart-axis-marked' : ''}`}
             >
               {label}
             </text>

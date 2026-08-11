@@ -19,13 +19,16 @@ interface CycleProgressModalProps {
   emptyMessage: string;
 }
 
-const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
-
 /**
  * Cycle progress, region by region — the old Dashboard table, folded into a
  * modal and made collapsible so a treasury user opens only the region they
  * are chasing. Serves both the "submissions received" and the "awaiting
  * approval" stat boxes; the caller filters the regions it passes in.
+ *
+ * The question this answers is "is it in yet?", so it carries no forecast
+ * totals: a €k figure beside a country said nothing about whether that
+ * country had reported, and reading a group total off a progress list was
+ * never what anyone opened it for.
  */
 export function CycleProgressModal({
   open,
@@ -37,10 +40,11 @@ export function CycleProgressModal({
   onChase,
   emptyMessage,
 }: CycleProgressModalProps) {
-  // Regions with something still outstanding open themselves — those are the
-  // ones the list was opened to deal with.
+  // Everything starts closed: the modal opens on the shape of the cycle —
+  // which regions are complete and which are not — and a region is opened
+  // only when it is the one being chased.
   const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set(regions.filter((r) => r.received === r.countries.length).map((r) => r.name)),
+    () => new Set(regions.map((r) => r.name)),
   );
   const toggle = (name: string) =>
     setCollapsed((prev) => {
@@ -55,7 +59,6 @@ export function CycleProgressModal({
     return {
       count: countries.length,
       received: countries.filter((c) => c.received).length,
-      total: countries.reduce((s, c) => s + c.total, 0),
     };
   }, [regions]);
 
@@ -74,7 +77,7 @@ export function CycleProgressModal({
       <div className="preview-meta">
         <span className="text-dim">{subtitle}</span>
         <span className="progress-summary">
-          {totals.received} of {totals.count} received · {fmtK(totals.total)}
+          {totals.received} of {totals.count} received
         </span>
       </div>
 
@@ -112,7 +115,6 @@ export function CycleProgressModal({
                       }}
                     />
                   </span>
-                  <span className="region-total">{fmtK(region.total)}</span>
                 </button>
                 {isOpen && (
                   <div className="region-body">
@@ -128,16 +130,6 @@ export function CycleProgressModal({
                             {c.needCommentary} to explain
                           </span>
                         )}
-                        <span className="country-total">{fmtK(c.total)}</span>
-                        <span className="country-delta">
-                          {c.delta === null ? (
-                            <span className="text-muted">—</span>
-                          ) : (
-                            <span className={`delta ${c.delta > 0 ? 'up' : 'down'}`}>
-                              {c.delta > 0 ? '↑' : '↓'} {Math.abs(c.delta).toFixed(1)}%
-                            </span>
-                          )}
-                        </span>
                         <span className="row-flex country-actions">
                           <button
                             className="btn btn-ghost"

@@ -28,12 +28,34 @@ export interface TodoStep {
 
 export interface AnalystTodo {
   steps: TodoStep[];
-  /** The single sentence at the top telling them what to do now. */
-  upNext: string;
+  /**
+   * Index into `steps` of the one the user is on right now — the step the
+   * checklist raises above the others. -1 when there is nothing to be on
+   * (no entities assigned).
+   */
+  currentStep: number;
   /** Whether the whole cycle is finished from this user's point of view. */
   allDone: boolean;
   /** Per-entity detail the screen lists underneath. */
   entities: EntityProgress[];
+}
+
+/**
+ * Which step a user is standing on: whatever is blocking them, else whatever
+ * they can act on, else the first thing not yet finished. With everything
+ * done it is the last step, so the checklist still raises where they ended up
+ * rather than pointing at nothing.
+ */
+function currentStepIndex(steps: TodoStep[]): number {
+  if (steps.length === 0) return -1;
+  const byState = (state: StepState) => steps.findIndex((s) => s.state === state);
+  const blocked = byState('blocked');
+  if (blocked >= 0) return blocked;
+  const active = byState('active');
+  if (active >= 0) return active;
+  const waiting = byState('waiting');
+  if (waiting >= 0) return waiting;
+  return steps.length - 1;
 }
 
 export interface EntityProgress {
@@ -78,14 +100,13 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
 }
 
 /**
- * The ordered checklist for one analyst. The three steps are the same shape
- * for every role — get the numbers in, clear the review, hand over — but WHO
- * acts differs, and the wording and states follow the role:
+ * The ordered checklist for one analyst — get the numbers in, clear the
+ * review, hand over — with the wording, the states and the STEPS THEMSELVES
+ * following the role:
  *
- * - A SUBMITTER submits, explains variances and answers questions.
- * - An APPROVER waits for forecasts to arrive, then approves or returns
- *   them. Submitting is never their step, so it can be waiting on others
- *   but never red or actionable for them.
+ * - A SUBMITTER submits, explains variances and answers questions: all three.
+ * - An APPROVER never submits, so that step is not theirs to stand on. Their
+ *   checklist is two steps: review & approve, then await feedback.
  * - A VIEWER acts on nothing; every step is a status report.
  *
  * `pendingApprovals` is passed in rather than recomputed because the
@@ -201,33 +222,15 @@ export function analystTodo(
         : 'Treasury is reviewing — nothing to do',
   };
 
-  const upNext = (): string => {
-    if (entities.length === 0) return 'No entities are assigned to you yet.';
-    if (!isSubmitter && !isApprover) {
-      return cycleClosed
-        ? 'Cycle closed — you have read-only access'
-        : 'You have read-only access — nothing needs your action';
-    }
-    if (isApprover) {
-      if (pendingApprovals > 0) return 'Up next: approve the forecasts waiting on you';
-      if (!submitDone) return 'Up next: await your submitters’ forecasts';
-      if (cycleClosed) return 'You are fully done, cycle closed';
-      return 'Up next: await comments';
-    }
-    if (submit.state === 'blocked')
-      return returned > 0
-        ? 'Up next: update the forecast Treasury returned'
-        : 'Up next: answer Treasury’s open questions';
-    if (submit.state === 'active') return 'Up next: submit your forecast';
-    if (review.state === 'active') return 'Up next: explain your flagged variances';
-    if (cycleClosed) return 'You are fully done, cycle closed';
-    return 'Up next: await comments';
-  };
+  // An approver never submits, so "forecasts submitted" was a status line on
+  // someone else's work sitting at the top of their own to-do list. Their
+  // checklist is the two steps that are actually theirs: decide, then wait.
+  const steps = isApprover ? [review, feedback] : [submit, review, feedback];
 
   return {
-    steps: [submit, review, feedback],
-    upNext: upNext(),
-    allDone: submit.state === 'done' && review.state === 'done' && feedback.state === 'done',
+    steps,
+    currentStep: entities.length === 0 ? -1 : currentStepIndex(steps),
+    allDone: steps.every((s) => s.state === 'done'),
     entities,
   };
 }

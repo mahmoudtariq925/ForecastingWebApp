@@ -28,15 +28,18 @@ import {
 import { loadTemplates, type ApprovalMap } from '../storage/localStorage';
 import { dayInflows, dayNet, dayOutflows } from '../components/submissions/gridMath';
 
-/** One country's line in the cycle-progress and approval views. */
+/**
+ * One country's line in the cycle-progress and approval views.
+ *
+ * Deliberately no forecast total: this rollup answers "is it in yet?", and a
+ * €k figure beside a country name told you nothing about whether that country
+ * had reported. The numbers live in the outlook, the matrix and the
+ * consolidated forecast, where they are what is being read.
+ */
 export interface CountryProgress {
   entity: Entity;
   status: SubmissionStatus;
   templateId: string;
-  /** Full-horizon net total for the week, EUR thousands. */
-  total: number;
-  /** Week-over-week move, or null when there is no prior forecast. */
-  delta: number | null;
   /** Flagged cells still without commentary. */
   needCommentary: number;
   received: boolean;
@@ -47,10 +50,36 @@ export interface CountryProgress {
 export interface RegionProgress {
   name: string;
   countries: CountryProgress[];
-  total: number;
   received: number;
   /** Countries submitted but not yet approved. */
   awaiting: number;
+}
+
+/**
+ * The entities an aggregate covers. `onlyEntities` is how a role (an approver
+ * seeing their own countries) and the dashboard's country selector both narrow
+ * every rollup — one definition, so the stat boxes, the chart, the matrix and
+ * the modals can never disagree about who is in scope.
+ */
+function scopedEntities(onlyEntities?: string[]): Entity[] {
+  return onlyEntities ? listEntities().filter((e) => onlyEntities.includes(e.name)) : listEntities();
+}
+
+/**
+ * The period columns an aggregate sums over: the whole horizon, or the single
+ * period a cross-filter has selected on the outlook chart.
+ */
+function periodRange(periods: number, dayIdx?: number | null): { from: number; to: number } {
+  if (dayIdx === null || dayIdx === undefined || dayIdx < 0 || dayIdx >= periods) {
+    return { from: 0, to: periods };
+  }
+  return { from: dayIdx, to: dayIdx + 1 };
+}
+
+/** Does a `${catIdx}-${dayIdx}` cell key fall inside a period range? */
+function inRange(cellKey: string, from: number, to: number): boolean {
+  const d = Number(cellKey.split('-')[1]);
+  return Number.isFinite(d) && d >= from && d < to;
 }
 
 /**
@@ -58,38 +87,35 @@ export interface RegionProgress {
  * produces every number the progress modal, the approvals modal and the stat
  * boxes show, so a country can never be "received" in one and not the other.
  */
-export function cycleProgress(week: string, overrides: ApprovalMap): RegionProgress[] {
+export function cycleProgress(
+  week: string,
+  overrides: ApprovalMap,
+  /** Restrict the rollup to these entities (role scoping / country filter). */
+  onlyEntities?: string[],
+  /** Count commentary in this period only (cross-filter); omit for all. */
+  dayIdx?: number | null,
+): RegionProgress[] {
   const templates = loadTemplates();
   const order: string[] = [];
   const byRegion = new Map<string, CountryProgress[]>();
 
-  for (const entity of listEntities()) {
+  for (const entity of scopedEntities(onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
     const status = mergedEntityStatus(entity, week, template?.id ?? '', overrides);
     const row: CountryProgress = {
       entity,
       status,
       templateId: template?.id ?? '',
-      total: 0,
-      delta: null,
       needCommentary: 0,
       received: status !== 'pending',
       approved: status === 'approved',
     };
     if (template) {
-      const periods = periodsOf(template).count;
-      const cats = template.categories.length;
+      const { from, to } = periodRange(periodsOf(template).count, dayIdx);
       const sub = peekSubmission(entity.name, week, template);
-      const priorValues = getPriorValues(entity.name, week, template);
-      let total = 0;
-      let prior = 0;
-      for (let d = 0; d < periods; d++) {
-        total += dayNet(cats, sub.values, d);
-        prior += dayNet(cats, priorValues, d);
-      }
-      row.total = total;
-      row.delta = prior === 0 ? null : ((total - prior) / Math.abs(prior)) * 100;
-      row.needCommentary = sub.flags.filter((k) => !sub.comments?.[k]?.trim()).length;
+      row.needCommentary = sub.flags.filter(
+        (k) => !sub.comments?.[k]?.trim() && inRange(k, from, to),
+      ).length;
     }
     if (!byRegion.has(entity.region)) {
       byRegion.set(entity.region, []);
@@ -103,7 +129,6 @@ export function cycleProgress(week: string, overrides: ApprovalMap): RegionProgr
     return {
       name,
       countries,
-      total: countries.reduce((s, c) => s + c.total, 0),
       received: countries.filter((c) => c.received).length,
       awaiting: countries.filter((c) => c.received && !c.approved).length,
     };
@@ -152,16 +177,24 @@ export interface AttentionRow {
  * their largest unexplained variance — largest first, which is the order a
  * treasury reviewer works down the list in.
  */
-export function attentionRows(week: string, base: Settings): AttentionRow[] {
+export function attentionRows(
+  week: string,
+  base: Settings,
+  /** Restrict the scan to these entities (role scoping / country filter). */
+  onlyEntities?: string[],
+  /** Count only cells in this period (cross-filter); omit for the horizon. */
+  dayIdx?: number | null,
+): AttentionRow[] {
   const templates = loadTemplates();
   const out: AttentionRow[] = [];
-  for (const entity of listEntities()) {
+  for (const entity of scopedEntities(onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
     if (!template) continue;
     const settings = settingsForEntity(entity.name, base);
     const sub = peekSubmission(entity.name, week, template);
     const prior = getPriorValues(entity.name, week, template);
-    const open = sub.flags.filter((k) => !sub.comments?.[k]?.trim());
+    const { from, to } = periodRange(periodsOf(template).count, dayIdx);
+    const open = sub.flags.filter((k) => !sub.comments?.[k]?.trim() && inRange(k, from, to));
     if (open.length === 0) continue;
 
     let worstAbs = 0;
@@ -234,14 +267,15 @@ export interface ConsolidatedReport {
   omitted: { label: string; entities: string[]; total: number }[];
 }
 
-/** Sum one entity's category over the whole horizon. */
+/** Sum one entity's category over a range of periods. */
 function categoryTotal(
   values: Record<string, number>,
   catIdx: number,
-  periods: number,
+  from: number,
+  to: number,
 ): number {
   let s = 0;
-  for (let d = 0; d < periods; d++) s += values[`${catIdx}-${d}`] || 0;
+  for (let d = from; d < to; d++) s += values[`${catIdx}-${d}`] || 0;
   return s;
 }
 
@@ -254,25 +288,30 @@ export function consolidatedReport(
   week: string,
   priorWeek: string,
   display: ForecastTemplate,
+  /** Restrict the consolidation to these entities (country filter). */
+  onlyEntities?: string[],
+  /** Sum a single period rather than the whole horizon (cross-filter). */
+  dayIdx?: number | null,
 ): ConsolidatedReport {
   const templates = loadTemplates();
   const periods = periodsOf(display).count;
+  const { from, to } = periodRange(periods, dayIdx);
   const numCats = display.categories.length;
-  const current = consolidatedValues(week, display);
-  const prior = consolidatedValues(priorWeek, display);
+  const current = consolidatedValues(week, display, onlyEntities);
+  const prior = consolidatedValues(priorWeek, display, onlyEntities);
 
   const pct = (cur: number, prev: number): number | null =>
     prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100;
 
   // Per-entity totals, so every line can be broken down by country.
-  const perEntity = listEntities().map((e) => {
+  const perEntity = scopedEntities(onlyEntities).map((e) => {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
     const cats = template.categories.length;
     let inflows = 0;
     let outflows = 0;
     let net = 0;
-    for (let d = 0; d < periods; d++) {
+    for (let d = from; d < to; d++) {
       inflows += dayInflows(cats, sub.values, d);
       outflows += dayOutflows(cats, sub.values, d);
       net += dayNet(cats, sub.values, d);
@@ -283,7 +322,7 @@ export function consolidatedReport(
     template.categories.forEach((cat, catIdx) => {
       if (cat.subtotal) return;
       const key = cat.label.trim().toLowerCase();
-      byLabel.set(key, (byLabel.get(key) ?? 0) + categoryTotal(sub.values, catIdx, periods));
+      byLabel.set(key, (byLabel.get(key) ?? 0) + categoryTotal(sub.values, catIdx, from, to));
     });
     return { entity: e.name, inflows, outflows, net, byLabel };
   });
@@ -299,7 +338,7 @@ export function consolidatedReport(
     fn: (cats: number, v: Record<string, number>, d: number) => number,
   ): number => {
     let s = 0;
-    for (let d = 0; d < periods; d++) s += fn(numCats, values, d);
+    for (let d = from; d < to; d++) s += fn(numCats, values, d);
     return s;
   };
 
@@ -334,8 +373,8 @@ export function consolidatedReport(
     .filter((cat) => !cat.subtotal)
     .map((cat) => {
       const catIdx = display.categories.indexOf(cat);
-      const total = categoryTotal(current.values, catIdx, periods);
-      const prev = categoryTotal(prior.values, catIdx, periods);
+      const total = categoryTotal(current.values, catIdx, from, to);
+      const prev = categoryTotal(prior.values, catIdx, from, to);
       const key = cat.label.trim().toLowerCase();
       return {
         label: cat.label,
@@ -395,10 +434,12 @@ export function dayContributions(
   week: string,
   dayIdx: number,
   base: Settings,
+  /** Restrict the breakdown to these entities (role scoping / country filter). */
+  onlyEntities?: string[],
 ): DayContribution[] {
   const templates = loadTemplates();
   const out: DayContribution[] = [];
-  for (const entity of listEntities()) {
+  for (const entity of scopedEntities(onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
     if (!template) continue;
     const settings = settingsForEntity(entity.name, base);
@@ -450,4 +491,89 @@ export function dayContributions(
     });
   }
   return out.sort((a, b) => b.varianceAbs - a.varianceAbs);
+}
+
+// ---------------------------------------------------------------------------
+// Category × country matrix: the outlook chart's numbers, read the other way.
+// ---------------------------------------------------------------------------
+
+/** One line item of the matrix, with its value per country. */
+export interface MatrixRow {
+  label: string;
+  /** Section band the line item belongs to, if the template groups them. */
+  group?: string;
+  /** Value per country, EUR thousands — countries with nothing are 0. */
+  byCountry: Record<string, number>;
+  total: number;
+}
+
+export interface CategoryCountryMatrix {
+  /** Column order: the countries in scope, biggest absolute total first. */
+  countries: string[];
+  rows: MatrixRow[];
+  /** Column totals, in `countries` order. */
+  countryTotals: Record<string, number>;
+  grandTotal: number;
+}
+
+/**
+ * The same aggregation the four-week outlook plots, pivoted: line items down
+ * the rows, countries across the columns. Built from `peekSubmission` per
+ * entity — the identical read the chart and every forecast screen use — so
+ * the matrix can never show a different number from the chart beside it.
+ *
+ * `dayIdx` narrows it to a single period, which is what clicking the chart
+ * does; omit it for the whole horizon.
+ */
+export function categoryCountryMatrix(
+  week: string,
+  display: ForecastTemplate,
+  onlyEntities?: string[],
+  dayIdx?: number | null,
+): CategoryCountryMatrix {
+  const templates = loadTemplates();
+  const periods = periodsOf(display).count;
+  const { from, to } = periodRange(periods, dayIdx);
+  const entities = scopedEntities(onlyEntities);
+  const countries = entities.map((e) => e.name);
+
+  // Line items are matched by LABEL, exactly like `consolidatedValues`, so an
+  // entity on another template still lands on the right row.
+  const perCountry = new Map<string, Map<string, number>>();
+  for (const e of entities) {
+    const template = templateForEntity(templates, e.name) ?? display;
+    const sub = peekSubmission(e.name, week, template);
+    const byLabel = new Map<string, number>();
+    template.categories.forEach((cat, catIdx) => {
+      if (cat.subtotal) return;
+      const key = cat.label.trim().toLowerCase();
+      byLabel.set(key, (byLabel.get(key) ?? 0) + categoryTotal(sub.values, catIdx, from, to));
+    });
+    perCountry.set(e.name, byLabel);
+  }
+
+  const countryTotals: Record<string, number> = {};
+  countries.forEach((c) => (countryTotals[c] = 0));
+
+  const rows: MatrixRow[] = display.categories
+    .filter((cat) => !cat.subtotal)
+    .map((cat) => {
+      const key = cat.label.trim().toLowerCase();
+      const byCountry: Record<string, number> = {};
+      let total = 0;
+      for (const country of countries) {
+        const v = perCountry.get(country)?.get(key) ?? 0;
+        byCountry[country] = v;
+        countryTotals[country] += v;
+        total += v;
+      }
+      return { label: cat.label, group: cat.group, byCountry, total };
+    });
+
+  return {
+    countries,
+    rows,
+    countryTotals,
+    grandTotal: Object.values(countryTotals).reduce((a, b) => a + b, 0),
+  };
 }

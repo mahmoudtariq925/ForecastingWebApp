@@ -22,6 +22,10 @@ interface ConsolidatedModalProps {
   open: boolean;
   week: string;
   template: ForecastTemplate;
+  /** Countries the dashboard's selector has in scope; omit for all. */
+  onlyEntities?: string[];
+  /** Single period the page is cross-filtered to; null for the horizon. */
+  dayIdx?: number | null;
   onClose: () => void;
 }
 
@@ -35,11 +39,18 @@ const fmtM = (v: number) => `€ ${(v / 1000).toFixed(1)}M`;
  * group number what it is" is answered in the same place the number is read,
  * rather than by cross-referencing a second screen.
  */
-export function ConsolidatedModal({ open, week, template, onClose }: ConsolidatedModalProps) {
+export function ConsolidatedModal({
+  open,
+  week,
+  template,
+  onlyEntities,
+  dayIdx = null,
+  onClose,
+}: ConsolidatedModalProps) {
   const { notify } = useDialog();
   const report = useMemo(
-    () => consolidatedReport(week, prevWeekKey(week), template),
-    [week, template],
+    () => consolidatedReport(week, prevWeekKey(week), template, onlyEntities, dayIdx),
+    [week, template, onlyEntities, dayIdx],
   );
   const dayLabels = useMemo(() => templateDayLabels(template, week), [template, week]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -59,7 +70,7 @@ export function ConsolidatedModal({ open, week, template, onClose }: Consolidate
   ];
 
   const exportXlsx = () => {
-    const current = consolidatedValues(week, template);
+    const current = consolidatedValues(week, template, onlyEntities);
     exportSubmissionXlsx({
       template,
       layout: 'days-across',

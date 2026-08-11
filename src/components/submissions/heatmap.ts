@@ -80,3 +80,16 @@ export function useHeatScale(collect: () => number[], deps: unknown[]): HeatScal
   const debounced = useDebounced(values);
   return useMemo(() => heatScaleFrom(debounced), [debounced]);
 }
+
+/**
+ * One independent scale per band of values — a band being a row, a column or
+ * a section, whatever the caller wants shaded against itself rather than
+ * against the whole grid. Same debounce as `useHeatScale`, and a fixed hook
+ * count however many bands there are.
+ */
+export function useHeatScales(collect: () => number[][], deps: unknown[]): HeatScale[] {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const bands = useMemo(collect, deps);
+  const debounced = useDebounced(bands);
+  return useMemo(() => debounced.map(heatScaleFrom), [debounced]);
+}

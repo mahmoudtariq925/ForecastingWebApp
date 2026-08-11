@@ -1,6 +1,5 @@
 import {
   useMemo,
-  useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,10 +23,22 @@ import {
   subtotalValue,
   type GridValues,
 } from './gridMath';
-import { heatColor, NEUTRAL_SCALE, useHeatScale, type HeatScale } from './heatmap';
-import { useCrosshair } from './useCrosshair';
+import {
+  heatColor,
+  NEUTRAL_SCALE,
+  useHeatScale,
+  useHeatScales,
+  type HeatScale,
+} from './heatmap';
 
 const fmt = (v: number) => (v === 0 ? '—' : v.toLocaleString());
+
+/**
+ * Sign colouring for a net figure: red below zero, green above. Applied to
+ * the net cash flow rows/columns only — the line items already carry the
+ * heat map, and colouring every number would leave nothing standing out.
+ */
+const netClass = (v: number) => (v < 0 ? ' net-negative' : v > 0 ? ' net-positive' : '');
 
 export interface ForecastGridProps {
   categories: TemplateCategory[];
@@ -82,10 +93,19 @@ export interface ForecastGridProps {
  * bigger still, so one scale crushes every data cell to the minimum tint.
  * Each family is normalised against its own visible range, all sharing the
  * same fixed midpoint of 0.
+ *
+ * The line-item cells go one step further and take a scale PER CATEGORY:
+ * receivables are shaded against other receivables and payables against
+ * other payables, so the colour answers "is this a big week for this line?"
+ * rather than "is this line bigger than payroll?" — which the labels
+ * already say. (The grid only ever shows one country's one forecast, so a
+ * per-category scale is per category, per country, per forecast.)
  */
 interface GridScales {
-  /** Line-item and subtotal cells. */
-  values: HeatScale;
+  /** Line-item / subtotal cells, indexed by category. */
+  byCat: HeatScale[];
+  /** Collapsed section rows, indexed by group. */
+  byGroup: HeatScale[];
   /** Trailing Total column / Net row. */
   totals: HeatScale;
   /** Running-total (closing balance) column. */
@@ -98,20 +118,26 @@ function useGridScales(props: ForecastGridProps): GridScales {
   const numDays = dayLabels.length;
   const numCats = categories.length;
 
-  const valueScale = useHeatScale(() => {
+  // One band per line item: every cell that category shows on screen.
+  const catScales = useHeatScales(() => {
     if (!heatmap) return [];
-    const out: number[] = [];
-    for (let c = 0; c < numCats; c++) {
-      for (let d = 0; d < numDays; d++) {
-        out.push(
-          categories[c]?.subtotal
-            ? subtotalValue(categories, values, c, d)
-            : catValue(values, c, d),
-        );
-      }
-    }
-    return out;
+    return Array.from({ length: numCats }, (_v, c) =>
+      Array.from({ length: numDays }, (_x, d) =>
+        categories[c]?.subtotal
+          ? subtotalValue(categories, values, c, d)
+          : catValue(values, c, d),
+      ),
+    );
   }, [heatmap, categories, values, numDays, numCats]);
+
+  // A collapsed section stands in for its line items, so it takes a band of
+  // its own rather than borrowing one of theirs.
+  const groupScales = useHeatScales(() => {
+    if (!heatmap) return [];
+    return categoryGroups(categories).map((g) =>
+      Array.from({ length: numDays }, (_x, d) => groupValue(categories, values, g.idxs, d)),
+    );
+  }, [heatmap, categories, values, numDays]);
 
   const totalScale = useHeatScale(() => {
     if (!heatmap) return [];
@@ -139,11 +165,15 @@ function useGridScales(props: ForecastGridProps): GridScales {
   return useMemo(
     () =>
       heatmap
-        ? { values: valueScale, totals: totalScale, balances: balanceScale }
-        : { values: NEUTRAL_SCALE, totals: NEUTRAL_SCALE, balances: NEUTRAL_SCALE },
-    [heatmap, valueScale, totalScale, balanceScale],
+        ? { byCat: catScales, byGroup: groupScales, totals: totalScale, balances: balanceScale }
+        : { byCat: [], byGroup: [], totals: NEUTRAL_SCALE, balances: NEUTRAL_SCALE },
+    [heatmap, catScales, groupScales, totalScale, balanceScale],
   );
 }
+
+/** The scale a band uses, falling back to neutral (no tint) when absent. */
+const bandScale = (scales: HeatScale[], index: number): HeatScale =>
+  scales[index] ?? NEUTRAL_SCALE;
 
 /** Inline background for a numeric cell, or undefined to leave it plain. */
 function fill(value: number, scale: HeatScale): { background: string } | undefined {
@@ -196,9 +226,19 @@ function EditableCell({
   const key = cellKey(catIdx, dayIdx);
   const flagged = flags.has(key);
   const asked = requested?.has(key) ?? false;
-  // Focus mode dims everything that isn't being pointed at.
+  // Focus mode. Pre-submit validation dims the rest of the grid, because the
+  // empty cells are the only thing that matters then. The commentary flow
+  // does NOT: writing "what drives this change" means reading the numbers
+  // around the cell, and shading the whole forecast to point at one cell of
+  // it took those numbers away.
   const spotlit = `cell-spotlit${highlightTone === 'comment' ? ' spotlit-comment' : ''}`;
-  const focus = highlight ? (highlight.has(key) ? ` ${spotlit}` : ' cell-dimmed') : '';
+  const focus = highlight
+    ? highlight.has(key)
+      ? ` ${spotlit}`
+      : highlightTone === 'comment'
+        ? ''
+        : ' cell-dimmed'
+    : '';
 
   // Computed subtotal rows are never editable — the app derives them.
   if (categories[catIdx]?.subtotal) {
@@ -215,9 +255,13 @@ function EditableCell({
 
   const val = catValue(values, catIdx, dayIdx);
   const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged);
+  // `cell-input` marks the cells a value can be typed into — the only ones
+  // that lift under the pointer (see the raise-on-hover rule in the CSS).
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     clickable ? 'cell-askable' : ''
-  } ${extraClass}${focus}`.replace(/\s+/g, ' ').trim();
+  } ${editable ? 'cell-input' : ''} ${extraClass}${focus}`
+    .replace(/\s+/g, ' ')
+    .trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
   const open = () => onCellClick?.(catIdx, dayIdx);
@@ -394,21 +438,27 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
     editable,
     onChangeDayComment,
     showColumnTotals,
-    highlight,
-    highlightTone,
     scales,
   } = props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
-  // Row + column highlight under the pointer, so a wide grid stays readable.
-  const gridRef = useRef<HTMLTableElement>(null);
-  useCrosshair(gridRef);
 
-  const computedRows: { label: string; day: (d: number) => number; kind: string }[] = [
+  const computedRows: {
+    label: string;
+    day: (d: number) => number;
+    kind: string;
+    /** Sign-coloured (red below zero, green above) — net figures only. */
+    signed?: boolean;
+  }[] = [
     { label: 'Total Inflows', day: (d) => dayInflows(numCats, values, d), kind: 'subtotal' },
     { label: 'Total Outflows', day: (d) => dayOutflows(numCats, values, d), kind: 'subtotal' },
-    { label: 'Net Cash Flow', day: (d) => dayNet(numCats, values, d), kind: 'total' },
+    {
+      label: 'Net Cash Flow',
+      day: (d) => dayNet(numCats, values, d),
+      kind: 'total',
+      signed: true,
+    },
     // A closing balance only means something once an opening one is given.
     ...(startingBalance === null
       ? []
@@ -421,11 +471,8 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
         ]),
   ];
 
-  // The guided commentary flow mutes rather than hides the rest of the grid.
-  const dimSoft = highlight && highlightTone === 'comment' ? ' dim-soft' : '';
-
   return (
-    <table className={`forecast-grid${dimSoft}`} data-rows="categories" ref={gridRef}>
+    <table className="forecast-grid" data-rows="categories">
       <thead>
         <tr className="label-row">
           <th className="row-label-h">Cash Flow Category</th>
@@ -444,14 +491,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
       </thead>
       <tbody>
         {groups.map((g, gi) => (
-          <GroupRows
-            key={gi}
-            group={g}
-            groupIndex={gi}
-            props={props}
-            scale={scales.values}
-            totalScale={scales.totals}
-          />
+          <GroupRows key={gi} group={g} groupIndex={gi} props={props} scales={scales} />
         ))}
         {showColumnTotals && (
           <tr className="column-totals-row">
@@ -468,26 +508,34 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
             </td>
           </tr>
         )}
-        {computedRows.map((row) => (
-          <tr key={row.label}>
-            <td className={`row-label ${row.kind}`}>{row.label}</td>
-            {dayLabels.map((_dl, d) => (
-              <td key={d} className={`cell ${row.kind}-cell`}>
-                {fmt(row.day(d))}
+        {computedRows.map((row) => {
+          const rowTotal =
+            row.label === 'Closing Balance'
+              ? row.day(numDays - 1)
+              : Array.from({ length: numDays }, (_v, d) => row.day(d)).reduce((a, b) => a + b, 0);
+          return (
+            <tr key={row.label}>
+              <td className={`row-label ${row.kind}`}>{row.label}</td>
+              {dayLabels.map((_dl, d) => {
+                const v = row.day(d);
+                return (
+                  <td
+                    key={d}
+                    className={`cell ${row.kind}-cell${row.signed ? netClass(v) : ''}`}
+                  >
+                    {fmt(v)}
+                  </td>
+                );
+              })}
+              <td
+                className={`cell ${row.kind}-cell${row.signed ? netClass(rowTotal) : ''}`}
+                style={{ background: '#ebe9e0', fontWeight: 600 }}
+              >
+                {rowTotal.toLocaleString()}
               </td>
-            ))}
-            <td
-              className={`cell ${row.kind}-cell`}
-              style={{ background: '#ebe9e0', fontWeight: 600 }}
-            >
-              {row.label === 'Closing Balance'
-                ? row.day(numDays - 1).toLocaleString()
-                : Array.from({ length: numDays }, (_v, d) => row.day(d))
-                    .reduce((a, b) => a + b, 0)
-                    .toLocaleString()}
-            </td>
-          </tr>
-        ))}
+            </tr>
+          );
+        })}
         {dayComments !== undefined && (
           <tr>
             <td className="row-label">Comments</td>
@@ -517,17 +565,16 @@ function GroupRows({
   group,
   groupIndex,
   props,
-  scale,
-  totalScale,
+  scales,
 }: {
   group: ReturnType<typeof categoryGroups>[number];
   groupIndex: number;
   props: ForecastGridProps;
-  scale: HeatScale;
-  totalScale: HeatScale;
+  scales: GridScales;
 }) {
   const { categories, dayLabels, values, collapsedGroups, onToggleGroup } = props;
   const numDays = dayLabels.length;
+  const totalScale = scales.totals;
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
@@ -584,7 +631,11 @@ function GroupRows({
             ? dayLabels.map((_dl, d) => {
                 const v = groupValue(categories, values, group.idxs, d);
                 return (
-                  <td key={d} className="cell subtotal-cell" style={fill(v, scale)}>
+                  <td
+                    key={d}
+                    className="cell subtotal-cell"
+                    style={fill(v, bandScale(scales.byGroup, groupIndex))}
+                  >
                     {fmt(v)}
                   </td>
                 );
@@ -616,7 +667,13 @@ function GroupRows({
                 {categories[catIdx].label}
               </td>
               {dayLabels.map((_dl, d) => (
-                <EditableCell key={d} catIdx={catIdx} dayIdx={d} props={props} scale={scale} />
+                <EditableCell
+                  key={d}
+                  catIdx={catIdx}
+                  dayIdx={d}
+                  props={props}
+                  scale={bandScale(scales.byCat, catIdx)}
+                />
               ))}
               {(() => {
                 const rowTotal = isSubtotal
@@ -653,24 +710,21 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     showColumnTotals,
     collapsedGroups,
     onToggleGroup,
-    highlight,
-    highlightTone,
     scales,
   } = props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
-  // Row + column highlight under the pointer, so a wide grid stays readable.
-  const gridRef = useRef<HTMLTableElement>(null);
-  useCrosshair(gridRef);
   // A running balance only means something once an opening balance is given,
   // so the whole column appears and disappears with it.
   const hasBalance = startingBalance !== null;
   // The per-day Comments column renders only where the screen passes the
   // day-comment store in — the submission grid no longer does.
   const showComments = dayComments !== undefined;
-  // The guided commentary flow mutes rather than hides the rest of the grid.
-  const dimSoft = highlight && highlightTone === 'comment' ? ' dim-soft' : '';
+  /** Net cash flow across the whole horizon — the figure both total rows end on. */
+  const horizonNet = Array.from({ length: numDays }, (_v, d) =>
+    dayNet(numCats, values, d),
+  ).reduce((a, b) => a + b, 0);
   // With sections across the columns, collapsing one replaces its columns with
   // a single total column — so the body renders this list, not `categories`.
   const isCollapsed = (gi: number) =>
@@ -692,7 +746,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   }, [groups, collapsedGroups, onToggleGroup]);
 
   return (
-    <table className={`forecast-grid${dimSoft}`} data-rows="days" ref={gridRef}>
+    <table className="forecast-grid" data-rows="days">
       {/* Two separate header strips: the section bands float in their own box
           above, and every column label sits together in the box below — so
           "which section" and "which line item" never blur into one row. */}
@@ -821,7 +875,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     <td
                       key={`g${col.gi}`}
                       className={`cell subtotal-cell group-end${col.band}`}
-                      style={fill(v, scales.values)}
+                      style={fill(v, bandScale(scales.byGroup, col.gi))}
                     >
                       {fmt(v)}
                     </td>
@@ -833,7 +887,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                   catIdx={col.catIdx}
                   dayIdx={dayIdx}
                   props={props}
-                  scale={scales.values}
+                  scale={bandScale(scales.byCat, col.catIdx)}
                   extraClass={`${col.end ? 'group-end' : ''}${col.band}`}
                 />
               ),
@@ -857,7 +911,10 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               const net = dayNet(numCats, values, dayIdx);
               return (
                 <>
-                  <td className="cell subtotal-cell" style={fill(net, scales.totals)}>
+                  <td
+                    className={`cell subtotal-cell${netClass(net)}`}
+                    style={fill(net, scales.totals)}
+                  >
                     {fmt(net)}
                   </td>
                   {hasBalance && (
@@ -888,10 +945,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               </td>
             ))}
             {showComments && <td className="cell total-cell" />}
-            <td className="cell total-cell">
-              {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
-                .reduce((a, b) => a + b, 0)
-                .toLocaleString()}
+            <td className={`cell total-cell${netClass(horizonNet)}`}>
+              {horizonNet.toLocaleString()}
             </td>
             {hasBalance && (
               <td className="cell total-cell">
@@ -916,10 +971,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             </td>
           ))}
           {showComments && <td className="cell total-cell" />}
-          <td className="cell total-cell">
-            {Array.from({ length: numDays }, (_v, d) => dayNet(numCats, values, d))
-              .reduce((a, b) => a + b, 0)
-              .toLocaleString()}
+          <td className={`cell total-cell${netClass(horizonNet)}`}>
+            {horizonNet.toLocaleString()}
           </td>
           {hasBalance && (
             <td className="cell total-cell">

@@ -6,7 +6,15 @@ import { loadSettings, saveSettings } from '../../storage/localStorage';
 import { DEFAULT_SETTINGS } from './defaults';
 import type { Settings as SettingsModel } from '../../types';
 
-/** Variance-threshold, cycle-rule and authentication configuration, persisted on change. */
+/**
+ * Cycle-rule and authentication configuration, persisted on change.
+ *
+ * Variance thresholds are NOT here. The percentage that flags a cell is set
+ * per entity in Legal Entity Setup — a group-wide number flagged small
+ * entities constantly and large ones never — so a group-wide variance panel
+ * was a set of rules nobody tuned, sitting where people looked for the ones
+ * that mattered.
+ */
 export function Settings() {
   const [settings, setSettings] = useState<SettingsModel>(() => loadSettings(DEFAULT_SETTINGS));
   const canEdit = permissionsFor(currentUser()).canManageSettings;
@@ -24,10 +32,10 @@ export function Settings() {
         title="Settings"
         actions={canEdit ? undefined : <ViewOnlyBadge />}
       />
-      {/* One setting per row, stacked — a two-column grid of unrelated
-          dropdowns reads as a form to fill in rather than a list of rules. */}
-      <div className="content">
-        <div className="panel">
+      {/* Two independent groups of settings, so they stand side by side and
+          both fit on the screen at once; one control per row within each. */}
+      <div className="content settings-columns">
+        <div className="panel" data-tour="settings-cycle">
           <div className="panel-header">
             <h3>Cycle Configuration</h3>
           </div>
@@ -59,54 +67,6 @@ export function Settings() {
                 <option>Monthly</option>
               </select>
               <div className="settings-hint">How often a new cycle opens for entry</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel" data-tour="settings-variance">
-          <div className="panel-header">
-            <h3>Variance Rules</h3>
-          </div>
-          <div className="panel-body settings-stack">
-            {/* The threshold itself is set per entity, in Legal Entity Setup —
-                a group-wide percentage flagged small entities constantly and
-                large ones never. */}
-            <div className="variance-panel" style={{ marginBottom: 0 }}>
-              <h4>Variance threshold</h4>
-              <div className="row">
-                <span>
-                  The percentage that flags a cell for commentary is set per entity, under{' '}
-                  <strong>Legal Entity Setup</strong>. Entities without one fall back to ±
-                  {settings.varianceThreshold}%.
-                </span>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Minimum Value to Trigger</label>
-              <input
-                className="form-input"
-                value={settings.minValueToTrigger}
-                disabled={!canEdit}
-                onChange={(e) => update('minValueToTrigger', e.target.value)}
-              />
-              <div className="settings-hint">
-                Variances on cells below this absolute value are ignored
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Exempt New Periods</label>
-              <select
-                className="form-select"
-                value={settings.exemptNewPeriods}
-                disabled={!canEdit}
-                onChange={(e) => update('exemptNewPeriods', e.target.value)}
-              >
-                <option>Yes — never flag days outside prior cycle's horizon</option>
-                <option>No — always flag</option>
-              </select>
-              <div className="settings-hint">
-                Days the previous forecast never covered have nothing to compare against
-              </div>
             </div>
           </div>
         </div>
