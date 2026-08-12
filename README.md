@@ -18,7 +18,8 @@ later).
 | **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
-| **Comments Review** (Workspace) | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
+| **Questions** (Treasury) | The queue of every question **treasury and the approvers** have asked, across every forecast — one queue, with a **Both / Treasury / Approvers** toggle carrying live counts. Headline counts of what is awaiting a reply / answered / closed (each doubling as a filter), plus filters for region, period and a search. **One collapsed row per forecast** — country, week, submitter, counts, longest wait, and *the newest answer read straight off the closed row* — ordered by who has been waiting longest. Opening one shows each question with the reply beneath it, **Open Forecast** onto the cell, **Ask Again**, and **Mark Reviewed** to close it off |
+| **Comments & Feedback** (submitter / approver / viewer) | The conversation on their own forecasts: what they still owe an explanation for, what has been asked of them, and what they have answered — with **Reply / Explain** deep links onto the cell |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
 | **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
@@ -235,9 +236,8 @@ person, so it can land on any cell:
   approver's **Review & Approve** dialog is the same view. Click any cell to
   ask about it; **Open Full Forecast** is there when the whole page is
   wanted.
-- **From Comments Review** — the per-comment action is **Request further
-  comment**: the same dialog, showing the cell, its movement and whatever the
-  submitter said so far.
+- **From the Questions queue** — **Ask Again** raises the same dialog on a
+  question that has already been asked once.
 - **For the submitter** — cells with an open question are outlined in blue and
   are **answered by clicking the cell**, which opens the question with the
   reply box. The banner above the grid **lists every open question and opens
@@ -250,9 +250,9 @@ person, so it can land on any cell:
   to whoever has to reply, which on someone else's forecast is nobody.
 
 Answering **stamps** the question rather than deleting it, so whoever asked
-comes back to the question and the answer together — in Comments Review the
-cell reads *answered* with both, and in the forecast dialog the pair sits above
-the grid. A cell that has been asked about also stays in the review queue even
+comes back to the question and the answer together — the Questions queue shows
+the reply under the ask, and in the forecast dialog the pair sits above the
+grid. A cell that has been asked about also stays in the review queue even
 if the corrected number no longer breaches the variance threshold; it used to
 vanish from treasury's queue, taking the answer with it.
 
@@ -352,7 +352,7 @@ locally.
 ### One source of truth
 
 Every screen that shows forecast numbers (Dashboard KPIs and outlook chart,
-Consolidated, Comparisons, Comments Review, the Export modal) derives them
+Consolidated, Comparisons, the Questions queue, the Export modal) derives them
 from the same stored submissions the Submission screen edits, via
 `src/data/submissionService.ts` (entities without a stored submission fall
 back to deterministic demo data). Change a cell in My Submissions and the
@@ -517,6 +517,7 @@ One codebase, two deployable builds, switched at **build time** by
 | Users | Demo people + demo joiners | One bootstrap admin (`VITE_ADMIN_NAME` / `VITE_ADMIN_EMAIL`), then whoever you create |
 | Entities | 11 demo countries | Whatever you add in Legal Entity Setup |
 | Numbers | Deterministic demo values | Imported workbooks only — the app never invents a number |
+| Conversation | The week opens mid-conversation: seeded questions from treasury *and* the countries' approvers, some awaiting a reply, some answered, some closed | Nothing — every question is one somebody asked |
 | Extra screens | — | **Data Import** (setup checklist + .xlsx/.csv upload) |
 | Badge | — | `LIVE` pill in the sidebar |
 | Storage namespace | `liquid:*` | `liquid-live:*` (the two can never mix, even on one origin) |
@@ -556,7 +557,7 @@ src/
     approvals/     Approvals screen
     consolidated/  Treasury consolidated (read-only) view
     comparisons/   Forecast vs forecast
-    review/        Comments Review (treasury comment triage)
+    review/        Questions queue (treasury) and Comments & Feedback (analysts)
     templates/     Forecast template upload / assignment management
     users/         User management
     settings/      Settings screen (+ defaults)

@@ -2085,6 +2085,147 @@ td.num {
   background: var(--blue-soft);
 }
 
+/* ============================================================
+   The questions queue (treasury).
+   One row per FORECAST, closed until opened, ordered by who has been waiting
+   longest. It has to stay readable at a hundred forecasts, so the closed
+   state carries everything needed to decide whether to open it: country,
+   week, submitter, counts, and the length of the longest wait.
+   ============================================================ */
+.panel.question-group {
+  margin-bottom: 10px;
+}
+/* Someone is waiting on a submitter — the queue's whole point, so it is the
+   one thing marked on a closed row. */
+.panel.question-group.question-waiting {
+  border-left: 3px solid var(--blue);
+}
+.question-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.question-head-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The reply, on the closed row: one line, truncated, so a page of answers can
+   be read without opening anything. */
+.question-head-answer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.question-head-answer strong {
+  color: var(--green);
+  font-weight: 600;
+}
+.question-head:hover {
+  background: var(--n-25);
+}
+.question-head .question-entity {
+  color: var(--text);
+  font-size: 14px;
+}
+.question-submitter {
+  font-size: 12px;
+}
+.question-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.question-age {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+.question-list {
+  border-top: 1px solid var(--border);
+  background: var(--n-25);
+  padding: 10px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* One question: what was asked, what came back, and what to do about it. */
+.question-row {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--n-300);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-xs);
+}
+.question-row.state-awaiting {
+  border-left-color: var(--blue);
+}
+.question-row.state-answered {
+  border-left-color: var(--green);
+}
+.question-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+.question-figures {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.question-figures .delta {
+  margin-left: 6px;
+}
+.question-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.question-ask,
+.question-answer {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.question-ask strong {
+  color: var(--text);
+}
+.question-answer {
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--green-soft);
+}
+.question-answer.pending {
+  background: var(--blue-soft);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* A stat box doubling as the filter for what it counts says which one is on. */
+.kpi-card.kpi-active {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+
 /* An answer that has come back: green, because this one is finished — the
    blue notes above it are still waiting on someone. */
 .comment-request-note.answered-note {

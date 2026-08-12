@@ -1,18 +1,16 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { useDialog } from '../common/dialogContext';
-import { RequestCommentaryModal } from '../submissions/RequestCommentaryModal';
 import {
   collectReviewGroups,
   isOpenQuestion,
   requesterLabel,
-  resolveAllFlags,
   type ReviewGroup,
   type ReviewItem,
 } from '../../data/submissionService';
-import { weekLabel, weekLabelShort } from '../../data/periods';
+import { weekLabel } from '../../data/periods';
 import { activeWeekKey } from '../../data/cycleService';
+import { useDataVersion } from '../../data/useDataVersion';
 import { listEntities } from '../../data/appData';
 import { loadTemplates } from '../../storage/localStorage';
 import type { SubmissionTarget } from '../submissions/Submission';
@@ -22,9 +20,9 @@ const PAGE_SIZE = 8;
 type StateFilter = 'unresolved' | 'needs-commentary' | 'resolved' | 'all';
 
 const STATE_OPTIONS: { value: StateFilter; label: string }[] = [
-  { value: 'unresolved', label: 'Unresolved' },
+  { value: 'unresolved', label: 'Still open' },
   { value: 'needs-commentary', label: 'Needs commentary' },
-  { value: 'resolved', label: 'Resolved' },
+  { value: 'resolved', label: 'Closed by Treasury' },
   { value: 'all', label: 'All comments' },
 ];
 
@@ -34,8 +32,6 @@ interface CommentsReviewProps {
   onOpenSubmission?: (target: SubmissionTarget) => void;
   /** Restrict to these entities (analyst scoping); undefined = all. */
   scopeEntities?: string[];
-  /** Whether the user may mark comments reviewed/resolved (admin/treasury). */
-  canResolve?: boolean;
   /**
    * Whether the user is the one who WRITES commentary (submitters). Approvers
    * and viewers read this screen: an Explain/Reply button would deep-link
@@ -58,21 +54,23 @@ function ItemStatePill({ item }: { item: ReviewItem }) {
 const fmtK = (v: number) => `${Math.round(v).toLocaleString()}`;
 
 /**
- * Admin screen for working through variance commentary at scale: every
- * stored forecast with flagged cells, grouped per forecast, filterable and
- * searchable, with per-comment and per-forecast resolution. A forecast stops
- * counting as blocked once all its flagged cells are resolved.
+ * The conversation on an analyst's own forecasts: every flagged cell they
+ * have to explain, every question waiting on them and every answer they have
+ * given, grouped per forecast, filterable and searchable.
+ *
+ * Treasury has its own screen (`QuestionsReview`) — a queue of the QUESTIONS
+ * asked across the group. Reading every submitter's commentary was never
+ * treasury's job, and at scale it buried the handful of things that were.
  */
 export function CommentsReview({
   onOpenSubmission,
   scopeEntities,
-  canResolve = true,
   canExplain = true,
 }: CommentsReviewProps) {
   const templates = useMemo(() => loadTemplates(), []);
-  const { confirm } = useDialog();
-  // Bumped after every write so the groups re-read from storage.
-  const [version, setVersion] = useState(0);
+  // This screen only reads; answering happens on the forecast. Following the
+  // storage revision keeps it current when an answer is written over there.
+  const version = useDataVersion();
   const groups = useMemo(() => {
     void version; // storage changed → recollect
     const all = collectReviewGroups(templates);
@@ -109,10 +107,15 @@ export function CommentsReview({
     [groups, periodFilter, entityFilter],
   );
   const totalUnresolved = inScope.reduce((s, g) => s + g.unresolved, 0);
-  const blockedForecasts = inScope.filter((g) => g.unresolved > 0).length;
   const totalNeedCommentary = inScope.reduce((s, g) => s + g.needsCommentary, 0);
-  const totalResolved = inScope.reduce(
-    (s, g) => s + g.items.filter((i) => i.resolved).length,
+  // Counted from the reader's side of the conversation: what is being asked
+  // of them, what they have already said, and how much is still open.
+  const openQuestions = inScope.reduce(
+    (s, g) => s + g.items.filter((i) => isOpenQuestion(i.request)).length,
+    0,
+  );
+  const totalAnswered = inScope.reduce(
+    (s, g) => s + g.items.filter((i) => i.comment && !isOpenQuestion(i.request)).length,
     0,
   );
 
@@ -228,55 +231,43 @@ export function CommentsReview({
     });
   };
 
-  // ---- Asking the submitter for (more) commentary ------------------------
-  // The dialog and the email behind it are shared with the forecast grid and
-  // the preview dialog, so a question is the same thing wherever it is asked.
-  const [asking, setAsking] = useState<{ group: ReviewGroup; item: ReviewItem } | null>(null);
-
-  const resolveGroup = async (g: ReviewGroup) => {
-    const confirmed = await confirm({
-      title: 'Resolve all comments',
-      message: `Mark all ${g.unresolved} unresolved comment${g.unresolved === 1 ? '' : 's'} for ${g.entity} · ${weekLabelShort(g.period)} as reviewed?`,
-      confirmLabel: 'Resolve All',
-    });
-    if (!confirmed) return;
-    resolveAllFlags(g.period, g.entity, g.templateId);
-    setVersion((v) => v + 1);
-  };
-
   return (
     <div className="view active">
       <TopBar
-        crumb={canResolve ? 'Workspace' : 'My Workspace'}
-        title={canResolve ? 'Comments Review' : 'Comments & Feedback'}
+        crumb="My Workspace"
+        title="Comments &amp; Feedback"
         actions={
           <span className="tag" style={{ letterSpacing: '0.12em' }}>
-            {totalUnresolved} unresolved comment{totalUnresolved === 1 ? '' : 's'} across{' '}
-            {blockedForecasts} forecast{blockedForecasts === 1 ? '' : 's'}
+            {openQuestions} question{openQuestions === 1 ? '' : 's'} waiting ·{' '}
+            {totalNeedCommentary} to explain
           </span>
         }
       />
       <div className="content">
+        {/* Counted from this reader's side: what is being asked of them and
+            what they have already said. The old figures ("require admin
+            review", "cannot be closed yet") were treasury's view of the same
+            rows, on a screen treasury no longer opens. */}
         <div className="kpi-grid">
           <div className="kpi-card">
-            <div className="kpi-label">Unresolved Comments</div>
-            <div className="kpi-value">{totalUnresolved}</div>
-            <div className="kpi-sub text-dim">require admin review</div>
+            <div className="kpi-label">Questions Waiting</div>
+            <div className="kpi-value">{openQuestions}</div>
+            <div className="kpi-sub text-dim">asked by Treasury or your approver</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Blocked Forecasts</div>
-            <div className="kpi-value">{blockedForecasts}</div>
-            <div className="kpi-sub text-dim">cannot be closed yet</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Awaiting Commentary</div>
+            <div className="kpi-label">Variances To Explain</div>
             <div className="kpi-value">{totalNeedCommentary}</div>
-            <div className="kpi-sub text-dim">submitter explanation missing</div>
+            <div className="kpi-sub text-dim">flagged cells with no commentary yet</div>
           </div>
           <div className="kpi-card">
-            <div className="kpi-label">Resolved</div>
-            <div className="kpi-value">{totalResolved}</div>
-            <div className="kpi-sub text-dim">reviewed &amp; cleared</div>
+            <div className="kpi-label">Explained</div>
+            <div className="kpi-value">{totalAnswered}</div>
+            <div className="kpi-sub text-dim">commentary and answers you have given</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label">Still Open</div>
+            <div className="kpi-value">{totalUnresolved}</div>
+            <div className="kpi-sub text-dim">not yet closed off by Treasury</div>
           </div>
         </div>
 
@@ -481,19 +472,6 @@ export function CommentsReview({
                         Open Forecast
                       </button>
                     )}
-                    {canResolve && g.unresolved > 0 && (
-                      <button
-                        className="btn btn-ghost"
-                        title="Mark every comment on this forecast as reviewed"
-                        style={{ padding: '4px 10px', fontSize: 11 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          resolveGroup(g);
-                        }}
-                      >
-                        Resolve All
-                      </button>
-                    )}
                   </div>
                 </div>
                 {isOpen && (
@@ -561,34 +539,23 @@ export function CommentsReview({
                                     : 'No commentary provided yet.')}
                               </td>
                               <td>
-                                {!canResolve ? (
-                                  canExplain && (
-                                    <button
-                                      className="btn btn-ghost"
-                                      style={{ padding: '4px 10px', fontSize: 11 }}
-                                      title="Open the forecast to add your commentary"
-                                      onClick={() =>
-                                        onOpenSubmission?.({
-                                          entity: g.entity,
-                                          week: g.period,
-                                          templateId: g.templateId,
-                                          // Land on this exact cell with its
-                                          // commentary dialog already open.
-                                          focusCell: item.key,
-                                        })
-                                      }
-                                    >
-                                      {isOpenQuestion(item.request) ? 'Reply' : 'Explain'}
-                                    </button>
-                                  )
-                                ) : (
+                                {canExplain && (
                                   <button
                                     className="btn btn-ghost"
                                     style={{ padding: '4px 10px', fontSize: 11 }}
-                                    title="Ask the submitter to explain this cell and email them"
-                                    onClick={() => setAsking({ group: g, item })}
+                                    title="Open the forecast to add your commentary"
+                                    onClick={() =>
+                                      onOpenSubmission?.({
+                                        entity: g.entity,
+                                        week: g.period,
+                                        templateId: g.templateId,
+                                        // Land on this exact cell with its
+                                        // commentary dialog already open.
+                                        focusCell: item.key,
+                                      })
+                                    }
                                   >
-                                    {item.request ? 'Ask Again' : 'Request Further Comment'}
+                                    {isOpenQuestion(item.request) ? 'Reply' : 'Explain'}
                                   </button>
                                 )}
                               </td>
@@ -644,26 +611,6 @@ export function CommentsReview({
         )}
       </div>
 
-      {asking && (
-        <RequestCommentaryModal
-          target={{
-            entity: asking.group.entity,
-            week: asking.group.period,
-            templateId: asking.group.templateId,
-            cellKey: asking.item.key,
-            label: asking.item.category,
-            periodLabel: asking.item.dateLabel,
-            current: asking.item.current,
-            prior: asking.item.prior,
-            comment: asking.item.comment,
-          }}
-          context={`${asking.group.entity} · ${weekLabelShort(asking.group.period)}`}
-          existing={isOpenQuestion(asking.item.request) ? asking.item.request : null}
-          flagged
-          onClose={() => setAsking(null)}
-          onSent={() => setVersion((v) => v + 1)}
-        />
-      )}
     </div>
   );
 }
