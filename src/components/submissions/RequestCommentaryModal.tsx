@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
-import { askForCommentary, type CommentaryTarget } from '../../data/commentaryService';
+import {
+  askForCommentary,
+  submitterFor,
+  type CommentaryTarget,
+} from '../../data/commentaryService';
 import { pctChange, requesterLabel } from '../../data/submissionService';
 import type { CommentRequest } from '../../types';
 
@@ -42,10 +46,21 @@ export function RequestCommentaryModal({
 
   const pct = target.prior === null ? null : pctChange(target.current, target.prior);
 
+  /** Nobody to ask: the question would be recorded and reach no one. */
+  const submitter = submitterFor(target.entity);
+
   const send = async () => {
     const message = draft.trim();
     if (!message) {
       await notify({ tone: 'error', message: 'Write the question you want answered first.' });
+      return;
+    }
+    if (!submitter) {
+      await notify({
+        tone: 'error',
+        title: 'No submitter for this entity',
+        message: `${target.entity} has nobody assigned to submit its forecast, so this question would reach no one. Assign a submitter under Legal Entity Setup first.`,
+      });
       return;
     }
     const request = askForCommentary(target, message);
@@ -121,8 +136,9 @@ export function RequestCommentaryModal({
           aria-label="Request message"
         />
         <span className="text-muted" style={{ fontSize: 11 }}>
-          Sending marks the cell for the submitter and opens an Outlook draft to them. A
-          submitted forecast comes back to them to answer and resubmit.
+          {submitter
+            ? `Sending marks the cell for ${submitter.name} and opens an Outlook draft to them. A submitted forecast comes back to them to answer and resubmit.`
+            : `${target.entity} has nobody assigned to submit its forecast — assign a submitter under Legal Entity Setup before asking, or the question reaches no one.`}
         </span>
       </div>
     </Modal>

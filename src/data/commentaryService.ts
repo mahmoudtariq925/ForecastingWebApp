@@ -37,6 +37,22 @@ export interface CommentaryTarget {
 const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
 /**
+ * Who a question about this entity would go to, or null when nobody is
+ * assigned to submit for it.
+ *
+ * Worth its own answer, because "no submitter" used to end in a mail draft
+ * addressed to an address synthesized from an empty name — the question
+ * looked sent and reached nobody.
+ */
+export function submitterFor(entity: string): { name: string; email: string } | null {
+  const configured = listEntities().find((e) => e.name === entity);
+  const name = configured?.submitter;
+  if (!name || name === '—') return null;
+  const settings = settingsForEntity(entity, loadSettings(DEFAULT_SETTINGS));
+  return { name, email: emailForName(name, loadUsers(seedUsers()), mailDomain(settings)) };
+}
+
+/**
  * Record the question on the cell and open a draft to whoever submits for that
  * entity. Returns the stored request so the calling screen can show it without
  * re-reading storage.
@@ -54,13 +70,10 @@ export function askForCommentary(target: CommentaryTarget, message: string): Com
   };
   requestComment(target.week, target.entity, target.templateId, target.cellKey, request);
 
-  const settings = settingsForEntity(target.entity, loadSettings(DEFAULT_SETTINGS));
-  const entity = listEntities().find((e) => e.name === target.entity);
-  const submitter = entity?.submitter ?? 'there';
+  const to = submitterFor(target.entity);
+  const submitter = to?.name ?? 'there';
   openEmail({
-    to: entity
-      ? emailForName(entity.submitter, loadUsers(seedUsers()), mailDomain(settings))
-      : '',
+    to: to?.email ?? '',
     subject:
       `Question on the ${target.entity} forecast — ${target.label} · ` +
       `${target.periodLabel} · ${weekLabel(target.week)}`,

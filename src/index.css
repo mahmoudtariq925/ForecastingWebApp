@@ -205,8 +205,14 @@
   --n-50: var(--jde-cream);
   --n-25: #fdfbf9;
 
-  /* ---- Surfaces ---- */
-  --bg: var(--jde-cream);
+  /* ---- Surfaces ----
+     Three grounds, deepest at the back: the PAGE, the CARDS that sit on it,
+     and the BANDS inside a card (toolbars, table headers). The page used to
+     be the same cream as those bands, so a card's own toolbar merged with the
+     background behind the card and every screen read as one continuous
+     surface. The page is a shade deeper than the palette cream — mixed
+     toward the taupe, so it stays in the family — and cards keep white. */
+  --bg: #f1eae2;
   --bg-elev: var(--jde-white);
   --bg-elev-2: var(--jde-cream);
   --bg-sunken: var(--n-100);
@@ -287,6 +293,10 @@
   /* The gap between stacked panels. Its own token because the value predates
      the scale and changing it would re-flow every screen. */
   --panel-gap: 14px;
+  /* The height of the app's header row, borders included. The top bar and the
+     collapsed rail's brand divider both take it, so the two rules meet as one
+     line across the screen instead of missing each other by a few pixels. */
+  --header-h: 75px;
 
   /* ---- Type scale. Values match what the app already renders, so the ramp
          is a name for existing sizes rather than a reflow. ---- */
@@ -425,8 +435,14 @@ textarea {
 .app.nav-collapsed {
   grid-template-columns: 4.25rem 1fr;
 }
+/* The rail's divider lands exactly on the top bar's, so the header reads as
+   one rule across the app rather than two that nearly meet. The sidebar's own
+   top padding is part of that height, hence the subtraction. */
 .sidebar.collapsed .brand {
-  padding: 0 0 20px;
+  box-sizing: border-box;
+  height: calc(var(--header-h) - 24px);
+  padding: 0;
+  align-items: center;
   justify-content: center;
 }
 .sidebar.collapsed .brand-text,
@@ -653,6 +669,7 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: 13px 22px;
+  min-height: var(--header-h);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
@@ -807,9 +824,10 @@ textarea {
 }
 .kpi-card {
   background: var(--bg-elev);
-  border: 1px solid var(--border);
+  /* Same treatment as .panel: a card is a thing ON the page. */
+  border: 1px solid var(--n-200);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   padding: 14px var(--sp-5);
   position: relative;
   overflow: hidden;
@@ -3707,14 +3725,16 @@ tbody td {
 }
 
 /* Panels sit on white; the app background is the only tinted surface, so a
-   box always lifts its text off the page rather than blending into it. */
+   box always lifts its text off the page rather than blending into it. A
+   card's own head is near-white rather than page-cream — in cream it read as
+   a gap between panels instead of the top of one. */
 .panel,
 .kpi-card {
   background: var(--bg-elev);
 }
 .panel-header,
 .grid-toolbar {
-  background: var(--bg-elev-2);
+  background: var(--n-25);
 }
 
 /* Sticky header rows must be opaque — a translucent band let the numbers
@@ -4060,12 +4080,15 @@ tbody td {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-weight: 700;
-  color: var(--text);
-  /* The palette taupe. A 10% tint left the band the same value as the cells
-     around it, so the sections dissolved into the grid. */
-  background: var(--jde-taupe);
-  border-top: 2px solid var(--n-400);
-  border-bottom: 1px solid var(--n-400);
+  color: var(--text-dim);
+  /* Light enough to be a LABEL. Full taupe separated the sections all right,
+     but four dark bars were the first thing the eye met on the dashboard —
+     louder than the numbers they were introducing. The rows they separate are
+     white, so a pale tint and a single rule are enough to hold the structure.
+     (A 10% tint was the other extreme: the bands dissolved into the grid.) */
+  background: var(--n-100);
+  border-top: 1px solid var(--n-300);
+  border-bottom: 1px solid var(--border);
 }
 /* The band spans every column, so the label itself is what has to stay put
    when the country columns scroll sideways. */
