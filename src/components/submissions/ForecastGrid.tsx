@@ -176,6 +176,35 @@ function useGridScales(props: ForecastGridProps): GridScales {
 const bandScale = (scales: HeatScale[], index: number): HeatScale =>
   scales[index] ?? NEUTRAL_SCALE;
 
+/**
+ * How many open questions are hidden inside a section.
+ *
+ * Collapsing a section hides the blue cells in it, and with them the only
+ * sign that someone is waiting on an answer — so the section band says it.
+ */
+function questionsInGroup(idxs: number[], requested: Set<string> | undefined): number {
+  if (!requested || requested.size === 0) return 0;
+  const inGroup = new Set(idxs);
+  let count = 0;
+  for (const key of requested) {
+    if (inGroup.has(Number(key.split('-')[0]))) count += 1;
+  }
+  return count;
+}
+
+/** The "3 questions" marker a collapsed section carries. */
+function SectionQuestions({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="section-questions"
+      title={`${count} open question${count === 1 ? '' : 's'} inside this section`}
+    >
+      ✎ {count}
+    </span>
+  );
+}
+
 /** Inline background for a numeric cell, or undefined to leave it plain. */
 function fill(value: number, scale: HeatScale): { background: string } | undefined {
   const background = heatColor(value, scale);
@@ -255,14 +284,17 @@ function EditableCell({
   }
 
   const val = catValue(values, catIdx, dayIdx);
-  const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged);
+  // A cell with a question on it always opens, whatever the flag set says.
+  // Flags are recomputed from the numbers on every edit, and a question can
+  // sit on a cell those rules would not flag — an empty one, say — which is
+  // how a question could end up with no way to answer it.
+  const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged || asked);
   /**
-   * A cell with a question on it is answered, not typed into: clicking it
-   * opens the question with the reply box (and the value, which the answer may
-   * be that it was wrong). Leaving it as a plain input meant the only ways in
-   * were a 16px pencil and the banner above the grid.
+   * A cell with a question on it is opened, not typed into: the whole cell is
+   * the button. Leaving it as a plain input meant the only ways into the one
+   * thing being asked for were a 16px pencil and the banner above the grid.
    */
-  const toAnswer = editable && asked && clickable;
+  const toAnswer = asked && clickable;
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
@@ -289,7 +321,13 @@ function EditableCell({
         onClick={clickable ? open : undefined}
         role={toAnswer ? 'button' : undefined}
         tabIndex={toAnswer ? 0 : undefined}
-        title={toAnswer ? 'Open the question on this cell and answer it' : undefined}
+        title={
+          toAnswer
+            ? editable
+              ? 'Open the question on this cell and answer it'
+              : 'Open the question on this cell'
+            : undefined
+        }
         onKeyDown={
           toAnswer
             ? (e) => {
@@ -626,13 +664,14 @@ function GroupRows({
   props: ForecastGridProps;
   scales: GridScales;
 }) {
-  const { categories, dayLabels, values, collapsedGroups, onToggleGroup } = props;
+  const { categories, dayLabels, values, collapsedGroups, onToggleGroup, requested } = props;
   const numDays = dayLabels.length;
   const totalScale = scales.totals;
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
   const collapsed = collapsible && (collapsedGroups?.has(groupIndex) ?? false);
+  const questions = questionsInGroup(group.idxs, requested);
   // Alternating tint so one section is visibly a different block from the
   // next, rather than twelve identical rows running together.
   const band = groupIndex % 2 === 0 ? ' band-a' : ' band-b';
@@ -640,7 +679,11 @@ function GroupRows({
   return (
     <>
       {group.label && (
-        <tr className={`section-row${band}${collapsed ? ' section-collapsed' : ''}`}>
+        <tr
+          className={`section-row${band}${collapsed ? ' section-collapsed' : ''}${
+            questions > 0 ? ' section-questioned' : ''
+          }`}
+        >
           {/* The whole label cell toggles the section — the caret button is
               signage, not the only target. */}
           <td
@@ -675,9 +718,13 @@ function GroupRows({
                   {collapsed ? '▸' : '▾'}
                 </span>
                 {group.label}
+                <SectionQuestions count={questions} />
               </button>
             ) : (
-              group.label
+              <>
+                {group.label}
+                <SectionQuestions count={questions} />
+              </>
             )}
           </td>
           {/* Collapsed, the band itself carries the section's numbers. */}
@@ -764,6 +811,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     showColumnTotals,
     collapsedGroups,
     onToggleGroup,
+    requested,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -817,7 +865,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 colSpan={isCollapsed(gi) ? 1 : g.idxs.length}
                 className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}${
                   onToggleGroup ? ' band-toggle' : ''
-                }`}
+                }${questionsInGroup(g.idxs, requested) > 0 ? ' section-questioned' : ''}`}
                 onClick={onToggleGroup ? () => onToggleGroup(gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
                 tabIndex={onToggleGroup ? 0 : undefined}
@@ -846,9 +894,13 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                       {isCollapsed(gi) ? '▸' : '▾'}
                     </span>
                     {g.label}
+                    <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
                   </span>
                 ) : (
-                  g.label
+                  <>
+                    {g.label}
+                    <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
+                  </>
                 )}
               </th>
             ) : (
@@ -867,7 +919,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             col.catIdx === null ? (
               <th
                 key={`g${col.gi}`}
-                className={`day-h group-end${col.band}${onToggleGroup ? ' band-toggle' : ''}`}
+                className={`day-h group-end${col.band}${onToggleGroup ? ' band-toggle' : ''}${
+                  questionsInGroup(groups[col.gi].idxs, requested) > 0 ? ' section-questioned' : ''
+                }`}
                 onClick={onToggleGroup ? () => onToggleGroup(col.gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
                 tabIndex={onToggleGroup ? 0 : undefined}
@@ -883,6 +937,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     : undefined
                 }
               >
+                {/* The count sits on the section band above this header, so
+                    repeating it here would say the same thing twice in two
+                    adjacent rows. The blue edge is enough. */}
                 Section total
               </th>
             ) : (

@@ -23,7 +23,7 @@ import {
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
-import { listEntities } from './appData';
+import { listEntities, seedUsers } from './appData';
 import { activeCycle } from './cycleService';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
@@ -40,6 +40,7 @@ import {
   loadData,
   loadSubmission,
   loadTemplates,
+  loadUsers,
   saveApprovals,
   saveData,
   saveSubmission,
@@ -73,6 +74,21 @@ export function pctChange(current: number, prior: number): number | null {
 const isRequesterRole = (v: unknown): v is RequesterRole =>
   v === 'treasury' || v === 'approver';
 
+/**
+ * The role a question was asked in, for questions stored before the role was
+ * recorded: look the asker up by name.
+ *
+ * Defaulting those to "treasury" labelled an approver's own question as
+ * treasury's on the submitter's screen — the exact confusion recording the
+ * role was meant to end.
+ */
+function roleOfAsker(name: string): RequesterRole {
+  const user = loadUsers(seedUsers()).find(
+    (u) => u.name.trim().toLowerCase() === name.trim().toLowerCase(),
+  );
+  return user?.role === 'approver' ? 'approver' : 'treasury';
+}
+
 /** Keep only well-formed comment requests — storage can hold anything. */
 function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
@@ -81,11 +97,10 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
     if (typeof value !== 'object' || value === null) continue;
     const r = value as Partial<CommentRequest>;
     if (typeof r.message !== 'string' || !r.message.trim()) continue;
+    const from = typeof r.from === 'string' ? r.from : 'Treasury';
     out[key] = {
-      from: typeof r.from === 'string' ? r.from : 'Treasury',
-      // Questions stored before roles were recorded were treasury's: the
-      // approver could not ask from anywhere until this release.
-      fromRole: isRequesterRole(r.fromRole) ? r.fromRole : 'treasury',
+      from,
+      fromRole: isRequesterRole(r.fromRole) ? r.fromRole : roleOfAsker(from),
       message: r.message,
       requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
       ...(typeof r.answeredAt === 'string' ? { answeredAt: r.answeredAt } : {}),

@@ -248,6 +248,11 @@
   --blue: var(--jde-blue);
   --blue-hover: #1c4880;
   --blue-soft: rgba(35, 89, 156, 0.1);
+  /* The soft tints again, FLATTENED against white. A cell that lifts on hover
+     covers its neighbours, and a translucent fill let their numbers show
+     through the one being read. */
+  --blue-fill: #e9eef5;
+  --amber-fill: #f1eae2;
   --blue-light: var(--jde-blue-light);
   --link: var(--jde-blue);
 
@@ -881,11 +886,15 @@ textarea {
 }
 
 /* === PANEL === */
+/* A panel is a card ON the page, not a region OF it. The page and the panels'
+   own toolbars were both cream, so a toolbar strip merged with the background
+   behind it and the boxes ran into each other; a firmer edge and a real
+   shadow give each box its own ground. */
 .panel {
   background: var(--bg-elev);
-  border: 1px solid var(--border);
+  border: 1px solid var(--n-200);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
   margin-bottom: var(--panel-gap);
 }
@@ -1004,7 +1013,9 @@ td.num {
   justify-content: space-between;
   align-items: center;
   padding: 9px 16px;
-  background: var(--bg-elev-2);
+  /* Near-white rather than cream: cream is the PAGE colour, so a toolbar in
+     it looked like a gap between panels rather than the head of one. */
+  background: var(--n-25);
   border-bottom: 1px solid var(--border);
 }
 .grid-toolbar-left {
@@ -1429,18 +1440,52 @@ td.num {
 .forecast-grid tbody tr:not(.column-totals-row) td.cell {
   position: relative;
 }
-.forecast-grid td.cell.cell-input:hover {
+.forecast-grid td.cell.cell-input:hover,
+.forecast-grid td.cell.comment-requested[role='button']:hover {
   z-index: 6;
   transform: scale(1.09);
   border-radius: 4px;
-  background-color: var(--bg-elev);
+  /* !important because the heat map paints its tint as an INLINE style, and a
+     translucent tint on a cell that has been lifted over its neighbours let
+     THEIR numbers read through the one being pointed at. */
+  background-color: var(--bg-elev) !important;
   box-shadow:
     inset 0 0 0 1.5px var(--accent),
     0 8px 18px -6px rgba(28, 26, 22, 0.3);
 }
+/* A hovered cell keeps its own colour, flattened: a flagged cell stays amber
+   and a questioned one stays blue while it is lifted, rather than turning
+   white and losing what made it worth pointing at. */
+.forecast-grid td.cell.variance-flag.cell-input:hover {
+  background-color: var(--amber-fill) !important;
+}
+.forecast-grid td.cell.comment-requested:hover {
+  background-color: var(--blue-fill) !important;
+}
 /* A focused input outranks the hover: it says where you are TYPING. */
 .forecast-grid td.cell:has(input:focus) {
   box-shadow: inset 0 0 0 1px var(--accent) !important;
+}
+
+/* A section holding an open question says so on its band, because collapsing
+   it hides every blue cell inside — and with them the only sign that someone
+   is waiting on an answer. */
+.forecast-grid tr.section-row.section-questioned > td.row-label,
+.forecast-grid th.day-h.section-questioned {
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+.section-questions {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 100px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 /* === TEMPLATE BUILDER (spreadsheet editor) === */
@@ -1925,6 +1970,103 @@ td.num {
 .comment-request-note strong {
   color: var(--text);
 }
+/* ============================================================
+   Page modes.
+   Entering a forecast, walking the guided submit flow and answering questions
+   are three different jobs on one screen. Only a banner used to say which,
+   so the flow could start with the page looking exactly as it did before it.
+   The mode colours the page edge, tints the ground under the panels and
+   names itself in a ribbon that stays put while the page scrolls.
+   ============================================================ */
+.content.page-mode {
+  position: relative;
+  background: var(--mode-tint);
+  box-shadow: inset 0 3px 0 var(--mode-line);
+}
+.content.page-submitting {
+  --mode-tint: rgba(138, 81, 17, 0.05);
+  --mode-line: var(--amber);
+}
+.content.page-answering {
+  --mode-tint: rgba(35, 89, 156, 0.05);
+  --mode-line: var(--blue);
+}
+.page-mode-ribbon {
+  /* In flow, not floating: a badge pinned over a scrolling grid covers the
+     row labels, and the coloured page edge already survives the scroll. */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 5px 12px;
+  border-radius: 100px;
+  background: var(--mode-line);
+  color: var(--jde-white);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-md);
+}
+.page-mode-ribbon::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* Panels lift a little further off a tinted page, so the mode reads as a
+   wash BEHIND the work rather than a colour cast over it. */
+.content.page-mode .panel {
+  box-shadow: var(--shadow-lg);
+}
+
+/* Reviewers get a line, not a banner: they are not the ones answering, so
+   the submitter's "open one to answer it" panel is addressed to nobody here. */
+.review-question-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: var(--panel-gap);
+  padding: 8px 14px;
+  border: 1px solid var(--n-200);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.review-question-strip .strip-mark {
+  color: var(--blue);
+}
+.review-question-strip strong {
+  color: var(--text);
+}
+.strip-cells {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.strip-cell {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  background: var(--n-25);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.strip-cell:hover,
+.strip-cell:focus-visible {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
 /* An answer that has come back: green, because this one is finished — the
    blue notes above it are still waiting on someone. */
 .comment-request-note.answered-note {
