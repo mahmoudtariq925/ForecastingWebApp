@@ -8,13 +8,18 @@ import { useEffect, useRef, useState } from 'react';
 // tooltips and a compact legend, in the app's mono/muted visual style.
 // ============================================================================
 
-/** Palette shared by all charts (matches the CSS custom properties). */
+/**
+ * Palette shared by all charts. These mirror the design tokens in index.css
+ * (--accent / --green / --red / --blue / --n-400) — SVG attributes cannot read
+ * a CSS custom property here, so the values are duplicated deliberately and
+ * must be changed together with the token block.
+ */
 export const CHART_COLORS = {
-  accent: '#8a6d3b',
-  green: '#2f8a5c',
-  red: '#b8484a',
-  blue: '#3d6da3',
-  muted: '#8e92a3',
+  accent: '#573027',
+  green: '#3f6223',
+  red: '#9c2f22',
+  blue: '#23599c',
+  muted: '#9a8880',
 } as const;
 
 export interface ChartSeries {
@@ -207,7 +212,10 @@ export function Chart({
   };
 
   const gridVals = [0, 1, 2, 3, 4].map((i) => min + ((max - min) * i) / 4);
-  const labelStep = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(plotW / 64))));
+  // Minimum horizontal room per x-axis label. Sized for the UI face: at 64px
+  // a stepped label and a forced emphasis label (Fridays) could touch once the
+  // wider Poppins glyphs were in, which read as one smudged date.
+  const labelStep = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(plotW / 78))));
 
   return (
     <div className="chart-container" ref={ref} style={{ height: height + 40 }}>
@@ -243,7 +251,7 @@ export function Chart({
         {/* horizontal gridlines + axis values */}
         {gridVals.map((v, i) => (
           <g key={i}>
-            <line x1={PAD_L} y1={y(v)} x2={w - PAD_R} y2={y(v)} stroke="#ebe9e0" strokeWidth="1" />
+            <line x1={PAD_L} y1={y(v)} x2={w - PAD_R} y2={y(v)} stroke="var(--border)" strokeWidth="1" />
             <text
               x={PAD_L - 6}
               y={y(v) + 3.5}
@@ -256,7 +264,7 @@ export function Chart({
         ))}
         {/* zero baseline */}
         {min < 0 && max > 0 && (
-          <line x1={PAD_L} y1={y(0)} x2={w - PAD_R} y2={y(0)} stroke="#d3cfc4" strokeWidth="1" />
+          <line x1={PAD_L} y1={y(0)} x2={w - PAD_R} y2={y(0)} stroke="var(--border-strong)" strokeWidth="1" />
         )}
 
         {/* bars */}
@@ -367,9 +375,12 @@ export function Chart({
           ))}
 
         {/* x labels — a marked slot (Friday) always gets one, whatever the
-            thinning step, since it is the label you are looking for. */}
+            thinning step, since it is the label you are looking for. A stepped
+            label that lands right beside a marked one is dropped instead: two
+            dates a few pixels apart run together and read as one. */}
         {labels.map((label, i) =>
-          i % labelStep === 0 || emphasis?.[i] ? (
+          emphasis?.[i] ||
+          (i % labelStep === 0 && !emphasis?.[i - 1] && !emphasis?.[i + 1]) ? (
             <text
               key={i}
               x={x(i)}
