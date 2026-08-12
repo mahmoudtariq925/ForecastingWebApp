@@ -721,6 +721,22 @@ textarea {
 .cycle-pill .val {
   font-weight: 500;
 }
+/* The pill names a cycle you can open, so where there is a cycles screen it
+   is the door to it rather than a label about it. */
+.cycle-pill-link {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cycle-pill-link:hover,
+.cycle-pill-link:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+.cycle-pill-link:hover .val {
+  color: var(--accent);
+}
 
 .btn {
   display: inline-flex;
@@ -4222,14 +4238,37 @@ tbody td {
   text-transform: uppercase;
   font-weight: 700;
   color: var(--text-dim);
-  /* Light enough to be a LABEL. Full taupe separated the sections all right,
-     but four dark bars were the first thing the eye met on the dashboard —
-     louder than the numbers they were introducing. The rows they separate are
-     white, so a pale tint and a single rule are enough to hold the structure.
-     (A 10% tint was the other extreme: the bands dissolved into the grid.) */
+  /* A LABEL for the numbers under it, not a bar competing with them: pale
+     fill, and the weight carried by a rule above rather than by darkness.
+     (Full taupe was the loudest thing on the dashboard; a 10% tint was the
+     other extreme, dissolving into the grid.) */
   background: var(--n-100);
-  border-top: 1px solid var(--n-300);
-  border-bottom: 1px solid var(--border);
+  border-top: 2px solid var(--n-300);
+  border-bottom: none;
+  padding-top: 7px;
+  padding-bottom: 4px;
+}
+/* The band belongs to the row beneath it, so no rule comes between them. */
+.matrix-table tr.matrix-section + tr > td {
+  border-top: none;
+}
+/* A folded section's total: bold, and left clear so its conditional
+   formatting is the fill — it used to sit on grey, which made every folded
+   section the same colour as the band above it. */
+.matrix-table td.matrix-band-total {
+  font-weight: 700;
+}
+.matrix-table tr.matrix-section-total td.matrix-row-label {
+  font-weight: 700;
+  color: var(--text);
+}
+/* Data rows sit on white, so a cell with nothing in it reads as nothing and
+   the ramp starts from the surface itself. */
+.matrix-table tbody td.num {
+  background-color: var(--bg-elev);
+}
+.matrix-table thead th {
+  border-bottom: 1px solid var(--border-strong);
 }
 /* The band spans every column, so the label itself is what has to stay put
    when the country columns scroll sideways. */

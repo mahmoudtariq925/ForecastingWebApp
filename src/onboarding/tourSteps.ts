@@ -24,6 +24,16 @@ export interface TourStep {
   body: string;
   /** Screen this step lives on; the tour navigates there first. */
   view?: ViewId;
+  /**
+   * A disclosure control to OPEN before the step is shown, as a selector
+   * looked up inside the step's element (falling back to the page).
+   *
+   * Panels that open folded — the consolidated forecast, the forecast chart,
+   * the matrix's sections — were being explained while showing nothing but
+   * their own title bar. Opening it first means the step points at the thing
+   * it is describing. Already-open controls are left alone.
+   */
+  expand?: string;
   /** Popover placement hint passed to driver.js. */
   side?: 'top' | 'right' | 'bottom' | 'left';
 }
@@ -161,6 +171,7 @@ const SUBMITTER_JOURNEY: TourStep[] = [
   {
     view: 'submission',
     selector: '[data-tour="forecast-chart"]',
+    expand: '.panel-collapse-head',
     title: '7 · Sense-check the shape',
     body: 'The chart redraws as you type, and can overlay your recent cycles — a quick way to spot something odd before your approver does.',
     side: 'top',
@@ -328,6 +339,7 @@ const TREASURY_STEPS: TourStep[] = [
   {
     view: 'dashboard',
     selector: '[data-tour="outlook-matrix"]',
+    expand: '.matrix-section-toggle',
     title: 'The same numbers, by country',
     body: 'The chart says when the money moves; this says who and what. Sections start folded to their totals — open the one that looks wrong. Both panels follow the country selector, and both narrow to the periods you click on the chart.',
     side: 'left',
@@ -335,8 +347,9 @@ const TREASURY_STEPS: TourStep[] = [
   {
     view: 'dashboard',
     selector: '[data-tour="consolidated-table"]',
+    expand: '.panel-collapse-head',
     title: 'The consolidated forecast',
-    body: 'Every reported entity added together, day by day. It opens folded to its section totals; open a section to see the line items behind it.',
+    body: 'Every reported entity added together, day by day. It opens folded away; inside, each section folds to its total too, so you can go from the group position to a single line item without leaving the page.',
     side: 'top',
   },
   {

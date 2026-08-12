@@ -67,6 +67,7 @@ import {
 import { exportSubmissionXlsx, exportTemplateXlsx } from '../../utils/excel';
 import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
+import type { ViewId } from '../../types/nav';
 import type {
   CommentRequest,
   ForecastReopen,
@@ -110,6 +111,8 @@ interface SubmissionProps {
    * themselves, and a submitter's approver is notified on submit.
    */
   isTreasury?: boolean;
+  /** Screen changes the header can make — treasury's cycle pill opens Cycles. */
+  onNavigate?: (view: ViewId) => void;
 }
 
 export function Submission({
@@ -119,6 +122,7 @@ export function Submission({
   canRequestComments = false,
   canApprove = false,
   isTreasury = false,
+  onNavigate,
 }: SubmissionProps) {
   const templates = useMemo(() => loadTemplates(), []);
   const entities = useMemo(() => listEntities(), []);
@@ -188,6 +192,7 @@ export function Submission({
         canRequestComments={canRequestComments}
         canApprove={canApprove}
         isTreasury={isTreasury}
+        onNavigate={onNavigate}
         autoSubmit={initial?.autoSubmit === true}
         selectors={
           <>
@@ -323,6 +328,8 @@ interface EditorProps {
   canApprove: boolean;
   /** Treasury proper — the only role that emails an approver from here. */
   isTreasury: boolean;
+  /** Opens the cycles screen from the header pill, where the role has one. */
+  onNavigate?: (view: ViewId) => void;
   /** Kick off the submit flow once the grid is up (checklist deep link). */
   autoSubmit: boolean;
   selectors: React.ReactNode;
@@ -374,6 +381,7 @@ function SubmissionEditor({
   canRequestComments,
   canApprove,
   isTreasury,
+  onNavigate,
   autoSubmit,
   selectors,
 }: EditorProps) {
@@ -1429,7 +1437,11 @@ function SubmissionEditor({
                 hint="Reopened to answer questions — the figures stay as submitted. Ask your approver to return the forecast if one has to change."
               />
             )}
-            <CyclePill label="Active cycle" value={activeCycleId()} />
+            <CyclePill
+              label="Active cycle"
+              value={activeCycleId()}
+              onClick={onNavigate ? () => onNavigate('cycles') : undefined}
+            />
           </>
         }
       />

@@ -152,7 +152,9 @@ export default function App() {
   };
 
   const screens: Record<ViewId, JSX.Element> = {
-    dashboard: <Dashboard onOpenModal={setModal} onOpenSubmission={openSubmission} />,
+    dashboard: (
+      <Dashboard onOpenModal={setModal} onOpenSubmission={openSubmission} onNavigate={navigate} />
+    ),
     analystHome: (
       <AnalystHome user={user} onOpenSubmission={openSubmission} onNavigate={navigate} />
     ),
@@ -171,6 +173,8 @@ export default function App() {
         // at all: it reads and asks questions.
         canApprove={permissions.canApproveForecasts && !permissions.canViewTreasuryDashboard}
         isTreasury={permissions.canViewTreasuryDashboard}
+        // Only a role with a cycles screen gets a clickable cycle pill.
+        onNavigate={allowedViews(permissions).has('cycles') ? navigate : undefined}
       />
     ),
     // Treasury reviews the QUESTIONS it and the approvers have asked — not
