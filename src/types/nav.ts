@@ -43,13 +43,17 @@ export function navFor(p: Permissions): NavSections {
     // and the per-cell comment request are for. The queue treasury used to
     // have offered a decision on forecasts nobody had submitted.
     return {
+      // Comments Review is forecast work, not configuration: it is where
+      // treasury chases the explanations a cycle cannot close without. Filed
+      // under Admin it sat among users, templates and settings — screens
+      // touched once a quarter — and read as an administrative chore.
       workspace: [
         { view: 'dashboard', label: 'Dashboard' },
         { view: 'cycles', label: 'Forecast Cycles' },
         { view: 'submission', label: 'Submissions' },
+        { view: 'review', label: 'Comments Review' },
       ],
       admin: [
-        { view: 'review', label: 'Comments Review' },
         // The live instance is populated by importing real workbooks.
         ...(IS_LIVE ? [{ view: 'dataImport', label: 'Data Import' } as NavEntry] : []),
         { view: 'templates', label: 'Templates' },

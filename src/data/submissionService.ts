@@ -88,9 +88,24 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
       fromRole: isRequesterRole(r.fromRole) ? r.fromRole : 'treasury',
       message: r.message,
       requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
+      ...(typeof r.answeredAt === 'string' ? { answeredAt: r.answeredAt } : {}),
     };
   }
   return out;
+}
+
+/** A question still waiting on a reply. */
+export function isOpenQuestion(request: CommentRequest | null | undefined): boolean {
+  return Boolean(request) && !request?.answeredAt;
+}
+
+/** Open questions on a submission, keyed by cell, oldest first. */
+export function openQuestionEntries(
+  requests: Record<string, CommentRequest> | undefined,
+): [string, CommentRequest][] {
+  return Object.entries(requests ?? {})
+    .filter(([, r]) => isOpenQuestion(r))
+    .sort((a, b) => a[1].requestedAt.localeCompare(b[1].requestedAt));
 }
 
 /** Keep a stored reopening only when it is complete enough to describe. */
@@ -114,11 +129,11 @@ export function requesterLabel(role: RequesterRole | undefined): string {
  * "Treasury", "your approver" or "Treasury and your approver" — who a
  * submitter's open questions are from, for the banner above their grid.
  */
-export function requesterSummary(requests: Iterable<CommentRequest>): string {
+export function requesterSummary(roles: Iterable<RequesterRole | undefined>): string {
   let treasury = false;
   let approver = false;
-  for (const r of requests) {
-    if (r.fromRole === 'approver') approver = true;
+  for (const role of roles) {
+    if (role === 'approver') approver = true;
     else treasury = true;
   }
   if (treasury && approver) return 'Treasury and your approver';
@@ -847,9 +862,8 @@ const seenKey = (period: string, entity: string, templateId: string) =>
  */
 export function unseenRequestKeys(sub: Submission): string[] {
   const since = loadData<string>(seenKey(sub.period, sub.entity, sub.templateId), '');
-  return Object.entries(sub.commentRequests ?? {})
+  return openQuestionEntries(sub.commentRequests)
     .filter(([key, req]) => !sub.comments?.[key]?.trim() && (!since || req.requestedAt > since))
-    .sort((a, b) => a[1].requestedAt.localeCompare(b[1].requestedAt))
     .map(([key]) => key);
 }
 
@@ -858,11 +872,20 @@ export function markRequestsSeen(sub: Submission): void {
   saveData(seenKey(sub.period, sub.entity, sub.templateId), new Date().toISOString());
 }
 
-/** Clear the open request on a cell — the submitter has answered it. */
+/**
+ * Close the question on a cell — the submitter has answered it.
+ *
+ * The request is STAMPED, not deleted: whoever asked comes back to a cell
+ * carrying a paragraph of commentary, and deleting the question left nothing
+ * to say what that paragraph was answering. It stops counting as open the
+ * moment `answeredAt` is set.
+ */
 export function answerCommentRequest(sub: Submission, key: string): Submission['commentRequests'] {
-  const rest = { ...(sub.commentRequests ?? {}) };
-  delete rest[key];
-  return rest;
+  const requests = { ...(sub.commentRequests ?? {}) };
+  const request = requests[key];
+  if (!request) return requests;
+  requests[key] = { ...request, answeredAt: new Date().toISOString() };
+  return requests;
 }
 
 /** The cycle decisions are recorded against — one definition, in cycleService. */

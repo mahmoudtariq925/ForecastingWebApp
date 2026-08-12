@@ -256,11 +256,18 @@ function EditableCell({
 
   const val = catValue(values, catIdx, dayIdx);
   const clickable = Boolean(onCellClick) && (clickableCells === 'all' || flagged);
+  /**
+   * A cell with a question on it is answered, not typed into: clicking it
+   * opens the question with the reply box (and the value, which the answer may
+   * be that it was wrong). Leaving it as a plain input meant the only ways in
+   * were a 16px pencil and the banner above the grid.
+   */
+  const toAnswer = editable && asked && clickable;
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     clickable ? 'cell-askable' : ''
-  } ${editable ? 'cell-input' : ''} ${extraClass}${focus}`
+  } ${editable && !toAnswer ? 'cell-input' : ''} ${extraClass}${focus}`
     .replace(/\s+/g, ' ')
     .trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
@@ -268,9 +275,11 @@ function EditableCell({
   const open = () => onCellClick?.(catIdx, dayIdx);
 
   // A read-only grid has nothing else a click could mean, so the whole cell
-  // opens the dialog. It carries the same cell coordinates as an editable one
-  // so a deep link ("explain THIS cell") can still find and scroll to it.
-  if (!editable) {
+  // opens the dialog — and so does a cell waiting on an answer, where the
+  // dialog is the whole job. Both carry the cell coordinates an editable one
+  // does, so a deep link ("explain THIS cell") still finds and scrolls to it,
+  // and Enter opens the one the keyboard has landed on.
+  if (!editable || toAnswer) {
     return (
       <td
         className={cls}
@@ -278,6 +287,19 @@ function EditableCell({
         data-cat={catIdx}
         data-day={dayIdx}
         onClick={clickable ? open : undefined}
+        role={toAnswer ? 'button' : undefined}
+        tabIndex={toAnswer ? 0 : undefined}
+        title={toAnswer ? 'Open the question on this cell and answer it' : undefined}
+        onKeyDown={
+          toAnswer
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  open();
+                } else moveWithKeyboard(e);
+              }
+            : undefined
+        }
       >
         {fmt(val)}
       </td>
@@ -404,23 +426,26 @@ function NumberCell({
  * `data-cat` / `data-day` attributes, which both orientations already carry,
  * so one handler serves the whole grid.
  */
-function moveWithKeyboard(e: ReactKeyboardEvent<HTMLInputElement>): void {
+function moveWithKeyboard(e: ReactKeyboardEvent<HTMLElement>): void {
   const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
   if (!keys.includes(e.key)) return;
-  const input = e.currentTarget;
+  const from = e.currentTarget;
   // Left/right inside a partly-typed value should still move the caret — but
   // when the value is fully selected (which is how a cell arrives after a
-  // move) the user means "next cell", not "collapse the selection".
-  const { selectionStart: from, selectionEnd: to, value } = input;
-  const allSelected = from === 0 && to === value.length && value.length > 0;
-  if (e.key === 'ArrowLeft' && !allSelected && from !== 0) return;
-  if (e.key === 'ArrowRight' && !allSelected && to !== value.length) return;
+  // move) the user means "next cell", not "collapse the selection". A cell
+  // waiting on an answer holds no caret, so it always means "next cell".
+  if (from instanceof HTMLInputElement) {
+    const { selectionStart, selectionEnd, value } = from;
+    const allSelected = selectionStart === 0 && selectionEnd === value.length && value.length > 0;
+    if (e.key === 'ArrowLeft' && !allSelected && selectionStart !== 0) return;
+    if (e.key === 'ArrowRight' && !allSelected && selectionEnd !== value.length) return;
+  }
 
-  const cat = Number(input.dataset.cat);
-  const day = Number(input.dataset.day);
+  const cat = Number(from.dataset.cat);
+  const day = Number(from.dataset.day);
   if (!Number.isFinite(cat) || !Number.isFinite(day)) return;
 
-  const grid = input.closest<HTMLElement>('.forecast-grid');
+  const grid = from.closest<HTMLElement>('.forecast-grid');
   // Arrows are SCREEN directions, so which coordinate they step depends on
   // the layout: the grouped (dates-down-rows) grid puts days on the rows and
   // line items across the columns, days-across is the other way round.
@@ -443,13 +468,15 @@ function moveWithKeyboard(e: ReactKeyboardEvent<HTMLInputElement>): void {
   else if (e.key === 'ArrowRight') stepRight(1);
   else if (e.key === 'Enter') stepDown(e.shiftKey ? -1 : 1);
 
-  const target = grid?.querySelector<HTMLInputElement>(
-    `input[data-cat="${nextCat}"][data-day="${nextDay}"]`,
+  // Either the next cell's input or — where a question is waiting — the cell
+  // itself, so spreadsheet movement runs through the whole row either way.
+  const target = grid?.querySelector<HTMLElement>(
+    `input[data-cat="${nextCat}"][data-day="${nextDay}"], td[data-cat="${nextCat}"][data-day="${nextDay}"][tabindex]`,
   );
   if (!target) return;
   e.preventDefault();
   target.focus();
-  target.select();
+  if (target instanceof HTMLInputElement) target.select();
 }
 
 // ---------------------------------------------------------------------------

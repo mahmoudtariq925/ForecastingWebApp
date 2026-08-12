@@ -16,12 +16,15 @@ import {
   isHandedOver,
   peekSubmission,
   pendingApprovalCount,
+  requesterLabel,
+  requesterSummary,
   submissionGaps,
   submitStoredForecast,
   templateForEntity,
 } from '../../data/submissionService';
 import {
   analystTodo,
+  openQuestionsFor,
   type EntityProgress,
   type StepState,
   type TodoStep,
@@ -286,6 +289,15 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
 
   const scopedEntities = useMemo(() => assignedEntitiesFor(user), [user]);
 
+  /**
+   * The questions waiting on this submitter, listed under the step they
+   * belong to. A forecast that came back because someone asked about a cell
+   * has to READ differently from one being sent for the first time, and the
+   * difference is the questions themselves — not a change of wording.
+   */
+  const questions = useMemo(() => openQuestionsFor(todo.entities), [todo]);
+  const [questionsOpen, setQuestionsOpen] = useState(true);
+
   // The approver's decision list: every country they cover, with Review /
   // Approve in place — this replaces the separate Approvals screen.
   const approverRows = useMemo(() => {
@@ -389,6 +401,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
       // A forecast that came back because of a question is being SENT AGAIN;
       // a button reading "Submit Forecast" made that look like first-time work.
       const resubmitting = work.some((w) => w.reopenedByQuestion);
+      const stillAsking = resubmitting && questions.length > 0;
       return (
         <button
           className="btn btn-primary"
@@ -407,9 +420,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         >
           {!canEditForecasts
             ? 'View Forecasts'
-            : resubmitting
+            : stillAsking
               ? 'Answer & Resubmit'
-              : 'Submit Forecast'}
+              : resubmitting
+                ? 'Resubmit Forecast'
+                : 'Submit Forecast'}
         </button>
       );
     }
@@ -509,6 +524,51 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                   onOpen={openFor(step, i === todo.currentStep)}
                   action={actionFor(step, i === todo.currentStep)}
                 />
+                {/* The questions themselves, under the step that is blocked on
+                    them: what came back, who asked it, and one click to the
+                    cell it is about. */}
+                {step.key === 'submit' && canEditForecasts && questions.length > 0 && (
+                  <div className="todo-countries" data-tour="todo-questions">
+                    <button
+                      className="todo-countries-head"
+                      aria-expanded={questionsOpen}
+                      onClick={() => setQuestionsOpen((v) => !v)}
+                    >
+                      <span className="section-caret" aria-hidden="true">
+                        {questionsOpen ? '▾' : '▸'}
+                      </span>
+                      Questions to answer · {questions.length}
+                      <span className="badge-num warn">
+                        from {requesterSummary(questions.map((q) => q.role))}
+                      </span>
+                    </button>
+                    {questionsOpen &&
+                      questions.map((q) => (
+                        <div className="todo-country-row todo-question-row" key={`${q.entity}:${q.key}`}>
+                          <strong>{q.entity}</strong>
+                          <span className="text-dim">{q.cellLabel}</span>
+                          <span className="todo-question-text" title={q.message}>
+                            {q.from} ({requesterLabel(q.role)}): {q.message}
+                          </span>
+                          <button
+                            className="btn btn-primary"
+                            style={{ padding: '4px 10px', fontSize: 11, marginLeft: 'auto' }}
+                            title="Open the forecast on this cell with the answer box"
+                            onClick={() =>
+                              onOpenSubmission({
+                                entity: q.entity,
+                                week,
+                                templateId: q.templateId,
+                                focusCell: q.key,
+                              })
+                            }
+                          >
+                            Answer
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
                 {/* The approver decides right here: the row opens the
                     forecast in a dialog and signs it off from inside it. */}
                 {step.key === 'review' && isApprover && approverRows.length > 0 && (

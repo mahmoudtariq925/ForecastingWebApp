@@ -1242,6 +1242,20 @@ td.num {
 .forecast-grid td.cell.cell-askable {
   cursor: pointer;
 }
+/* A cell with a question on it is answered rather than typed into, so the
+   whole cell is the button — the pencil alone was a 16px target for the one
+   thing the submitter came to this grid to do. */
+.forecast-grid td.cell.comment-requested[role='button'] {
+  cursor: pointer;
+  font-weight: 600;
+}
+.forecast-grid td.cell.comment-requested[role='button']:hover {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+.forecast-grid td.cell.comment-requested[role='button']:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
 /* ...but an EDITABLE one keeps the text caret: clicking it edits the number.
    The dialog gets this small button instead, so typing is never hijacked. */
 .forecast-grid td.cell.cell-askable:has(input) {
@@ -1909,6 +1923,18 @@ td.num {
   color: var(--text-dim);
 }
 .comment-request-note strong {
+  color: var(--text);
+}
+/* An answer that has come back: green, because this one is finished — the
+   blue notes above it are still waiting on someone. */
+.comment-request-note.answered-note {
+  background: var(--green-soft);
+  border-left-color: var(--green);
+}
+.answered-reply {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
   color: var(--text);
 }
 /* The open questions themselves, each one a door back to its cell. Dismissing
@@ -3355,6 +3381,21 @@ tr.entity-row:focus-visible {
   border-radius: 6px;
   background: var(--bg-elev);
   font-size: 13px;
+}
+/* The same row, carrying a question rather than a country's status: outlined
+   in the question blue so a reopened forecast is visibly not a first draft. */
+.todo-question-row {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+.todo-question-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 /* ==========================================================================
