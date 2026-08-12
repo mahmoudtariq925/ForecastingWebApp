@@ -45,8 +45,12 @@ interface ChartProps {
    * Called with the slot index when a column is clicked. Adds a full-height
    * hit area per slot, so the whole column is the target rather than the few
    * pixels of a bar.
+   *
+   * `additive` is true when the click was made with Ctrl (or Cmd) held, which
+   * means "add this period to the ones already chosen" rather than "replace
+   * them" — the same gesture a spreadsheet uses for a multiple selection.
    */
-  onPointClick?: (index: number) => void;
+  onPointClick?: (index: number, additive: boolean) => void;
   /**
    * Called with the slot index on a DOUBLE click. A single click filters the
    * page to that period; opening the detail behind it is the deliberate
@@ -54,8 +58,8 @@ interface ChartProps {
    * click is therefore held back briefly to see whether a second one lands.
    */
   onPointDoubleClick?: (index: number) => void;
-  /** Slot currently selected by a cross-filter, drawn as a standing column. */
-  activeIndex?: number | null;
+  /** Slots currently selected by a cross-filter, drawn as standing columns. */
+  activeIndexes?: number[];
   /**
    * Slots worth marking out on the axis — Fridays on a daily horizon, which
    * are the week-to-week reference point. One flag per label.
@@ -92,7 +96,7 @@ export function Chart({
   stacked = false,
   onPointClick,
   onPointDoubleClick,
-  activeIndex = null,
+  activeIndexes,
   emphasis,
 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -117,17 +121,17 @@ export function Chart({
     [],
   );
 
-  const handleClick = (i: number) => {
+  const handleClick = (i: number, additive: boolean) => {
     if (!onPointClick) return;
     // With no double-click handler there is nothing to wait for.
     if (!onPointDoubleClick) {
-      onPointClick(i);
+      onPointClick(i, additive);
       return;
     }
     if (clickTimer.current) clearTimeout(clickTimer.current);
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null;
-      onPointClick(i);
+      onPointClick(i, additive);
     }, DOUBLE_CLICK_MS);
   };
 
@@ -223,16 +227,19 @@ export function Chart({
             />
           ) : null,
         )}
-        {/* The period a cross-filter has selected. */}
-        {activeIndex !== null && activeIndex >= 0 && activeIndex < n && (
-          <rect
-            className="chart-active-band"
-            x={x(activeIndex) - slotW / 2}
-            y={PAD_T}
-            width={slotW}
-            height={plotH}
-          />
-        )}
+        {/* The periods a cross-filter has selected. */}
+        {(activeIndexes ?? [])
+          .filter((i) => i >= 0 && i < n)
+          .map((i) => (
+            <rect
+              key={`active${i}`}
+              className="chart-active-band"
+              x={x(i) - slotW / 2}
+              y={PAD_T}
+              width={slotW}
+              height={plotH}
+            />
+          ))}
         {/* horizontal gridlines + axis values */}
         {gridVals.map((v, i) => (
           <g key={i}>
@@ -343,7 +350,7 @@ export function Chart({
               width={slotW}
               height={plotH}
               fill="transparent"
-              onClick={() => handleClick(i)}
+              onClick={(e) => handleClick(i, e.ctrlKey || e.metaKey)}
               onDoubleClick={() => handleDoubleClick(i)}
             >
               <title>

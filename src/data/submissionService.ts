@@ -21,7 +21,8 @@ import {
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
-import { listCycles, listEntities } from './appData';
+import { listEntities } from './appData';
+import { activeCycle } from './cycleService';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
@@ -34,7 +35,6 @@ import {
 import {
   listSubmissions,
   loadApprovals,
-  loadCycles,
   loadData,
   loadSubmission,
   loadTemplates,
@@ -44,6 +44,29 @@ import {
   type ApprovalMap,
 } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
+
+/**
+ * Week-over-week change as a percentage — or null when a percentage would
+ * mislead rather than inform.
+ *
+ * Every variance surface in the app used `(cur - prev) / Math.abs(prev)` with
+ * no guard, which produced "+182,600%" from a prior of €1k and "+626%" from a
+ * prior of −220 (a move across zero, which has no percentage at all). Those
+ * were then sorted and shown as the headline "largest move". Callers render
+ * null as "—" and lead with the absolute move instead, which is always honest.
+ */
+export function pctChange(current: number, prior: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(prior)) return null;
+  // No base to be a percentage of.
+  if (prior === 0) return null;
+  // A move that crosses zero cannot be expressed as a percentage of where it
+  // started — "up 626%" reads as growth when the line in fact changed sign.
+  if (prior < 0 !== current < 0 && current !== 0) return null;
+  const pct = ((current - prior) / Math.abs(prior)) * 100;
+  // Past an order of magnitude the number stops carrying information: the
+  // prior was rounding error and the absolute move is what matters.
+  return Math.abs(pct) > 999 ? null : pct;
+}
 
 /** Keep only well-formed comment requests — storage can hold anything. */
 function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
@@ -264,6 +287,7 @@ export function consolidatedValues(
   onlyEntities?: string[],
 ): ConsolidatedData {
   const templates = loadTemplates();
+  const overrides = loadApprovals(activeCycleId());
   const displayIdxByLabel = new Map<string, number>();
   display.categories.forEach((cat, i) => {
     if (!cat.subtotal) displayIdxByLabel.set(cat.label.trim().toLowerCase(), i);
@@ -275,8 +299,16 @@ export function consolidatedValues(
   const all = onlyEntities
     ? listEntities().filter((e) => onlyEntities.includes(e.name))
     : listEntities();
+  let included = 0;
   for (const e of all) {
     const template = templateForEntity(templates, e.name) ?? display;
+    // The group position is what countries have actually REPORTED. A forecast
+    // still being drafted (or returned for update) is not part of it — it used
+    // to be, so treasury's headline total moved while a submitter was still
+    // typing, and included countries the cycle-progress modal listed as
+    // outstanding in the same breath.
+    if (!isReceived(entityStatus(e.name, week, template.id, overrides))) continue;
+    included += 1;
     const sub = peekSubmission(e.name, week, template);
     // Map this entity's category indexes onto the display template's.
     const remap = new Map<number, number>();
@@ -307,24 +339,34 @@ export function consolidatedValues(
     startingBalance += sub.startingBalance ?? 0;
   }
   const omitted = [...dropped.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-  return { values, startingBalance, entityCount: all.length, omitted };
+  // entityCount is what the total is made of, not who was asked — the modal
+  // header says "8 entities" because eight forecasts are in this number.
+  return { values, startingBalance, entityCount: included, omitted };
 }
 
 /**
- * An entity's effective workflow status for a week: an approver's decision
- * wins, then the stored submission's own status, then the seed status.
+ * An entity's effective workflow status for a week.
+ *
+ * The stored submission is the record; the cycle's approval map only carries a
+ * decision that has not been written back yet. There is deliberately no third
+ * fallback: a frozen seed status on the entity used to win over the stored
+ * submission, which is how a forecast could read "approved" to treasury and
+ * "still in draft" to the submitter who owned it.
  */
-export function mergedEntityStatus(
-  entity: Entity,
+export function entityStatus(
+  entity: string,
   week: string,
   templateId: string,
   overrides: ApprovalMap,
 ): SubmissionStatus {
-  const override = overrides[entity.name];
-  if (override) return override;
-  const stored = loadSubmission(week, entity.name, templateId);
-  if (stored && stored.status !== 'draft') return stored.status;
-  return entity.status;
+  const stored = templateId ? loadSubmission(week, entity, templateId) : null;
+  if (stored) return stored.status;
+  return overrides[entity] ?? 'draft';
+}
+
+/** Has a forecast been handed to the approver (or beyond)? */
+export function isReceived(status: SubmissionStatus): boolean {
+  return status === 'submitted' || status === 'approved' || status === 'consolidated';
 }
 
 /**
@@ -466,7 +508,8 @@ export interface VarianceRow {
   dayIdx: number;
   prior: number;
   current: number;
-  pct: number;
+  /** Null when a percentage would mislead — see `pctChange`. */
+  pct: number | null;
   /** Submitter commentary, if the cell is flagged and explained. */
   comment: string;
   flagged: boolean;
@@ -512,7 +555,7 @@ export function largestVariances(
           dayIdx: d,
           prior: prev,
           current,
-          pct: ((current - prev) / Math.max(Math.abs(prev), 1)) * 100,
+          pct: pctChange(current, prev),
           comment: sub.comments?.[key]?.trim() ?? '',
           flagged: sub.flags.includes(key),
         });
@@ -615,7 +658,7 @@ export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[
           dateLabel: labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`,
           current,
           prior: prev,
-          pct: prev === null ? null : ((current - prev) / Math.max(Math.abs(prev), 1)) * 100,
+          pct: prev === null ? null : pctChange(current, prev),
           comment: sub.comments[key]?.trim() ?? '',
           resolved: resolved.has(key),
           request: sub.commentRequests?.[key] ?? null,
@@ -714,13 +757,49 @@ export function requestComment(
   if (!sub) return;
   const flags = new Set(sub.flags);
   flags.add(key);
-  // A fresh question reopens the cell, however it was previously closed off.
+  // A question reopens the forecast, not just the cell.
+  //
+  // Being asked about a number means the forecast is back with the person who
+  // produced it: they may need to correct it, not merely describe it. So a
+  // handed-over forecast returns to draft and its approval is cleared, which
+  // puts it in front of the submitter AND back in the approver's queue once
+  // it is resubmitted — including when treasury asks after an approval has
+  // already been given.
+  const reopened = isHandedOver(sub.status);
   saveSubmission({
     ...sub,
+    status: reopened ? 'draft' : sub.status,
     flags: [...flags],
     resolvedFlags: (sub.resolvedFlags ?? []).filter((k) => k !== key),
     commentRequests: { ...(sub.commentRequests ?? {}), [key]: request },
+    updatedAt: new Date().toISOString(),
   });
+  if (reopened) clearApprovalDecision(entity);
+}
+
+// ---------------------------------------------------------------------------
+// Unseen questions. A submitter who returns to a reopened forecast should not
+// have to hunt for the cells that were asked about, so the first visit after a
+// question lands on them.
+// ---------------------------------------------------------------------------
+const seenKey = (period: string, entity: string, templateId: string) =>
+  `requestsSeen:${period}:${entity}:${templateId}`;
+
+/**
+ * Cells with an open question the submitter has not been shown yet, oldest
+ * question first. Empty once `markRequestsSeen` has run for this forecast.
+ */
+export function unseenRequestKeys(sub: Submission): string[] {
+  const since = loadData<string>(seenKey(sub.period, sub.entity, sub.templateId), '');
+  return Object.entries(sub.commentRequests ?? {})
+    .filter(([key, req]) => !sub.comments?.[key]?.trim() && (!since || req.requestedAt > since))
+    .sort((a, b) => a[1].requestedAt.localeCompare(b[1].requestedAt))
+    .map(([key]) => key);
+}
+
+/** Record that the submitter has now been shown the outstanding questions. */
+export function markRequestsSeen(sub: Submission): void {
+  saveData(seenKey(sub.period, sub.entity, sub.templateId), new Date().toISOString());
 }
 
 /** Clear the open request on a cell — the submitter has answered it. */
@@ -730,10 +809,9 @@ export function answerCommentRequest(sub: Submission, key: string): Submission['
   return rest;
 }
 
-/** The cycle decisions are recorded against: the open one, else the latest. */
+/** The cycle decisions are recorded against — one definition, in cycleService. */
 export function activeCycleId(): string {
-  const cycles = loadCycles(listCycles());
-  return (cycles.find((c) => c.status === 'submitted') ?? cycles[0])?.id ?? 'CW-2026-21';
+  return activeCycle().id;
 }
 
 /**
@@ -778,19 +856,17 @@ export function clearApprovalDecision(entity: string): void {
  */
 export function approvalQueue(week: string, onlyEntities?: string[]): Entity[] {
   const templates = loadTemplates();
+  const overrides = loadApprovals(activeCycleId());
   return listEntities().filter((e) => {
     if (onlyEntities && !onlyEntities.includes(e.name)) return false;
-    const template = templateForEntity(templates, e.name);
-    const stored = template ? loadSubmission(week, e.name, template.id) : null;
+    const templateId = templateForEntity(templates, e.name)?.id ?? '';
+    const status = entityStatus(e.name, week, templateId, overrides);
     // Anything that ARRIVED this cycle stays listed — including forecasts
-    // already decided, shown with their decision. Restricting to
-    // status==='submitted' made a row vanish the moment it was approved or
-    // rejected, so the approver lost sight of what they had just done.
-    return (
-      e.status === 'submitted' ||
-      e.status === 'pending' ||
-      (stored !== null && stored.status !== 'draft')
-    );
+    // already decided, shown with their decision, so the approver keeps sight
+    // of what they just did. A forecast that has never been submitted is not
+    // in anyone's queue: offering a decision on it is how the app used to let
+    // an approval invent a submission that was never made.
+    return isReceived(status) || status === 'rejected';
   });
 }
 
@@ -802,10 +878,8 @@ export function pendingApprovalCount(
 ): number {
   const templates = loadTemplates();
   return approvalQueue(week, onlyEntities).filter((e) => {
-    // The stored submission outranks the seed status — a resubmitted
-    // forecast is pending again even if the entity was seeded as decided.
     const templateId = templateForEntity(templates, e.name)?.id ?? '';
-    const status = mergedEntityStatus(e, week, templateId, overrides);
+    const status = entityStatus(e.name, week, templateId, overrides);
     return status !== 'approved' && status !== 'rejected';
   }).length;
 }

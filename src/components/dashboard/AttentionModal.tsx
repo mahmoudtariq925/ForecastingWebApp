@@ -76,10 +76,18 @@ export function AttentionModal({
                   <td className="text-dim">{r.worstLabel}</td>
                   <td className="num">{fmtK(r.worstAbs)}</td>
                   <td className="num">
-                    <span className={`delta ${r.worstPct > 0 ? 'up' : 'down'}`}>
-                      {r.worstPct > 0 ? '+' : ''}
-                      {r.worstPct.toFixed(1)}%
-                    </span>
+                    {r.worstPct === null ? (
+                      // No comparable base to be a percentage of — the size of
+                      // the move beside it is the number worth reading.
+                      <span className="text-dim" title="No comparable prior value">
+                        —
+                      </span>
+                    ) : (
+                      <span className={`delta ${r.worstPct > 0 ? 'up' : 'down'}`}>
+                        {r.worstPct > 0 ? '+' : ''}
+                        {r.worstPct.toFixed(1)}%
+                      </span>
+                    )}
                   </td>
                   <td>
                     <button

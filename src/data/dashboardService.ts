@@ -12,20 +12,24 @@
 // The answers live here rather than in the screen, so the modals and the page
 // can never disagree, and the whole lot moves behind an API untouched.
 // ============================================================================
-import type { Entity, ForecastTemplate, Settings, SubmissionStatus } from '../types';
+import type { Cycle, Entity, ForecastTemplate, Settings, SubmissionStatus } from '../types';
+import { cycleSummary, type CycleSummary } from './cycleService';
 import { listEntities } from './appData';
 import { periodsOf } from './periods';
 import {
   consolidatedValues,
+  entityStatus,
   getPriorValues,
+  isReceived,
   isVariance,
-  mergedEntityStatus,
+  pctChange,
   peekSubmission,
   priorValueFor,
   settingsForEntity,
   templateForEntity,
 } from './submissionService';
-import { loadTemplates, type ApprovalMap } from '../storage/localStorage';
+import { loadApprovals, loadTemplates, type ApprovalMap } from '../storage/localStorage';
+import { activeCycleId } from './submissionService';
 import { dayInflows, dayNet, dayOutflows } from '../components/submissions/gridMath';
 
 /**
@@ -66,20 +70,54 @@ function scopedEntities(onlyEntities?: string[]): Entity[] {
 }
 
 /**
- * The period columns an aggregate sums over: the whole horizon, or the single
- * period a cross-filter has selected on the outlook chart.
+ * The entities whose forecast is actually PART of the group position for a
+ * week: in scope, and reported (submitted, approved or consolidated).
+ *
+ * Every figure treasury reads — the outlook chart, the country matrix, a day's
+ * breakdown, the consolidated report — is built from this list. A country
+ * still drafting, or one whose forecast has been returned for update, has not
+ * told the group anything yet; including it meant the headline total moved
+ * while a submitter was mid-keystroke, and counted countries the cycle
+ * progress modal listed as outstanding in the same breath.
  */
-function periodRange(periods: number, dayIdx?: number | null): { from: number; to: number } {
-  if (dayIdx === null || dayIdx === undefined || dayIdx < 0 || dayIdx >= periods) {
-    return { from: 0, to: periods };
-  }
-  return { from: dayIdx, to: dayIdx + 1 };
+export function reportedEntities(week: string, onlyEntities?: string[]): Entity[] {
+  const templates = loadTemplates();
+  const overrides = loadApprovals(activeCycleId());
+  return scopedEntities(onlyEntities).filter((e) => {
+    const templateId = templateForEntity(templates, e.name)?.id ?? '';
+    return isReceived(entityStatus(e.name, week, templateId, overrides));
+  });
 }
 
-/** Does a `${catIdx}-${dayIdx}` cell key fall inside a period range? */
-function inRange(cellKey: string, from: number, to: number): boolean {
+/**
+ * The period columns an aggregate sums over: the whole horizon, or just the
+ * ones a cross-filter has selected on the outlook chart.
+ *
+ * Selection is a SET, not a range — ctrl-clicking several columns picks days
+ * that need not be adjacent (three month-ends, say), and a range could not
+ * express that.
+ */
+function selectedPeriods(periods: number, days?: number[] | null): number[] {
+  const valid = (days ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d < periods);
+  if (valid.length === 0) return Array.from({ length: periods }, (_v, i) => i);
+  return [...new Set(valid)].sort((a, b) => a - b);
+}
+
+/** Does a `${catIdx}-${dayIdx}` cell key fall in the selected periods? */
+function inSelection(cellKey: string, selection: Set<number>): boolean {
   const d = Number(cellKey.split('-')[1]);
-  return Number.isFinite(d) && d >= from && d < to;
+  return Number.isFinite(d) && selection.has(d);
+}
+
+/** Sum one entity's category over the selected periods. */
+function categorySum(
+  values: Record<string, number>,
+  catIdx: number,
+  selection: number[],
+): number {
+  let s = 0;
+  for (const d of selection) s += values[`${catIdx}-${d}`] || 0;
+  return s;
 }
 
 /**
@@ -92,8 +130,8 @@ export function cycleProgress(
   overrides: ApprovalMap,
   /** Restrict the rollup to these entities (role scoping / country filter). */
   onlyEntities?: string[],
-  /** Count commentary in this period only (cross-filter); omit for all. */
-  dayIdx?: number | null,
+  /** Count commentary in these periods only (cross-filter); omit for all. */
+  days?: number[] | null,
 ): RegionProgress[] {
   const templates = loadTemplates();
   const order: string[] = [];
@@ -101,20 +139,23 @@ export function cycleProgress(
 
   for (const entity of scopedEntities(onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
-    const status = mergedEntityStatus(entity, week, template?.id ?? '', overrides);
+    const status = entityStatus(entity.name, week, template?.id ?? '', overrides);
     const row: CountryProgress = {
       entity,
       status,
       templateId: template?.id ?? '',
       needCommentary: 0,
-      received: status !== 'pending',
-      approved: status === 'approved',
+      // A forecast returned for update has NOT been received — counting
+      // 'rejected' as received is what let a rejection push the "submissions
+      // received" number up instead of down.
+      received: isReceived(status),
+      approved: status === 'approved' || status === 'consolidated',
     };
     if (template) {
-      const { from, to } = periodRange(periodsOf(template).count, dayIdx);
+      const selection = new Set(selectedPeriods(periodsOf(template).count, days));
       const sub = peekSubmission(entity.name, week, template);
       row.needCommentary = sub.flags.filter(
-        (k) => !sub.comments?.[k]?.trim() && inRange(k, from, to),
+        (k) => !sub.comments?.[k]?.trim() && inSelection(k, selection),
       ).length;
     }
     if (!byRegion.has(entity.region)) {
@@ -124,15 +165,24 @@ export function cycleProgress(
     byRegion.get(entity.region)!.push(row);
   }
 
-  return order.map((name) => {
-    const countries = byRegion.get(name)!;
-    return {
-      name,
-      countries,
-      received: countries.filter((c) => c.received).length,
-      awaiting: countries.filter((c) => c.received && !c.approved).length,
-    };
-  });
+  return order.map((name) => rollUp(name, byRegion.get(name)!));
+}
+
+/**
+ * Region totals derived from the countries actually in the band.
+ *
+ * Always compute them here rather than carrying them alongside a list that
+ * callers then filter: the approvals view narrowed each region to the
+ * countries awaiting a decision but kept the region's original `received`
+ * count, so it rendered "DACH 3 / 2 received" with a progress bar past 100%.
+ */
+function rollUp(name: string, countries: CountryProgress[]): RegionProgress {
+  return {
+    name,
+    countries,
+    received: countries.filter((c) => c.received).length,
+    awaiting: countries.filter((c) => c.received && !c.approved).length,
+  };
 }
 
 /** Flatten a region rollup back to countries (for counting and filtering). */
@@ -146,7 +196,9 @@ export function filterRegions(
   keep: (c: CountryProgress) => boolean,
 ): RegionProgress[] {
   return regions
-    .map((r) => ({ ...r, countries: r.countries.filter(keep) }))
+    // Re-roll the counts against what survived the filter, so a region's
+    // numerator can never exceed the list underneath it.
+    .map((r) => rollUp(r.name, r.countries.filter(keep)))
     .filter((r) => r.countries.length > 0);
 }
 
@@ -162,8 +214,8 @@ export interface AttentionRow {
   /** Flagged cells with no commentary yet. */
   needCommentary: number;
   flagged: number;
-  /** Largest unexplained move, as a percentage. */
-  worstPct: number;
+  /** Largest unexplained move as a percentage, or null when one would mislead. */
+  worstPct: number | null;
   /** Absolute size of that move in EUR thousands — the ranking key. */
   worstAbs: number;
   worstLabel: string;
@@ -182,23 +234,28 @@ export function attentionRows(
   base: Settings,
   /** Restrict the scan to these entities (role scoping / country filter). */
   onlyEntities?: string[],
-  /** Count only cells in this period (cross-filter); omit for the horizon. */
-  dayIdx?: number | null,
+  /** Count only cells in these periods (cross-filter); omit for the horizon. */
+  days?: number[] | null,
 ): AttentionRow[] {
   const templates = loadTemplates();
   const out: AttentionRow[] = [];
+  // Deliberately every entity in scope, submitted or not: a variance has to be
+  // explained BEFORE a forecast can be submitted, so a country still drafting
+  // owes commentary too — and that is usually why its forecast has not
+  // arrived. Restricting this to received forecasts would also put the KPI
+  // permanently at odds with the Comments Review queue it opens onto.
   for (const entity of scopedEntities(onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
     if (!template) continue;
     const settings = settingsForEntity(entity.name, base);
     const sub = peekSubmission(entity.name, week, template);
     const prior = getPriorValues(entity.name, week, template);
-    const { from, to } = periodRange(periodsOf(template).count, dayIdx);
-    const open = sub.flags.filter((k) => !sub.comments?.[k]?.trim() && inRange(k, from, to));
+    const selection = new Set(selectedPeriods(periodsOf(template).count, days));
+    const open = sub.flags.filter((k) => !sub.comments?.[k]?.trim() && inSelection(k, selection));
     if (open.length === 0) continue;
 
     let worstAbs = 0;
-    let worstPct = 0;
+    let worstPct: number | null = null;
     let worstLabel = '';
     let worstCell = open[0];
     for (const key of open) {
@@ -208,7 +265,7 @@ export function attentionRows(
       const abs = Math.abs(current - prev);
       if (abs < worstAbs) continue;
       worstAbs = abs;
-      worstPct = ((current - prev) / Math.max(Math.abs(prev), 1)) * 100;
+      worstPct = pctChange(current, prev);
       worstLabel = `${template.categories[c]?.label ?? `Line ${c + 1}`} · day ${d + 1}`;
       worstCell = key;
     }
@@ -267,18 +324,6 @@ export interface ConsolidatedReport {
   omitted: { label: string; entities: string[]; total: number }[];
 }
 
-/** Sum one entity's category over a range of periods. */
-function categoryTotal(
-  values: Record<string, number>,
-  catIdx: number,
-  from: number,
-  to: number,
-): number {
-  let s = 0;
-  for (let d = from; d < to; d++) s += values[`${catIdx}-${d}`] || 0;
-  return s;
-}
-
 /**
  * The consolidated forecast, as the modal renders it: three summary lines
  * (inflows, outflows, net), then every line item — each carrying the
@@ -290,28 +335,29 @@ export function consolidatedReport(
   display: ForecastTemplate,
   /** Restrict the consolidation to these entities (country filter). */
   onlyEntities?: string[],
-  /** Sum a single period rather than the whole horizon (cross-filter). */
-  dayIdx?: number | null,
+  /** Sum only these periods rather than the whole horizon (cross-filter). */
+  days?: number[] | null,
 ): ConsolidatedReport {
   const templates = loadTemplates();
   const periods = periodsOf(display).count;
-  const { from, to } = periodRange(periods, dayIdx);
+  const selection = selectedPeriods(periods, days);
   const numCats = display.categories.length;
   const current = consolidatedValues(week, display, onlyEntities);
   const prior = consolidatedValues(priorWeek, display, onlyEntities);
 
-  const pct = (cur: number, prev: number): number | null =>
-    prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100;
+  const pct = pctChange;
 
-  // Per-entity totals, so every line can be broken down by country.
-  const perEntity = scopedEntities(onlyEntities).map((e) => {
+  // Per-entity totals, so every line can be broken down by country. Same
+  // population as `consolidatedValues` above, or the shares would not add up
+  // to the line they are shares of.
+  const perEntity = reportedEntities(week, onlyEntities).map((e) => {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
     const cats = template.categories.length;
     let inflows = 0;
     let outflows = 0;
     let net = 0;
-    for (let d = from; d < to; d++) {
+    for (const d of selection) {
       inflows += dayInflows(cats, sub.values, d);
       outflows += dayOutflows(cats, sub.values, d);
       net += dayNet(cats, sub.values, d);
@@ -322,7 +368,7 @@ export function consolidatedReport(
     template.categories.forEach((cat, catIdx) => {
       if (cat.subtotal) return;
       const key = cat.label.trim().toLowerCase();
-      byLabel.set(key, (byLabel.get(key) ?? 0) + categoryTotal(sub.values, catIdx, from, to));
+      byLabel.set(key, (byLabel.get(key) ?? 0) + categorySum(sub.values, catIdx, selection));
     });
     return { entity: e.name, inflows, outflows, net, byLabel };
   });
@@ -338,7 +384,7 @@ export function consolidatedReport(
     fn: (cats: number, v: Record<string, number>, d: number) => number,
   ): number => {
     let s = 0;
-    for (let d = from; d < to; d++) s += fn(numCats, values, d);
+    for (const d of selection) s += fn(numCats, values, d);
     return s;
   };
 
@@ -373,8 +419,8 @@ export function consolidatedReport(
     .filter((cat) => !cat.subtotal)
     .map((cat) => {
       const catIdx = display.categories.indexOf(cat);
-      const total = categoryTotal(current.values, catIdx, from, to);
-      const prev = categoryTotal(prior.values, catIdx, from, to);
+      const total = categorySum(current.values, catIdx, selection);
+      const prev = categorySum(prior.values, catIdx, selection);
       const key = cat.label.trim().toLowerCase();
       return {
         label: cat.label,
@@ -439,7 +485,7 @@ export function dayContributions(
 ): DayContribution[] {
   const templates = loadTemplates();
   const out: DayContribution[] = [];
-  for (const entity of scopedEntities(onlyEntities)) {
+  for (const entity of reportedEntities(week, onlyEntities)) {
     const template = templateForEntity(templates, entity.name);
     if (!template) continue;
     const settings = settingsForEntity(entity.name, base);
@@ -483,10 +529,7 @@ export function dayContributions(
       net,
       priorNet,
       varianceAbs: priorNet === null ? Math.abs(net) : Math.abs(net - priorNet),
-      variancePct:
-        priorNet === null || priorNet === 0
-          ? null
-          : ((net - priorNet) / Math.abs(priorNet)) * 100,
+      variancePct: priorNet === null ? null : pctChange(net, priorNet),
       lines,
     });
   }
@@ -529,12 +572,15 @@ export function categoryCountryMatrix(
   week: string,
   display: ForecastTemplate,
   onlyEntities?: string[],
-  dayIdx?: number | null,
+  days?: number[] | null,
 ): CategoryCountryMatrix {
   const templates = loadTemplates();
   const periods = periodsOf(display).count;
-  const { from, to } = periodRange(periods, dayIdx);
-  const entities = scopedEntities(onlyEntities);
+  const selection = selectedPeriods(periods, days);
+  // Only reported forecasts: a country column of numbers nobody has submitted
+  // is a column of guesses, and it made the matrix disagree with the cycle
+  // progress modal sitting one click away.
+  const entities = reportedEntities(week, onlyEntities);
   const countries = entities.map((e) => e.name);
 
   // Line items are matched by LABEL, exactly like `consolidatedValues`, so an
@@ -547,7 +593,7 @@ export function categoryCountryMatrix(
     template.categories.forEach((cat, catIdx) => {
       if (cat.subtotal) return;
       const key = cat.label.trim().toLowerCase();
-      byLabel.set(key, (byLabel.get(key) ?? 0) + categoryTotal(sub.values, catIdx, from, to));
+      byLabel.set(key, (byLabel.get(key) ?? 0) + categorySum(sub.values, catIdx, selection));
     });
     perCountry.set(e.name, byLabel);
   }
@@ -576,4 +622,27 @@ export function categoryCountryMatrix(
     countryTotals,
     grandTotal: Object.values(countryTotals).reduce((a, b) => a + b, 0),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cycles, wired to the live submission data.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a cycle contains, resolved against the real entities and templates.
+ *
+ * `cycleService` deliberately stays free of the entity layer, so this is where
+ * the two meet — and it is the only place the Forecast Cycles screen, the
+ * close-cycle dialog and the exports read their counts from, so they cannot
+ * disagree about how many forecasts a cycle collected.
+ */
+export function cycleOverview(cycle: Cycle): CycleSummary {
+  const templates = loadTemplates();
+  const overrides = loadApprovals(cycle.id);
+  return cycleSummary(
+    cycle,
+    listEntities(),
+    (entity) => templateForEntity(templates, entity),
+    (entity, week, templateId) => entityStatus(entity, week, templateId, overrides),
+  );
 }

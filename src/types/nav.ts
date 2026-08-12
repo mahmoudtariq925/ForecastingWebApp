@@ -8,8 +8,6 @@ export type ViewId =
   | 'analystHome'
   | 'cycles'
   | 'submission'
-  | 'approvals'
-  | 'comparison'
   | 'review'
   | 'templates'
   | 'legalEntities'
@@ -39,12 +37,16 @@ export function navFor(p: Permissions): NavSections {
     // The consolidated position and forecast-vs-forecast are no longer
     // screens: both are read from the dashboard's outlook chart, one click
     // from the number that raised the question.
+    //
+    // Neither is Approvals. Approving is the country approver's job; treasury
+    // opens a forecast and asks about a number, which is what Comments Review
+    // and the per-cell comment request are for. The queue treasury used to
+    // have offered a decision on forecasts nobody had submitted.
     return {
       workspace: [
         { view: 'dashboard', label: 'Dashboard' },
         { view: 'cycles', label: 'Forecast Cycles' },
         { view: 'submission', label: 'Submissions' },
-        { view: 'approvals', label: 'Approvals' },
       ],
       admin: [
         { view: 'review', label: 'Comments Review' },
@@ -71,10 +73,9 @@ export function navFor(p: Permissions): NavSections {
   ];
   // Approvers decide straight from their dashboard checklist (approve /
   // review per country) — a separate Approvals screen was one page too many.
-  // Submitters and approvers need to see this week against last week for the
-  // entities they own — the same question Treasury asks, scoped to them.
-  if (p.canSubmitForecasts || p.canApproveForecasts)
-    workspace.push({ view: 'comparison', label: 'Comparisons' });
+  // Forecast-vs-forecast is not a screen either: the variances that need
+  // explaining arrive as comments, and the numbers behind them are on the
+  // forecast itself.
   workspace.push({ view: 'review', label: 'Comments / Feedback' });
   return { workspace, admin: [] };
 }

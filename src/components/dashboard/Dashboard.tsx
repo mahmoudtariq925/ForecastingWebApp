@@ -1,8 +1,6 @@
 import { CyclePill, TopBar } from '../layout/TopBar';
 import { TreasuryOverview } from './TreasuryOverview';
-import { listCycles } from '../../data/appData';
-import { currentWeekKey } from '../../data/periods';
-import { loadCycles } from '../../storage/localStorage';
+import { activeCycle } from '../../data/cycleService';
 import type { SubmissionTarget } from '../submissions/Submission';
 import type { ModalId } from '../../types/nav';
 
@@ -22,9 +20,9 @@ interface DashboardProps {
  * countries. What is left here is the cycle chrome around it.
  */
 export function Dashboard({ onOpenModal, onOpenSubmission }: DashboardProps) {
-  const week = currentWeekKey();
-  const cycles = loadCycles(listCycles());
-  const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
+  // One definition of "the cycle we are in", and the week it collects comes
+  // from the cycle itself rather than being picked independently.
+  const cycle = activeCycle();
 
   return (
     <div className="view active">
@@ -33,7 +31,7 @@ export function Dashboard({ onOpenModal, onOpenSubmission }: DashboardProps) {
         title="Treasury Dashboard"
         actions={
           <>
-            <CyclePill label="Active Cycle" value={activeCycle?.id ?? '—'} />
+            <CyclePill label="Active Cycle" value={cycle.id} />
             <button className="btn btn-ghost" onClick={() => onOpenModal('export')}>
               Export
             </button>
@@ -45,9 +43,9 @@ export function Dashboard({ onOpenModal, onOpenSubmission }: DashboardProps) {
       />
       <div className="content content-compact">
         <TreasuryOverview
-          week={week}
-          cycleId={activeCycle?.id ?? 'CW-2026-21'}
-          cycleCloses={activeCycle?.closes}
+          week={cycle.weekKey}
+          cycleId={cycle.id}
+          cycleCloses={cycle.closes}
           onOpenSubmission={onOpenSubmission}
         />
       </div>

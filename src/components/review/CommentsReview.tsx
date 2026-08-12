@@ -11,6 +11,7 @@ import {
   type ReviewItem,
 } from '../../data/submissionService';
 import { weekLabel, weekLabelShort } from '../../data/periods';
+import { activeWeekKey } from '../../data/cycleService';
 import { seedUsers } from '../../data/appData';
 import { currentUser } from '../../data/session';
 import { listEntities } from '../../data/appData';
@@ -50,7 +51,7 @@ function ItemStatePill({ item }: { item: ReviewItem }) {
   // An open question outranks everything else: someone is waiting on a reply.
   if (item.request) return <StatusPill status="rejected" label="awaiting reply" />;
   if (item.resolved) return <StatusPill status="approved" label="resolved" />;
-  if (!item.comment) return <StatusPill status="pending" label="needs commentary" />;
+  if (!item.comment) return <StatusPill status="draft" label="needs commentary" />;
   return <StatusPill status="submitted" label="awaiting review" />;
 }
 
@@ -80,18 +81,37 @@ export function CommentsReview({
 
   const [search, setSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState(ALL);
-  const [periodFilter, setPeriodFilter] = useState(ALL);
+  /**
+   * Opens on the active cycle rather than on every week ever stored. Closed
+   * cycles keep their commentary and are one dropdown away, but the question
+   * on this screen is "what is holding up the cycle we are in".
+   */
+  const [periodFilter, setPeriodFilter] = useState(() => activeWeekKey());
   const [statusFilter, setStatusFilter] = useState(ALL);
   const [submitterFilter, setSubmitterFilter] = useState(ALL);
   const [stateFilter, setStateFilter] = useState<StateFilter>('unresolved');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
 
-  // ---- Global summary (independent of filters) ----
-  const totalUnresolved = groups.reduce((s, g) => s + g.unresolved, 0);
-  const blockedForecasts = groups.filter((g) => g.unresolved > 0).length;
-  const totalNeedCommentary = groups.reduce((s, g) => s + g.needsCommentary, 0);
-  const totalResolved = groups.reduce(
+  /**
+   * The summary counts the forecasts currently IN SCOPE, not every forecast
+   * ever stored. With several closed cycles behind the open one, a total over
+   * all history answered a question nobody was asking and buried the one they
+   * were: how much is outstanding in the cycle on screen.
+   */
+  const inScope = useMemo(
+    () =>
+      groups.filter(
+        (g) =>
+          (periodFilter === ALL || g.period === periodFilter) &&
+          (entityFilter === ALL || g.entity === entityFilter),
+      ),
+    [groups, periodFilter, entityFilter],
+  );
+  const totalUnresolved = inScope.reduce((s, g) => s + g.unresolved, 0);
+  const blockedForecasts = inScope.filter((g) => g.unresolved > 0).length;
+  const totalNeedCommentary = inScope.reduce((s, g) => s + g.needsCommentary, 0);
+  const totalResolved = inScope.reduce(
     (s, g) => s + g.items.filter((i) => i.resolved).length,
     0,
   );

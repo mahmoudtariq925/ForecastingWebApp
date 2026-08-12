@@ -1,6 +1,6 @@
-import { Fragment } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { heatColor, heatScaleFrom } from '../submissions/heatmap';
-import type { CategoryCountryMatrix } from '../../data/dashboardService';
+import type { CategoryCountryMatrix, MatrixRow } from '../../data/dashboardService';
 
 interface CountryMatrixProps {
   matrix: CategoryCountryMatrix;
@@ -8,15 +8,46 @@ interface CountryMatrixProps {
 
 const fmt = (v: number) => (Math.round(v) === 0 ? '—' : Math.round(v).toLocaleString());
 
+/** A banded group of line items, with the section total that stands in for it. */
+interface Section {
+  /** Undefined for line items the template does not group (CAPEX, Other). */
+  group?: string;
+  rows: MatrixRow[];
+  /** Section total per country, used when the band is folded away. */
+  byCountry: Record<string, number>;
+  total: number;
+}
+
+/** Group consecutive rows into their template sections, summing each band. */
+function toSections(rows: MatrixRow[], countries: string[]): Section[] {
+  const out: Section[] = [];
+  for (const row of rows) {
+    const last = out[out.length - 1];
+    if (!last || last.group !== row.group) {
+      out.push({ group: row.group, rows: [row], byCountry: { ...row.byCountry }, total: row.total });
+      continue;
+    }
+    last.rows.push(row);
+    last.total += row.total;
+    for (const c of countries) last.byCountry[c] = (last.byCountry[c] ?? 0) + (row.byCountry[c] ?? 0);
+  }
+  return out;
+}
+
 /**
- * The four-week outlook read the other way round: line items down the rows,
- * countries across the columns.
+ * The outlook read the other way round: line items down the rows, countries
+ * across the columns.
  *
  * The chart answers "when does the money move"; this answers "who and what",
  * which is the question you have the moment the chart shows you something
- * unexpected. Both are built from the same aggregation, so the row totals
- * here add up to the columns there — and both follow the country selector and
- * the period a click on the chart has filtered to.
+ * unexpected. Both are built from the same aggregation, so the row totals here
+ * add up to the columns there — and both follow the country selector and the
+ * periods a click on the chart has filtered to.
+ *
+ * Sections open FOLDED, showing one total per band. Twelve line items across
+ * eleven countries is a wall of 130 numbers before you have asked anything;
+ * starting at section level means the first thing you read is where the money
+ * is, and you open the band that looks wrong.
  *
  * Conditional formatting is per ROW, like the forecast grid: a line item is
  * shaded against the same line item elsewhere, so the colour says "which
@@ -25,6 +56,17 @@ const fmt = (v: number) => (Math.round(v) === 0 ? '—' : Math.round(v).toLocale
  */
 export function CountryMatrix({ matrix }: CountryMatrixProps) {
   const { countries, rows, countryTotals, grandTotal } = matrix;
+  const sections = useMemo(() => toSections(rows, countries), [rows, countries]);
+  // Collapsed by default: the set holds the bands that have been opened.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  const toggle = (group: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
 
   if (countries.length === 0) {
     return (
@@ -34,6 +76,23 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
       </div>
     );
   }
+
+  const cells = (byCountry: Record<string, number>, extraClass = '') => {
+    const scale = heatScaleFrom(countries.map((c) => byCountry[c] ?? 0));
+    return countries.map((c) => {
+      const v = byCountry[c] ?? 0;
+      const background = heatColor(v, scale);
+      return (
+        <td
+          key={c}
+          className={`num${extraClass}`}
+          style={background ? { background } : undefined}
+        >
+          {fmt(v)}
+        </td>
+      );
+    });
+  };
 
   return (
     <div className="matrix-wrap">
@@ -50,30 +109,58 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => {
-            // Each row carries its own scale, fixed at a midpoint of zero.
-            const scale = heatScaleFrom(countries.map((c) => row.byCountry[c] ?? 0));
-            const newSection = row.group && row.group !== rows[i - 1]?.group;
+          {sections.map((section, i) => {
+            // Ungrouped line items have no band to fold; show them as they are.
+            if (!section.group) {
+              return (
+                <Fragment key={`plain-${i}`}>
+                  {section.rows.map((row) => (
+                    <tr key={row.label}>
+                      <td className="matrix-row-label">{row.label}</td>
+                      {cells(row.byCountry)}
+                      <td className="num matrix-total">{fmt(row.total)}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            }
+            const isOpen = open.has(section.group);
             return (
-              <Fragment key={i}>
-                {newSection && (
-                  <tr className="matrix-section">
-                    <td colSpan={countries.length + 2}>{row.group}</td>
+              <Fragment key={section.group}>
+                <tr className="matrix-section">
+                  <td colSpan={countries.length + 2}>
+                    <button
+                      type="button"
+                      className="matrix-section-toggle"
+                      aria-expanded={isOpen}
+                      onClick={() => toggle(section.group!)}
+                      title={isOpen ? 'Fold this section back to its total' : 'Show the line items'}
+                    >
+                      <span className="section-caret" aria-hidden="true">
+                        {isOpen ? '▾' : '▸'}
+                      </span>
+                      {section.group}
+                      <span className="matrix-section-count">
+                        {section.rows.length} line{section.rows.length === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+                {isOpen ? (
+                  section.rows.map((row) => (
+                    <tr key={row.label}>
+                      <td className="matrix-row-label indent">{row.label}</td>
+                      {cells(row.byCountry)}
+                      <td className="num matrix-total">{fmt(row.total)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr className="matrix-section-total">
+                    <td className="matrix-row-label">{section.group} total</td>
+                    {cells(section.byCountry, ' matrix-total')}
+                    <td className="num matrix-total">{fmt(section.total)}</td>
                   </tr>
                 )}
-                <tr>
-                  <td className="matrix-row-label">{row.label}</td>
-                  {countries.map((c) => {
-                    const v = row.byCountry[c] ?? 0;
-                    const background = heatColor(v, scale);
-                    return (
-                      <td key={c} className="num" style={background ? { background } : undefined}>
-                        {fmt(v)}
-                      </td>
-                    );
-                  })}
-                  <td className="num matrix-total">{fmt(row.total)}</td>
-                </tr>
               </Fragment>
             );
           })}

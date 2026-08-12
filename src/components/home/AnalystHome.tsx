@@ -5,13 +5,15 @@ import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { TreasuryOverview } from '../dashboard/TreasuryOverview';
-import { listCycles, listEntities } from '../../data/appData';
+import { listEntities } from '../../data/appData';
+import { activeCycle } from '../../data/cycleService';
+import { useDataVersion } from '../../data/useDataVersion';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
-import { currentWeekKey, weekLabel, weekLabelShort } from '../../data/periods';
+import { weekLabel, weekLabelShort } from '../../data/periods';
 import {
   applyApprovalDecision,
+  entityStatus,
   isHandedOver,
-  mergedEntityStatus,
   peekSubmission,
   pendingApprovalCount,
   submissionGaps,
@@ -24,7 +26,7 @@ import {
   type StepState,
   type TodoStep,
 } from '../../data/todoService';
-import { loadApprovals, loadCycles, loadTemplates } from '../../storage/localStorage';
+import { loadApprovals, loadTemplates } from '../../storage/localStorage';
 import type { SubmissionStatus, User } from '../../types';
 import type { ViewId } from '../../types/nav';
 import type { SubmissionTarget } from '../submissions/Submission';
@@ -241,14 +243,16 @@ function EntityListModal({
  * what a forecast is judged against.
  */
 export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeProps) {
-  const week = currentWeekKey();
-  const cycles = loadCycles(listCycles());
-  const activeCycle = cycles.find((c) => c.status === 'submitted') ?? cycles[0];
+  // The cycle decides the week, so the checklist can never be counting a
+  // different period from the one named in the header above it.
+  const cycle = activeCycle();
+  const week = cycle.weekKey;
   const permissions = permissionsFor(user);
   const isApprover = permissions.canApproveForecasts;
   const { notify } = useDialog();
-  // Bumped after a submit / approval from this screen so everything re-reads.
-  const [version, setVersion] = useState(0);
+  // Every write to storage re-reads this screen, so the checklist and the
+  // overview panel beneath it can never disagree about what has been decided.
+  const version = useDataVersion();
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [countriesOpen, setCountriesOpen] = useState(true);
   /** The checklist's country list — what "My Forecasts" used to be. */
@@ -261,12 +265,12 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     const pending = isApprover
       ? pendingApprovalCount(
           week,
-          loadApprovals(activeCycle?.id ?? ''),
+          loadApprovals(cycle.id),
           assignedEntitiesFor(user),
         )
       : 0;
-    return analystTodo(user, week, activeCycle, pending);
-  }, [user, week, activeCycle, isApprover, version]);
+    return analystTodo(user, week, cycle, pending);
+  }, [user, week, cycle, isApprover, version]);
 
   const scopedEntities = useMemo(() => assignedEntitiesFor(user), [user]);
 
@@ -276,15 +280,19 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     if (!isApprover) return [];
     void version;
     const templates = loadTemplates();
-    const overrides = loadApprovals(activeCycle?.id ?? '');
+    const overrides = loadApprovals(cycle.id);
     return listEntities()
       .filter((e) => scopedEntities.includes(e.name))
       .map((e) => {
         const templateId = templateForEntity(templates, e.name)?.id ?? '';
-        return { entity: e.name, templateId, status: mergedEntityStatus(e, week, templateId, overrides) };
+        return {
+          entity: e.name,
+          templateId,
+          status: entityStatus(e.name, week, templateId, overrides),
+        };
       });
-  }, [isApprover, scopedEntities, week, activeCycle, version]);
-  const awaitingDecision = (s: SubmissionStatus) => s === 'submitted' || s === 'pending';
+  }, [isApprover, scopedEntities, week, cycle, version]);
+  const awaitingDecision = (s: SubmissionStatus) => s === 'submitted';
   const waitingCount = approverRows.filter((r) => awaitingDecision(r.status)).length;
 
   const work = todo.entities;
@@ -310,7 +318,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
     applyApprovalDecision(week, entity, templateId, 'approved');
     setPreview(null);
-    setVersion((n) => n + 1);
+    // storage writes refresh this screen on their own — see useDataVersion.
     await notify({ tone: 'success', message: `${entity} forecast approved for ${weekLabel(week)}.` });
   };
 
@@ -319,7 +327,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
     applyApprovalDecision(week, entity, templateId, 'rejected');
     setPreview(null);
-    setVersion((n) => n + 1);
+    // storage writes refresh this screen on their own — see useDataVersion.
     await notify({
       message: `${entity} forecast returned to its submitter for update.`,
     });
@@ -338,7 +346,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     }
     submitStoredForecast(week, entity, template.id);
     setPreview(null);
-    setVersion((n) => n + 1);
+    // storage writes refresh this screen on their own — see useDataVersion.
     await notify({ tone: 'success', message: `${entity} forecast submitted for approval.` });
   };
 
@@ -456,7 +464,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         title={`Welcome, ${firstName}`}
         actions={
           <span data-tour="analyst-cycle">
-            <CyclePill label="Active cycle" value={activeCycle?.id ?? '—'} />
+            <CyclePill label="Active cycle" value={cycle.id} />
           </span>
         }
       />
@@ -558,8 +566,8 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
             </div>
             <TreasuryOverview
               week={week}
-              cycleId={activeCycle?.id ?? ''}
-              cycleCloses={activeCycle?.closes}
+              cycleId={cycle.id}
+              cycleCloses={cycle.closes}
               scopeEntities={scopedEntities}
               onOpenSubmission={onOpenSubmission}
             />
@@ -572,7 +580,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
       <EntityListModal
         open={entityList}
         title={canEditForecasts ? 'Forecasts to submit' : 'Your forecasts'}
-        subtitle={`${weekLabel(week)} · ${activeCycle?.id ?? '—'}`}
+        subtitle={`${weekLabel(week)} · ${cycle.id}`}
         rows={work}
         canEdit={canEditForecasts}
         onClose={() => setEntityList(false)}

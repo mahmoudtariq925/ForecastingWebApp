@@ -4,8 +4,6 @@
 // screen components.
 // ============================================================================
 import type {
-  Cycle,
-  Entity,
   ForecastTemplate,
   LegalEntity,
   LineItemConfig,
@@ -14,18 +12,33 @@ import type {
 } from '../types';
 import { horizonDates } from './periods';
 
-export const entities: Entity[] = [
-  { name: 'Netherlands', region: 'Western Europe', submitter: 'Jan de Vries', approver: 'Pieter Bakker', total: 24350, delta: 2.1, status: 'approved' },
-  { name: 'Germany', region: 'DACH', submitter: 'Anna Müller', approver: 'Klaus Weber', total: 31200, delta: -1.4, status: 'submitted' },
-  { name: 'France', region: 'Western Europe', submitter: 'Marie Dubois', approver: 'Pierre Martin', total: 18900, delta: 4.7, status: 'pending' },
-  { name: 'United Kingdom', region: 'UK & Ireland', submitter: 'James Patel', approver: "Sarah O'Brien", total: 22100, delta: 0.3, status: 'approved' },
-  { name: 'Spain', region: 'Southern Europe', submitter: 'Carlos Ruiz', approver: 'Elena García', total: 12400, delta: -2.8, status: 'submitted' },
-  { name: 'Italy', region: 'Southern Europe', submitter: 'Marco Rossi', approver: 'Giulia Conti', total: 9200, delta: 1.1, status: 'approved' },
-  { name: 'Poland', region: 'Central Europe', submitter: 'Tomasz Nowak', approver: 'Anna Wójcik', total: 7600, delta: -0.9, status: 'pending' },
-  { name: 'Belgium', region: 'Western Europe', submitter: 'Sophie Janssens', approver: 'Luc De Smet', total: 6450, delta: 3.2, status: 'approved' },
-  { name: 'Switzerland', region: 'DACH', submitter: 'Hans Müller', approver: 'Beat Wyss', total: 4200, delta: 0.0, status: 'submitted' },
-  { name: 'Austria', region: 'DACH', submitter: 'Lukas Huber', approver: 'Maria Gruber', total: 2800, delta: 1.8, status: 'approved' },
-  { name: 'Portugal', region: 'Southern Europe', submitter: 'João Silva', approver: 'Ana Costa', total: 1900, delta: -3.4, status: 'pending' },
+/**
+ * The demo countries: identity and reporting structure only.
+ *
+ * Deliberately no submitter, approver, total or status. Those used to live
+ * here as a second, frozen copy of information the app already holds, which is
+ * how the Approvals screen came to show €31,200k for a forecast the dashboard
+ * totalled at €11,988k, and how forecasts were shown as submitted by people
+ * who did not exist in User Management. Names now come from Legal Entity
+ * Setup, figures and status from the stored submission.
+ */
+export interface DemoCountry {
+  name: string;
+  region: string;
+}
+
+export const demoCountries: DemoCountry[] = [
+  { name: 'Netherlands', region: 'Western Europe' },
+  { name: 'Germany', region: 'DACH' },
+  { name: 'France', region: 'Western Europe' },
+  { name: 'United Kingdom', region: 'UK & Ireland' },
+  { name: 'Spain', region: 'Southern Europe' },
+  { name: 'Italy', region: 'Southern Europe' },
+  { name: 'Poland', region: 'Central Europe' },
+  { name: 'Belgium', region: 'Western Europe' },
+  { name: 'Switzerland', region: 'DACH' },
+  { name: 'Austria', region: 'DACH' },
+  { name: 'Portugal', region: 'Southern Europe' },
 ];
 
 /** Reporting currency per country (used by the legal-entity seed). */
@@ -36,9 +49,12 @@ const CURRENCIES: Record<string, string> = {
 };
 
 /**
- * Seeded entity responsibilities, keyed by entity name. Only users that
- * exist in `users` with the matching global role are seeded; every other
- * entity starts unassigned and is configured in Legal Entity Setup.
+ * Seeded entity responsibilities, keyed by entity name.
+ *
+ * EVERY entity is assigned, and every email here exists in `users` below with
+ * the matching global role — the two lists are asserted against each other by
+ * `buildLegalEntities`, so a name can never appear on a forecast without a
+ * corresponding account in User Management.
  */
 const SEED_ASSIGNMENTS: Record<
   string,
@@ -54,8 +70,44 @@ const SEED_ASSIGNMENTS: Record<
     approvers: ['klaus.weber@contoso.com', 'omar.haddad@contoso.com'],
     viewers: ['tom.whitfield@contoso.com', 'priya.raman@contoso.com'],
   },
-  'United Kingdom': { approvers: ['sarah.obrien@contoso.com'] },
-  Switzerland: { approvers: ['klaus.weber@contoso.com'] },
+  France: {
+    submitters: ['marie.dubois@contoso.com'],
+    approvers: ['pierre.martin@contoso.com'],
+  },
+  'United Kingdom': {
+    submitters: ['james.patel@contoso.com'],
+    approvers: ['sarah.obrien@contoso.com'],
+  },
+  Spain: {
+    submitters: ['carlos.ruiz@contoso.com'],
+    approvers: ['elena.garcia@contoso.com'],
+  },
+  Italy: {
+    submitters: ['marco.rossi@contoso.com'],
+    approvers: ['giulia.conti@contoso.com'],
+  },
+  Poland: {
+    submitters: ['tomasz.nowak@contoso.com'],
+    approvers: ['anna.wojcik@contoso.com'],
+  },
+  Belgium: {
+    submitters: ['sophie.janssens@contoso.com'],
+    // Pieter also approves Belgium, so the approver demo account lands with a
+    // real decision waiting while its own country's forecast is still a draft.
+    approvers: ['luc.desmet@contoso.com', 'pieter.bakker@contoso.com'],
+  },
+  Switzerland: {
+    submitters: ['hans.mueller@contoso.com'],
+    approvers: ['klaus.weber@contoso.com'],
+  },
+  Austria: {
+    submitters: ['lukas.huber@contoso.com'],
+    approvers: ['maria.gruber@contoso.com'],
+  },
+  Portugal: {
+    submitters: ['joao.silva@contoso.com'],
+    approvers: ['ana.costa@contoso.com'],
+  },
 };
 
 /**
@@ -64,7 +116,7 @@ const SEED_ASSIGNMENTS: Record<
  * responsibilities and the per-entity forecast template.
  */
 export function buildLegalEntities(): LegalEntity[] {
-  return entities.map((e) => {
+  return demoCountries.map((e) => {
     const seeded = SEED_ASSIGNMENTS[e.name] ?? {};
     return {
       id: `le-${e.name.toLowerCase().replace(/\s+/g, '-')}`,
@@ -81,27 +133,45 @@ export function buildLegalEntities(): LegalEntity[] {
   });
 }
 
-export const cycles: Cycle[] = [
-  { id: 'CW-2026-21', start: 'May 18', closes: 'May 22 · 18:00', status: 'submitted', subs: '14 / 18', total: 184.2 },
-  { id: 'CW-2026-20', start: 'May 11', closes: 'May 15 · 18:00', status: 'consolidated', subs: '18 / 18', total: 178.4 },
-  { id: 'CW-2026-19', start: 'May 04', closes: 'May 08 · 18:00', status: 'consolidated', subs: '18 / 18', total: 181.0 },
-  { id: 'CW-2026-18', start: 'Apr 27', closes: 'May 01 · 18:00', status: 'consolidated', subs: '17 / 17', total: 175.8 },
-  { id: 'CW-2026-17', start: 'Apr 20', closes: 'Apr 24 · 18:00', status: 'consolidated', subs: '17 / 17', total: 172.1 },
-];
-
 /**
  * Managed users: identity + GLOBAL role only. Which entities they are
  * responsible for is configured in Legal Entity Setup (see `legalEntities`
  * below) and derived from there wherever it is displayed.
+ *
+ * Every submitter and approver named in `SEED_ASSIGNMENTS` has an account
+ * here. They used to be free text on the entity list, so the Approvals queue
+ * and the cycle-progress modal credited forecasts to a dozen people User
+ * Management had never heard of.
  */
 export const users: User[] = [
   { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Now' },
-  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: '2h ago' },
-  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', status: 'active', last: '1h ago' },
-  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', status: 'active', last: '4h ago' },
-  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: '3h ago' },
-  { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', status: 'active', last: 'Yesterday' },
   { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: '20m ago' },
+
+  // Country submitters, one per entity.
+  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: '2h ago' },
+  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', status: 'active', last: '4h ago' },
+  { name: 'Marie Dubois', email: 'marie.dubois@contoso.com', team: 'FR Commercial', role: 'submitter', status: 'active', last: '3h ago' },
+  { name: 'James Patel', email: 'james.patel@contoso.com', team: 'UK Services', role: 'submitter', status: 'active', last: '6h ago' },
+  { name: 'Carlos Ruiz', email: 'carlos.ruiz@contoso.com', team: 'ES Operations', role: 'submitter', status: 'active', last: '11h ago' },
+  { name: 'Marco Rossi', email: 'marco.rossi@contoso.com', team: 'IT Operations', role: 'submitter', status: 'active', last: '9h ago' },
+  { name: 'Tomasz Nowak', email: 'tomasz.nowak@contoso.com', team: 'PL Shared Services', role: 'submitter', status: 'active', last: '12h ago' },
+  { name: 'Sophie Janssens', email: 'sophie.janssens@contoso.com', team: 'BE Operations', role: 'submitter', status: 'active', last: '5h ago' },
+  { name: 'Hans Müller', email: 'hans.mueller@contoso.com', team: 'CH Treasury', role: 'submitter', status: 'active', last: '7h ago' },
+  { name: 'Lukas Huber', email: 'lukas.huber@contoso.com', team: 'AT Operations', role: 'submitter', status: 'active', last: '8h ago' },
+  { name: 'João Silva', email: 'joao.silva@contoso.com', team: 'PT Operations', role: 'submitter', status: 'active', last: '12h ago' },
+
+  // Country approvers.
+  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', status: 'active', last: '1h ago' },
+  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: '3h ago' },
+  { name: 'Pierre Martin', email: 'pierre.martin@contoso.com', team: 'FR Commercial', role: 'approver', status: 'active', last: '2h ago' },
+  { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', status: 'active', last: 'Yesterday' },
+  { name: 'Elena García', email: 'elena.garcia@contoso.com', team: 'ES Operations', role: 'approver', status: 'active', last: '10h ago' },
+  { name: 'Giulia Conti', email: 'giulia.conti@contoso.com', team: 'IT Operations', role: 'approver', status: 'active', last: '8h ago' },
+  { name: 'Anna Wójcik', email: 'anna.wojcik@contoso.com', team: 'PL Shared Services', role: 'approver', status: 'active', last: '1d ago' },
+  { name: 'Luc De Smet', email: 'luc.desmet@contoso.com', team: 'BE Operations', role: 'approver', status: 'active', last: '4h ago' },
+  { name: 'Maria Gruber', email: 'maria.gruber@contoso.com', team: 'AT Operations', role: 'approver', status: 'active', last: '6h ago' },
+  { name: 'Ana Costa', email: 'ana.costa@contoso.com', team: 'PT Operations', role: 'approver', status: 'active', last: '1d ago' },
+
   { name: 'Tom Whitfield', email: 'tom.whitfield@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: '1d ago' },
   { name: 'Sofia Almeida', email: 'sofia.almeida@contoso.com', team: 'Group Finance', role: 'viewer', status: 'inactive', last: '3w ago' },
 
@@ -147,7 +217,7 @@ export function buildStandardTemplate(): ForecastTemplate {
     fileName: 'CF_Forecast_Template.xlsx',
     uploadedAt: '2026-07-01T09:00:00.000Z',
     uploadedBy: 'Maja Kowalska',
-    assignedEntities: entities.map((e) => e.name),
+    assignedEntities: demoCountries.map((e) => e.name),
     layout: 'grouped',
     categories: standardCategories,
   };

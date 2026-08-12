@@ -5,6 +5,10 @@
 // exactly like the standard CF_Forecast_Template workbook.
 // ============================================================================
 
+import type { Settings } from '../types';
+import { DEFAULT_SETTINGS } from '../components/settings/defaults';
+import { loadSettings } from '../storage/localStorage';
+
 export interface DayLabel {
   dm: string;
   dow: string;
@@ -13,9 +17,46 @@ export interface DayLabel {
   iso: string;
 }
 
-export const HORIZON_WEEKS = 4;
 export const WORKDAYS_PER_WEEK = 5;
-export const HORIZON_DAYS = HORIZON_WEEKS * WORKDAYS_PER_WEEK;
+/** The horizon used when no setting has been chosen: four working weeks. */
+export const DEFAULT_HORIZON_DAYS = 20;
+
+/**
+ * Forecast horizon in WORKING DAYS, from the Settings screen.
+ *
+ * The Cycle Configuration panel used to be inert — the horizon and frequency
+ * persisted and changed nothing anywhere, so it read as a set of rules the
+ * app obeyed when in fact no screen consulted it. Both options now drive real
+ * behaviour: this decides how many columns a forecast has, and `cadenceWeeks`
+ * below decides how far apart cycles sit.
+ */
+const HORIZON_WORKING_DAYS: Record<string, number> = {
+  '30 days': 20, // four working weeks — the classic template horizon
+  '13 weeks': 65,
+  '90 days': 60,
+};
+
+export function horizonDays(settings?: Pick<Settings, 'horizon'>): number {
+  const configured = settings ?? loadSettings(DEFAULT_SETTINGS);
+  return HORIZON_WORKING_DAYS[configured.horizon] ?? DEFAULT_HORIZON_DAYS;
+}
+
+/** How many weeks apart consecutive cycles open, from Cycle Frequency. */
+const CADENCE_WEEKS: Record<string, number> = {
+  'Weekly (Mon → Fri close)': 1,
+  'Bi-weekly': 2,
+  Monthly: 4,
+};
+
+export function cadenceWeeks(settings?: Pick<Settings, 'frequency'>): number {
+  const configured = settings ?? loadSettings(DEFAULT_SETTINGS);
+  return CADENCE_WEEKS[configured.frequency] ?? 1;
+}
+
+/** Whole weeks the horizon spans, for labels like "4-Week Outlook". */
+export function horizonWeeks(settings?: Pick<Settings, 'horizon'>): number {
+  return Math.max(1, Math.round(horizonDays(settings) / WORKDAYS_PER_WEEK));
+}
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -135,7 +176,8 @@ export function weekYearMonth(key: string): { year: number; month: number } {
 export function horizonDates(key: string): Date[] {
   const out: Date[] = [];
   const d = fromKey(key);
-  while (out.length < HORIZON_DAYS) {
+  const count = horizonDays();
+  while (out.length < count) {
     if (d.getDay() !== 0 && d.getDay() !== 6) out.push(new Date(d));
     d.setDate(d.getDate() + 1);
   }
@@ -164,7 +206,9 @@ import type { ForecastTemplate, TemplatePeriods } from '../types';
 export function periodsOf(template?: Pick<ForecastTemplate, 'periods'> | null): TemplatePeriods {
   const p = template?.periods;
   if (!p || !Number.isFinite(p.count) || p.count < 1) {
-    return { count: HORIZON_DAYS, granularity: 'day' };
+    // Templates that do not declare their own periods follow the horizon
+    // configured in Settings.
+    return { count: horizonDays(), granularity: 'day' };
   }
   return { count: Math.min(Math.round(p.count), 120), granularity: p.granularity ?? 'day' };
 }
@@ -178,8 +222,11 @@ export function periodsOf(template?: Pick<ForecastTemplate, 'periods'> | null): 
  */
 export function rollShift(template?: Pick<ForecastTemplate, 'periods'> | null): number {
   const { granularity } = periodsOf(template);
-  if (granularity === 'day') return WORKDAYS_PER_WEEK;
-  return granularity === 'week' ? 1 : 0;
+  // How far the horizon rolls between cycles depends on how often cycles
+  // open, not just on the template's granularity.
+  const weeks = cadenceWeeks();
+  if (granularity === 'day') return WORKDAYS_PER_WEEK * weeks;
+  return granularity === 'week' ? weeks : 0;
 }
 
 /** Dates for a template's forecast columns, starting at `key`'s Monday. */
