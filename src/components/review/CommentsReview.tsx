@@ -5,6 +5,7 @@ import { useDialog } from '../common/dialogContext';
 import { RequestCommentaryModal } from '../submissions/RequestCommentaryModal';
 import {
   collectReviewGroups,
+  isOpenQuestion,
   requesterLabel,
   resolveAllFlags,
   type ReviewGroup,
@@ -45,9 +46,12 @@ interface CommentsReviewProps {
 
 function ItemStatePill({ item }: { item: ReviewItem }) {
   // An open question outranks everything else: someone is waiting on a reply.
-  if (item.request) return <StatusPill status="rejected" label="awaiting reply" />;
+  if (isOpenQuestion(item.request)) return <StatusPill status="rejected" label="awaiting reply" />;
   if (item.resolved) return <StatusPill status="approved" label="resolved" />;
   if (!item.comment) return <StatusPill status="draft" label="needs commentary" />;
+  // A cell whose question came back reads as an ANSWER, not as commentary
+  // that happened to appear: it is the one to read first.
+  if (item.request) return <StatusPill status="submitted" label="answered" />;
   return <StatusPill status="submitted" label="awaiting review" />;
 }
 
@@ -243,7 +247,7 @@ export function CommentsReview({
   return (
     <div className="view active">
       <TopBar
-        crumb={canResolve ? 'Administration' : 'My Workspace'}
+        crumb={canResolve ? 'Workspace' : 'My Workspace'}
         title={canResolve ? 'Comments Review' : 'Comments & Feedback'}
         actions={
           <span className="tag" style={{ letterSpacing: '0.12em' }}>
@@ -536,9 +540,14 @@ export function CommentsReview({
                                 className={item.comment ? 'text-dim' : 'text-muted'}
                                 style={{ fontSize: 12, maxWidth: 300 }}
                               >
-                                {item.comment || 'No commentary provided yet.'}
+                                {/* The question stays beside the answer, so a
+                                    paragraph of commentary is never read
+                                    without knowing what was asked. */}
                                 {item.request && (
-                                  <div className="comment-request-note" style={{ marginTop: 6 }}>
+                                  <div
+                                    className="comment-request-note"
+                                    style={{ marginTop: 0, marginBottom: 6 }}
+                                  >
                                     <strong>
                                       {item.request.from} ({requesterLabel(item.request.fromRole)})
                                       asked:
@@ -546,6 +555,10 @@ export function CommentsReview({
                                     {item.request.message}
                                   </div>
                                 )}
+                                {item.comment ||
+                                  (isOpenQuestion(item.request)
+                                    ? 'Waiting on the submitter’s answer.'
+                                    : 'No commentary provided yet.')}
                               </td>
                               <td>
                                 {!canResolve ? (
@@ -565,7 +578,7 @@ export function CommentsReview({
                                         })
                                       }
                                     >
-                                      {item.request ? 'Reply' : 'Explain'}
+                                      {isOpenQuestion(item.request) ? 'Reply' : 'Explain'}
                                     </button>
                                   )
                                 ) : (
@@ -645,7 +658,7 @@ export function CommentsReview({
             comment: asking.item.comment,
           }}
           context={`${asking.group.entity} · ${weekLabelShort(asking.group.period)}`}
-          existing={asking.item.request}
+          existing={isOpenQuestion(asking.item.request) ? asking.item.request : null}
           flagged
           onClose={() => setAsking(null)}
           onSent={() => setVersion((v) => v + 1)}

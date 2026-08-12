@@ -18,7 +18,7 @@ later).
 | **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
-| **Comments Review** | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
+| **Comments Review** (Workspace) | Treasury triage of variance commentary across all forecasts: summary KPIs, search + entity/period/status/submitter/state filters, collapsible per-forecast groups sorted **largest movement first**, pagination, **Request further comment** (with an Outlook draft to the submitter), per-forecast resolution, and an **Explain** deep link that opens the forecast *and* that cell's commentary dialog |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
 | **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
@@ -238,11 +238,20 @@ person, so it can land on any cell:
 - **From Comments Review** — the per-comment action is **Request further
   comment**: the same dialog, showing the cell, its movement and whatever the
   submitter said so far.
-- **For the submitter** — cells with an open question are outlined in blue on
-  their grid, and the banner above it **lists every open question and opens
-  the one you click**, so a dialog dismissed without an answer is never lost.
-  Answering the cell's commentary closes the request; the review screen shows
-  it as *awaiting reply* until then.
+- **For the submitter** — cells with an open question are outlined in blue and
+  are **answered by clicking the cell**: the dialog carries the question, the
+  cell's value (a corrected figure is a legitimate answer, and it saves with
+  the explanation in one undo step) and the reply box. The banner above the
+  grid **lists every open question and opens the one you click**, so a dialog
+  dismissed without an answer is never lost, and the checklist lists the same
+  questions in a dropdown under the step they are blocking.
+
+Answering **stamps** the question rather than deleting it, so whoever asked
+comes back to the question and the answer together — in Comments Review the
+cell reads *answered* with both, and in the forecast dialog the pair sits above
+the grid. A cell that has been asked about also stays in the review queue even
+if the corrected number no longer breaches the variance threshold; it used to
+vanish from treasury's queue, taking the answer with it.
 
 Every question records **who asked and in what capacity**, and each surface
 says so — *"Pieter Bakker (Approver) asked…"* — because an approver deciding

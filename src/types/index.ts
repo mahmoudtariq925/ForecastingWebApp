@@ -237,6 +237,15 @@ export interface CommentRequest {
   fromRole?: RequesterRole;
   message: string;
   requestedAt: string;
+  /**
+   * When the submitter answered. Set rather than deleting the request, so the
+   * QUESTION stays beside the answer: whoever asked comes back to a cell with
+   * a paragraph of commentary on it, and without this there is nothing left
+   * to say what that paragraph is an answer to.
+   *
+   * An unset value is what "open question" means everywhere.
+   */
+  answeredAt?: string;
 }
 
 /**

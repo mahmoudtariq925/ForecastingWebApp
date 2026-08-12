@@ -40,9 +40,11 @@ import {
   getOrCreateSubmission,
   getPriorValues,
   isHandedOver,
+  isOpenQuestion,
   isVariance,
   loadDraftCheckpoint,
   markRequestsSeen,
+  openQuestionEntries,
   peekSubmission,
   priorValueFor,
   requesterLabel,
@@ -458,6 +460,8 @@ function SubmissionEditor({
 
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
+  /** The cell's number while the answer dialog holds it, as typed. */
+  const [valueDraft, setValueDraft] = useState('');
   /**
    * The guided commentary flow that runs on submit: the flagged cell being
    * explained right now, with the commentary dock beside the grid — on the
@@ -642,11 +646,22 @@ function SubmissionEditor({
     return () => document.removeEventListener('keydown', onKeyDown);
   });
 
-  const reflag = (v: GridValues, keys: Iterable<string>, base: Set<string>): Set<string> => {
+  const reflag = (
+    v: GridValues,
+    keys: Iterable<string>,
+    base: Set<string>,
+    /** Commentary as it will be after this edit, when the two save together. */
+    cm: Record<string, string> = comments,
+  ): Set<string> => {
     const next = new Set(base);
     for (const key of keys) {
       const [c, d] = key.split('-').map(Number);
       if (isVariance(v[key] || 0, priorValueFor(prior, c, d), settings)) next.add(key);
+      // A cell that has been ASKED ABOUT stays in the review queue whatever
+      // the numbers do. Correcting the figure is a perfectly good answer, and
+      // it usually brings the cell back under the threshold — which used to
+      // unflag it and take the answer out of treasury's queue with it.
+      else if (cm[key]?.trim() || commentRequests[key]) next.add(key);
       else next.delete(key);
     }
     return next;
@@ -808,6 +823,10 @@ function SubmissionEditor({
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
     setCommentDraft(comments[key] ?? '');
+    // The dialog is the only way into a cell that has a question on it, so it
+    // carries the number too: "that figure was wrong" is a legitimate answer,
+    // and it must not mean closing the dialog to hunt for the cell again.
+    setValueDraft(values[key] === undefined ? '' : String(values[key]));
     setVarianceCell({
       key,
       label: template.categories[catIdx]?.label ?? '',
@@ -862,16 +881,43 @@ function SubmissionEditor({
 
   const saveComment = () => {
     if (!varianceCell) return;
-    const nextComments = { ...comments, [varianceCell.key]: commentDraft.trim() };
-    if (!commentDraft.trim()) delete nextComments[varianceCell.key];
+    const key = varianceCell.key;
+    const nextComments = { ...comments, [key]: commentDraft.trim() };
+    if (!commentDraft.trim()) delete nextComments[key];
     setComments(nextComments);
-    // Answering the question closes it — treasury asked, this is the reply.
-    const nextRequests = answerCommentRequest(
-      { ...initial, commentRequests },
-      varianceCell.key,
-    );
+
+    // A corrected figure saves with the explanation of it, in one step and
+    // one undo — the two halves of the same answer.
+    let nextValues = values;
+    let nextFlags = flags;
+    if (canEditCells) {
+      const typed = valueDraft.trim();
+      const parsed = typed === '' ? null : parseCellNumber(typed);
+      const changed = (values[key] ?? null) !== parsed;
+      if (changed && (typed === '' || parsed !== null)) {
+        pushUndo();
+        lastEditedCell.current = null;
+        nextValues = { ...values };
+        if (parsed === null) delete nextValues[key];
+        else nextValues[key] = parsed;
+        nextFlags = reflag(nextValues, [key], flags, nextComments);
+        setValues(nextValues);
+        setFlags(nextFlags);
+        // The grid cells hold their own in-progress text; remount so the
+        // restored cell shows the number saved here rather than the old one.
+        setRestoreVersion((n) => n + 1);
+      }
+    }
+
+    // Answering the question closes it — this is the reply to whoever asked.
+    const nextRequests = answerCommentRequest({ ...initial, commentRequests }, key);
     setCommentRequests(nextRequests ?? {});
-    persist({ comments: nextComments, commentRequests: nextRequests ?? {} });
+    persist({
+      values: nextValues,
+      flags: nextFlags,
+      comments: nextComments,
+      commentRequests: nextRequests ?? {},
+    });
     setVarianceCell(null);
   };
 
@@ -919,13 +965,14 @@ function SubmissionEditor({
   };
 
   const uncommented = [...flags].filter((k) => !comments[k]?.trim());
-  const requestedCells = useMemo(() => new Set(Object.keys(commentRequests)), [commentRequests]);
+  /** Questions still waiting on an answer — an answered one is history. */
   const openRequests = useMemo(
-    () =>
-      Object.entries(commentRequests)
-        .map(([key, r]) => ({ key, ...r }))
-        .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
+    () => openQuestionEntries(commentRequests).map(([key, r]) => ({ key, ...r })),
     [commentRequests],
+  );
+  const requestedCells = useMemo(
+    () => new Set(openRequests.map((r) => r.key)),
+    [openRequests],
   );
 
   /**
@@ -1238,6 +1285,10 @@ function SubmissionEditor({
     });
   };
 
+  /** The question on the cell the dialog is showing, answered or not. */
+  const cellRequest = varianceCell ? commentRequests[varianceCell.key] : undefined;
+  const cellQuestionOpen = isOpenQuestion(cellRequest);
+
   const varianceDelta =
     varianceCell && varianceCell.prior !== null
       ? ((varianceCell.current - varianceCell.prior) /
@@ -1402,7 +1453,7 @@ function SubmissionEditor({
           <div className="variance-panel comment-request-panel">
             <h4>
               ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
-              {requesterSummary(openRequests)}
+              {requesterSummary(openRequests.map((r) => r.fromRole))}
             </h4>
             <div className="row">
               <span>
@@ -1796,7 +1847,9 @@ function SubmissionEditor({
       ) : (
         <Modal
           open={varianceCell !== null}
-          title={readOnly ? 'Variance Detail' : 'Explain Variance'}
+          title={
+            readOnly ? 'Variance Detail' : cellQuestionOpen ? 'Answer the question' : 'Explain Variance'
+          }
           onClose={() => setVarianceCell(null)}
           footer={
             <>
@@ -1805,7 +1858,7 @@ function SubmissionEditor({
               </button>
               {!readOnly && (
                 <button className="btn btn-primary" onClick={saveComment}>
-                  Save
+                  {cellQuestionOpen ? 'Send Answer' : 'Save'}
                 </button>
               )}
             </>
@@ -1835,18 +1888,47 @@ function SubmissionEditor({
                   <span>Current: €{varianceCell.current.toLocaleString()}k</span>
                 </div>
               </div>
-              {commentRequests[varianceCell.key] && (
+              {cellRequest && (
                 <div className="comment-request-note">
                   <strong>
-                    {commentRequests[varianceCell.key].from} (
-                    {requesterLabel(commentRequests[varianceCell.key].fromRole)}) asked:
+                    {cellRequest.from} ({requesterLabel(cellRequest.fromRole)}) asked:
                   </strong>{' '}
-                  {commentRequests[varianceCell.key].message}
+                  {cellRequest.message}
+                  {cellRequest.answeredAt && (
+                    <span className="text-muted"> · answered</span>
+                  )}
+                </div>
+              )}
+              {/* The figure itself, because "that number was wrong" is one of
+                  the answers — and on a cell with a question the dialog is the
+                  only way in, so leaving it out would lock the number away. */}
+              {canEditCells && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="cell-value">
+                    Forecast value (€ thousands)
+                  </label>
+                  <input
+                    id="cell-value"
+                    className="form-input"
+                    style={{ width: 200 }}
+                    inputMode="decimal"
+                    placeholder="e.g. -1,250"
+                    value={valueDraft}
+                    onChange={(e) => setValueDraft(e.target.value)}
+                  />
+                  <span className="text-muted" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                    Inflows positive, outflows negative. Saving keeps this and the commentary
+                    together, and one undo reverses both.
+                  </span>
                 </div>
               )}
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">
-                  {readOnly ? 'Commentary' : 'Commentary (required)'}
+                  {readOnly
+                    ? 'Commentary'
+                    : varianceCell && commentRequests[varianceCell.key]
+                      ? 'Your answer (required)'
+                      : 'Commentary (required)'}
                 </label>
                 <textarea
                   className="form-textarea"

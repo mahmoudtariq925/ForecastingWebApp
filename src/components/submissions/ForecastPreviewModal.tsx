@@ -8,6 +8,8 @@ import { categoryGroups, cellKey, dayNet, runningBalance } from './gridMath';
 import { useDataVersion } from '../../data/useDataVersion';
 import {
   getPriorValues,
+  isOpenQuestion,
+  openQuestionEntries,
   peekSubmission,
   priorValueFor,
   requesterLabel,
@@ -112,7 +114,10 @@ export function ForecastPreviewModal({
   const numCats = template?.categories.length ?? 0;
   const values = submission?.values ?? {};
   const requests = submission?.commentRequests ?? {};
-  const openRequests = Object.entries(requests);
+  /** Questions still waiting on the submitter — an answered one is history. */
+  const openRequests = openQuestionEntries(requests);
+  /** Cells whose question has come back, so the answer can be read first. */
+  const answered = Object.entries(requests).filter(([key, r]) => r.answeredAt && submission?.comments?.[key]?.trim());
   const hasBalance = submission?.startingBalance != null;
   const netByDay = dayLabels.map((_dl, d) => dayNet(numCats, values, d));
   const series: ChartSeries[] = [
@@ -130,6 +135,13 @@ export function ForecastPreviewModal({
         ]
       : []),
   ];
+
+  /** "Receivables · Mon 10/8" for a cell key. */
+  const cellName = (key: string): string => {
+    const [c, d] = key.split('-').map(Number);
+    const line = template?.categories[c]?.label ?? `Line ${c + 1}`;
+    return `${line} · ${dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`}`;
+  };
 
   /** The cell being asked about, as the shared question dialog wants it. */
   const askTarget = (() => {
@@ -191,14 +203,22 @@ export function ForecastPreviewModal({
                   {openRequests.length} open question{openRequests.length === 1 ? '' : 's'}:
                 </strong>{' '}
                 {openRequests
-                  .map(([key, r]) => {
-                    const [c, d] = key.split('-').map(Number);
-                    const where = dayLabels[d] ? dayLabels[d].dm : `Day ${d + 1}`;
-                    return `${template.categories[c]?.label ?? `Line ${c + 1}`} · ${where} (${r.from}, ${requesterLabel(r.fromRole)})`;
-                  })
+                  .map(([key, r]) => `${cellName(key)} (${r.from}, ${requesterLabel(r.fromRole)})`)
                   .join(' · ')}
               </div>
             )}
+            {/* Answers that have come back. Whoever asked opens this dialog to
+                read the reply, and hunting for a blue cell to click was the
+                only way to find it. */}
+            {answered.map(([key, r]) => (
+              <div className="comment-request-note answered-note" key={key}>
+                <strong>{cellName(key)}</strong> · asked by {r.from} (
+                {requesterLabel(r.fromRole)}): {r.message}
+                <div className="answered-reply">
+                  <strong>Answer:</strong> {submission.comments?.[key]}
+                </div>
+              </div>
+            ))}
             <div className="forecast-grid-wrap preview-grid">
               <ForecastGrid
                 categories={template.categories}
@@ -206,7 +226,7 @@ export function ForecastPreviewModal({
                 dayLabels={dayLabels}
                 values={values}
                 flags={new Set(submission.flags)}
-                requested={new Set(Object.keys(requests))}
+                requested={new Set(openRequests.map(([key]) => key))}
                 startingBalance={submission.startingBalance}
                 editable={false}
                 onCellClick={canRequestComments ? askCell : undefined}
@@ -228,7 +248,7 @@ export function ForecastPreviewModal({
         <RequestCommentaryModal
           target={askTarget}
           context={`${entity} · ${weekLabelShort(week)}`}
-          existing={requests[askTarget.cellKey] ?? null}
+          existing={isOpenQuestion(requests[askTarget.cellKey]) ? requests[askTarget.cellKey] : null}
           flagged={submission?.flags.includes(askTarget.cellKey) ?? false}
           onClose={() => setAsking(null)}
         />

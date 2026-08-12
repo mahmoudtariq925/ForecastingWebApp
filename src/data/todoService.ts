@@ -4,10 +4,12 @@
 // this; it does not decide any of it, so the rules live here alongside the
 // other submission logic and can move behind an API later untouched.
 // ============================================================================
-import type { Cycle, CommentRequest, Submission, User } from '../types';
+import type { Cycle, CommentRequest, RequesterRole, Submission, User } from '../types';
 import { assignedEntitiesFor, permissionsFor } from './session';
+import { templateDayLabels } from './periods';
 import {
   activeReopen,
+  openQuestionEntries,
   peekSubmission,
   requesterSummary,
   templateForEntity,
@@ -84,6 +86,50 @@ export interface EntityProgress {
   reopenedByQuestion: boolean;
 }
 
+/**
+ * One open question, ready to list: which cell it is on, who asked it and
+ * what they asked. The checklist shows these so a reopened forecast arrives
+ * with its questions in hand rather than as a grid to go hunting through.
+ */
+export interface OpenQuestion {
+  entity: string;
+  templateId: string;
+  /** Cell key, `${catIdx}-${dayIdx}` — deep-links straight to the cell. */
+  key: string;
+  /** "Receivables · Mon 10/8" */
+  cellLabel: string;
+  from: string;
+  role: RequesterRole;
+  message: string;
+  requestedAt: string;
+}
+
+/** Every open question across an analyst's forecasts, oldest first. */
+export function openQuestionsFor(entities: EntityProgress[]): OpenQuestion[] {
+  const templates = loadTemplates();
+  return entities
+    .flatMap((e) => {
+      const template = templates.find((t) => t.id === e.templateId);
+      const labels = templateDayLabels(template, e.submission.period);
+      return openQuestionEntries(e.submission.commentRequests).map(([key, request]) => {
+        const [c, d] = key.split('-').map(Number);
+        const line = template?.categories[c]?.label ?? `Line ${c + 1}`;
+        const when = labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`;
+        return {
+          entity: e.entity,
+          templateId: e.templateId,
+          key,
+          cellLabel: `${line} · ${when}`,
+          from: request.from,
+          role: request.fromRole ?? 'treasury',
+          message: request.message,
+          requestedAt: request.requestedAt,
+        };
+      });
+    })
+    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
+}
+
 /** Everything one analyst has in flight for a forecast week. */
 export function entityProgressFor(user: User, week: string): EntityProgress[] {
   const templates = loadTemplates();
@@ -102,7 +148,7 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
         submission,
         started: loadSubmission(week, entity, template.id) !== null,
         needCommentary,
-        openQuestions: Object.keys(submission.commentRequests ?? {}).length,
+        openQuestions: openQuestionEntries(submission.commentRequests).length,
         flagged: submission.flags.length,
         returnedForUpdate: submission.status === 'rejected',
         reopenedByQuestion: activeReopen(submission) !== null,
@@ -137,18 +183,22 @@ export function analystTodo(
   const isSubmitter = p.canSubmitForecasts;
 
   const questions: CommentRequest[] = entities.flatMap((e) =>
-    Object.values(e.submission.commentRequests ?? {}),
+    openQuestionEntries(e.submission.commentRequests).map(([, request]) => request),
   );
   const openQuestions = questions.length;
-  const askedBy = requesterSummary(questions);
+  const askedBy = requesterSummary(questions.map((q) => q.fromRole));
   const needCommentary = entities.reduce((s, e) => s + e.needCommentary, 0);
   const returned = entities.filter((e) => e.returnedForUpdate).length;
   const unsubmitted = entities.filter((e) => e.submission.status === 'draft').length;
   // Drafts that have been submitted before and came back because of a
   // question. Counting them as plain drafts told a submitter they had not
   // started a forecast they had in fact already sent.
-  const reopened = entities.filter((e) => e.reopenedByQuestion).length;
+  const reopens = entities.flatMap((e) => activeReopen(e.submission) ?? []);
+  const reopened = reopens.length;
   const neverSubmitted = unsubmitted - reopened;
+  // Who sent it back — read off the reopening itself, because the questions
+  // that caused it are gone from the open list the moment they are answered.
+  const reopenedBy = requesterSummary(reopens.map((r) => r.role));
   // "Consolidated" is treasury's terminal state for a cycle; until then the
   // numbers can still come back.
   const cycleClosed = cycle?.status === 'consolidated';
@@ -162,17 +212,28 @@ export function analystTodo(
     // (the number itself may have to change), so the step has to say the
     // forecast is coming round again rather than starting for the first time.
     const resubmitting = reopened > 0 && neverSubmitted === 0;
+    // Once the questions are answered the step is no longer about answering:
+    // what is left is sending the forecast back, and saying "answer it" over
+    // an empty question list is how a finished job reads as an outstanding one.
+    const answeredAndWaiting = reopened > 0 && openQuestions === 0;
+    const wasWere = reopened === 1 ? ' was' : 's were';
     submit = {
       key: 'submit',
-      label: resubmitting ? 'Answer & resubmit forecast' : 'Submit forecast',
+      label: resubmitting
+        ? answeredAndWaiting
+          ? 'Resubmit forecast'
+          : 'Answer & resubmit forecast'
+        : 'Submit forecast',
       state: returned > 0 || reopened > 0 ? 'blocked' : submitDone ? 'done' : 'active',
       detail:
         returned > 0
           ? `${returned} forecast${returned === 1 ? ' was' : 's were'} returned for update`
           : reopened > 0
-            ? `${reopened} already-submitted forecast${reopened === 1 ? ' was' : 's were'} reopened by a question from ${askedBy} — answer it and submit again${
-                neverSubmitted > 0 ? ` · ${neverSubmitted} still in draft` : ''
-              }`
+            ? `${reopened} already-submitted forecast${wasWere} reopened by a question from ${reopenedBy}` +
+              (answeredAndWaiting
+                ? ' — answered, now send it back'
+                : ' — answer it and submit again') +
+              (neverSubmitted > 0 ? ` · ${neverSubmitted} still in draft` : '')
             : submitDone
               ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
               : `${unsubmitted} of ${entities.length} still in draft`,
