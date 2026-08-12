@@ -19,7 +19,6 @@ import type {
 } from '../types';
 import {
   generateGridValues,
-  seedFor,
   STANDARD_TEMPLATE_ID,
   startingBalanceFor,
 } from './mockData';
@@ -38,6 +37,7 @@ import {
   listSubmissions,
   loadApprovals,
   loadData,
+  loadSettings,
   loadSubmission,
   loadTemplates,
   loadUsers,
@@ -47,6 +47,7 @@ import {
   type ApprovalMap,
 } from '../storage/localStorage';
 import type { GridValues } from '../components/submissions/gridMath';
+import { DEFAULT_SETTINGS } from '../components/settings/defaults';
 
 /**
  * Week-over-week change as a percentage — or null when a percentage would
@@ -181,12 +182,42 @@ function normalizeSubmission(sub: Submission): Submission {
 /** Build the fresh (unsaved) submission a given (entity, week, template) would
  * start from: seeded demo values for the standard template (demo data only —
  * the live instance never invents numbers), blank otherwise. */
+/**
+ * The cells a forecast's numbers actually flag, by the rule the grid applies
+ * on every edit: a move against the prior cycle beyond the entity's variance
+ * threshold. Used to derive a demo forecast's flags from its own figures —
+ * they were previously sprinkled at random, so the app asked for commentary
+ * on cells that had not moved and left real swings unflagged.
+ */
+function varianceFlags(
+  entity: string,
+  week: string,
+  template: ForecastTemplate,
+  values: GridValues,
+): string[] {
+  const prior = getPriorValues(entity, week, template);
+  const settings = settingsForEntity(entity, loadSettings(DEFAULT_SETTINGS));
+  const periods = periodsOf(template).count;
+  const flags: string[] = [];
+  template.categories.forEach((cat, catIdx) => {
+    if (cat.subtotal) return;
+    for (let d = 0; d < periods; d++) {
+      const key = `${catIdx}-${d}`;
+      if (isVariance(values[key] || 0, priorValueFor(prior, catIdx, d, template), settings)) {
+        flags.push(key);
+      }
+    }
+  });
+  return flags;
+}
+
 function buildSubmission(entity: string, week: string, template: ForecastTemplate): Submission {
   const seeded = DEMO_DATA && template.id === STANDARD_TEMPLATE_ID;
-  const { values, flags } = seeded
-    ? generateGridValues(template.categories, week, seedFor(`${entity}:${week}`), true)
+  const values = seeded
+    ? generateGridValues(template.categories, week, entity).values
     // Templates authored in the editor can carry starting values.
-    : { values: { ...(template.defaultValues ?? {}) }, flags: [] as string[] };
+    : { ...(template.defaultValues ?? {}) };
+  const flags = seeded ? varianceFlags(entity, week, template, values) : [];
 
   return {
     period: week,
@@ -455,12 +486,7 @@ export function getPriorValues(
   const stored = loadSubmission(prevKey, entity, template.id);
   if (stored) return stored.values;
   if (DEMO_DATA && template.id === STANDARD_TEMPLATE_ID) {
-    return generateGridValues(
-      template.categories,
-      prevKey,
-      seedFor(`${entity}:${prevKey}`),
-      false,
-    ).values;
+    return generateGridValues(template.categories, prevKey, entity).values;
   }
   return {};
 }
