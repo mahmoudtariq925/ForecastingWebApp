@@ -47,6 +47,13 @@ const STATE_MATCH: Record<StateFilter, (s: QuestionState) => boolean> = {
 
 const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
+/** The newest reply on a forecast that its asker has not closed off yet. */
+function latestAnswer(group: QuestionGroup): QuestionItem | undefined {
+  return group.items
+    .filter((i) => i.state === 'answered' && i.answer)
+    .sort((a, b) => (b.answeredAt ?? '').localeCompare(a.answeredAt ?? ''))[0];
+}
+
 function StatePill({ state }: { state: QuestionState }) {
   if (state === 'awaiting') return <StatusPill status="rejected" label="awaiting reply" />;
   if (state === 'answered') return <StatusPill status="submitted" label="answered" />;
@@ -127,6 +134,15 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
     return {
       regions: uniq(groups.map((g) => g.region)),
       periods: [...new Set(groups.map((g) => g.period))].sort().reverse(),
+    };
+  }, [groups]);
+
+  /** How many questions each side of the conversation has open right now. */
+  const counts = useMemo(() => {
+    const items = groups.flatMap((g) => g.items).filter((i) => i.state !== 'closed');
+    return {
+      treasury: items.filter((i) => i.role === 'treasury').length,
+      approver: items.filter((i) => i.role === 'approver').length,
     };
   }, [groups]);
 
@@ -282,20 +298,30 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                   </option>
                 ))}
               </select>
-              <select
-                className="form-select"
-                style={{ width: 'auto' }}
-                value={askedBy}
-                onChange={(e) => {
-                  setAskedBy(e.target.value);
-                  resetPage();
-                }}
-                aria-label="Filter by who asked"
-              >
-                <option value={ALL}>Asked by anyone</option>
-                <option value="treasury">Asked by Treasury</option>
-                <option value="approver">Asked by an approver</option>
-              </select>
+              {/* Treasury's questions and the approvers' sit in one queue —
+                  they are the same conversation with the same submitter — and
+                  this is how you look at either side of it on its own. */}
+              <div className="seg-toggle" role="group" aria-label="Filter by who asked">
+                {(
+                  [
+                    [ALL, 'Both'],
+                    ['treasury', `Treasury${counts.treasury ? ` · ${counts.treasury}` : ''}`],
+                    ['approver', `Approvers${counts.approver ? ` · ${counts.approver}` : ''}`],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={askedBy === value ? 'active' : ''}
+                    aria-pressed={askedBy === value}
+                    onClick={() => {
+                      setAskedBy(value);
+                      resetPage();
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <select
                 className="form-select"
                 style={{ width: 'auto' }}
@@ -369,25 +395,39 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                   aria-expanded={isOpen}
                   onClick={() => toggle(g.id)}
                 >
-                  <span className="review-caret" aria-hidden="true">
-                    {isOpen ? '▾' : '▸'}
+                  <span className="question-head-main">
+                    <span className="review-caret" aria-hidden="true">
+                      {isOpen ? '▾' : '▸'}
+                    </span>
+                    <strong className="question-entity">{g.entity}</strong>
+                    <span className="text-dim">{weekLabelShort(g.period)}</span>
+                    <StatusPill status={g.forecastStatus} />
+                    <span className="text-muted question-submitter">{g.submitter}</span>
+                    <span className="question-counts">
+                      {g.awaiting > 0 && (
+                        <span className="badge-num warn">{g.awaiting} awaiting reply</span>
+                      )}
+                      {g.answered > 0 && <span className="badge-num ok">{g.answered} answered</span>}
+                      {g.closed > 0 && <span className="badge-num">{g.closed} closed</span>}
+                      {g.oldestAwaiting && (
+                        <span
+                          className="question-age"
+                          title="How long the oldest reply has been outstanding"
+                        >
+                          waiting {waitedLabel(g.oldestAwaiting)}
+                        </span>
+                      )}
+                    </span>
                   </span>
-                  <strong className="question-entity">{g.entity}</strong>
-                  <span className="text-dim">{weekLabelShort(g.period)}</span>
-                  <StatusPill status={g.forecastStatus} />
-                  <span className="text-muted question-submitter">{g.submitter}</span>
-                  <span className="question-counts">
-                    {g.awaiting > 0 && (
-                      <span className="badge-num warn">{g.awaiting} awaiting reply</span>
-                    )}
-                    {g.answered > 0 && <span className="badge-num">{g.answered} answered</span>}
-                    {g.closed > 0 && <span className="badge-num ok">{g.closed} closed</span>}
-                    {g.oldestAwaiting && (
-                      <span className="question-age" title="How long the oldest reply has been outstanding">
-                        waiting {waitedLabel(g.oldestAwaiting)}
-                      </span>
-                    )}
-                  </span>
+                  {/* The reply itself, on the closed row. An answer that has
+                      come back is the thing worth reading, and hiding it
+                      behind a click made a queue of them look like a queue of
+                      questions with nothing in it. */}
+                  {!isOpen && latestAnswer(g) && (
+                    <span className="question-head-answer">
+                      <strong>{g.submitter} answered:</strong> {latestAnswer(g)?.answer}
+                    </span>
+                  )}
                 </button>
                 {isOpen && (
                   <div className="question-list">

@@ -2102,14 +2102,34 @@ td.num {
 }
 .question-head {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
   width: 100%;
   padding: 11px 16px;
   text-align: left;
   font-size: 13px;
   color: var(--text-dim);
   cursor: pointer;
+}
+.question-head-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The reply, on the closed row: one line, truncated, so a page of answers can
+   be read without opening anything. */
+.question-head-answer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.question-head-answer strong {
+  color: var(--green);
+  font-weight: 600;
 }
 .question-head:hover {
   background: var(--n-25);
