@@ -19,13 +19,35 @@ export function TopBar({ crumb, title, actions }: TopBarProps) {
   );
 }
 
-/** The active-cycle status pill used in several top bars. */
-export function CyclePill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="cycle-pill">
+/**
+ * The active-cycle status pill used in several top bars.
+ *
+ * With `onClick` it becomes the way INTO the cycle it names — treasury reads
+ * it and wants the cycle list, and a badge that names a thing you can open is
+ * the obvious place to click. Without one it stays a plain status badge, which
+ * is all it can be for a role with no cycles screen to open.
+ */
+export function CyclePill({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
       <span className="dot" />
       <span className="label">{label}</span>
       <span className="val">{value}</span>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button className="cycle-pill cycle-pill-link" onClick={onClick} title="Open Forecast Cycles">
+      {body}
+    </button>
+  ) : (
+    <div className="cycle-pill">{body}</div>
   );
 }

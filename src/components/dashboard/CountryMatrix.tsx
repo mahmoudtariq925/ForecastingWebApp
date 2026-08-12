@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { heatColor, heatScaleFrom } from '../submissions/heatmap';
+import { heatColor, heatScaleFrom, STRONG_HEAT } from '../submissions/heatmap';
 import type { CategoryCountryMatrix, MatrixRow } from '../../data/dashboardService';
 
 interface CountryMatrixProps {
@@ -77,11 +77,22 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
     );
   }
 
+  /**
+   * One row of country figures, shaded against ITSELF: white at zero, running
+   * to green at that line item's largest inflow and red at its largest
+   * outflow. The scale is per row because the question the colour answers is
+   * "which country drives THIS line", not "is this line bigger than payroll",
+   * which the labels already say.
+   *
+   * At the grid's own strength these tints were barely there on a table this
+   * size, so the summary strength is used — here the colour is what is being
+   * read, not something sitting behind dense type.
+   */
   const cells = (byCountry: Record<string, number>, extraClass = '') => {
     const scale = heatScaleFrom(countries.map((c) => byCountry[c] ?? 0));
     return countries.map((c) => {
       const v = byCountry[c] ?? 0;
-      const background = heatColor(v, scale);
+      const background = heatColor(v, scale, STRONG_HEAT);
       return (
         <td
           key={c}
@@ -154,7 +165,10 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
                 ) : (
                   <tr className="matrix-section-total">
                     <td className="matrix-row-label">{section.group} total</td>
-                    {cells(section.byCountry, ' matrix-total')}
+                    {/* Bold, but no fill of its own: a grey background under
+                        the conditional formatting made every folded section
+                        the same colour as the band above it. */}
+                    {cells(section.byCountry, ' matrix-band-total')}
                     <td className="num matrix-total">{fmt(section.total)}</td>
                   </tr>
                 )}

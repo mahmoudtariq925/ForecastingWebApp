@@ -22,10 +22,26 @@ export interface HeatScale {
 
 export const NEUTRAL_SCALE: HeatScale = { min: 0, max: 0 };
 
-/** Peak background opacity at the extremes of the scale. */
-const MAX_ALPHA = 0.18;
-/** Floor so a non-zero value is never completely invisible. */
-const MIN_ALPHA = 0.03;
+/**
+ * How hard the fill is allowed to push, from the floor that keeps a small
+ * value visible to the peak at the end of the scale.
+ *
+ * Two settings, because the same colour rule serves two very different
+ * surfaces. A forecast grid is 240 cells of dense type where the fill sits
+ * BEHIND the digits; a summary matrix is a dozen rows where the colour is
+ * doing the reading for you, and at grid strength it washed out to nothing.
+ */
+export interface HeatIntensity {
+  /** Floor so a non-zero value is never completely invisible. */
+  min: number;
+  /** Peak background opacity at the extremes of the scale. */
+  max: number;
+}
+
+/** Dense numeric grids: present, never competing with the numbers. */
+export const SUBTLE_HEAT: HeatIntensity = { min: 0.03, max: 0.18 };
+/** Summary tables: the colour is the point, so it has to be legible. */
+export const STRONG_HEAT: HeatIntensity = { min: 0.06, max: 0.42 };
 
 // Matches --green / --red in the design system.
 const POSITIVE_RGB = '63, 98, 35';
@@ -44,19 +60,26 @@ export function heatScaleFrom(values: Iterable<number>): HeatScale {
 }
 
 /**
- * Background fill for one cell, or undefined for zero / no usable scale
- * (which leaves the cell its normal background).
+ * Background fill for one cell, or undefined for zero / no usable scale —
+ * which leaves the cell its normal background, so **zero is always the
+ * surface colour** and the ramp runs from there out to green at the top of
+ * the band and red at the bottom of it.
  */
-export function heatColor(value: number, scale: HeatScale): string | undefined {
+export function heatColor(
+  value: number,
+  scale: HeatScale,
+  intensity: HeatIntensity = SUBTLE_HEAT,
+): string | undefined {
   if (!Number.isFinite(value) || value === 0) return undefined;
+  const span = intensity.max - intensity.min;
   if (value > 0) {
     if (scale.max <= 0) return undefined;
     const t = Math.min(value / scale.max, 1);
-    return `rgba(${POSITIVE_RGB}, ${(MIN_ALPHA + t * (MAX_ALPHA - MIN_ALPHA)).toFixed(3)})`;
+    return `rgba(${POSITIVE_RGB}, ${(intensity.min + t * span).toFixed(3)})`;
   }
   if (scale.min >= 0) return undefined;
   const t = Math.min(value / scale.min, 1);
-  return `rgba(${NEGATIVE_RGB}, ${(MIN_ALPHA + t * (MAX_ALPHA - MIN_ALPHA)).toFixed(3)})`;
+  return `rgba(${NEGATIVE_RGB}, ${(intensity.min + t * span).toFixed(3)})`;
 }
 
 /**

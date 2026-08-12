@@ -2,11 +2,13 @@ import { CyclePill, TopBar } from '../layout/TopBar';
 import { TreasuryOverview } from './TreasuryOverview';
 import { activeCycle } from '../../data/cycleService';
 import type { SubmissionTarget } from '../submissions/Submission';
-import type { ModalId } from '../../types/nav';
+import type { ModalId, ViewId } from '../../types/nav';
 
 interface DashboardProps {
   onOpenModal: (id: ModalId) => void;
   onOpenSubmission?: (target: SubmissionTarget) => void;
+  /** Screen changes the header can make — the cycle pill opens Forecast Cycles. */
+  onNavigate?: (view: ViewId) => void;
 }
 
 /**
@@ -19,7 +21,7 @@ interface DashboardProps {
  * which an approver gets under their checklist too, scoped to their own
  * countries. What is left here is the cycle chrome around it.
  */
-export function Dashboard({ onOpenModal, onOpenSubmission }: DashboardProps) {
+export function Dashboard({ onOpenModal, onOpenSubmission, onNavigate }: DashboardProps) {
   // One definition of "the cycle we are in", and the week it collects comes
   // from the cycle itself rather than being picked independently.
   const cycle = activeCycle();
@@ -31,7 +33,11 @@ export function Dashboard({ onOpenModal, onOpenSubmission }: DashboardProps) {
         title="Treasury Dashboard"
         actions={
           <>
-            <CyclePill label="Active Cycle" value={cycle.id} />
+            <CyclePill
+              label="Active Cycle"
+              value={cycle.id}
+              onClick={onNavigate ? () => onNavigate('cycles') : undefined}
+            />
             <button className="btn btn-ghost" onClick={() => onOpenModal('export')}>
               Export
             </button>

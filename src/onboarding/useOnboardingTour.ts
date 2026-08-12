@@ -82,6 +82,26 @@ function markNav(view?: ViewId): void {
   document.querySelector(`[data-tour="nav-${view}"]`)?.classList.add(NAV_CLASS);
 }
 
+/**
+ * Open a step's collapsed panel before it is explained.
+ *
+ * Several panels open FOLDED — the consolidated forecast, the forecast chart,
+ * the matrix's sections — so a step about one of them highlighted a title bar
+ * with nothing under it. The control is found inside the step's own element,
+ * clicked only when it is actually closed, and left alone otherwise (so
+ * stepping back through the tour doesn't fold everything up again).
+ */
+async function openDisclosure(el: Element, selector?: string): Promise<void> {
+  if (!selector) return;
+  const toggle =
+    el.querySelector<HTMLElement>(selector) ?? document.querySelector<HTMLElement>(selector);
+  if (!toggle || toggle.getAttribute('aria-expanded') !== 'false') return;
+  toggle.click();
+  // Two frames: one for React to commit the expansion, one for layout to
+  // settle before driver.js measures what it is highlighting.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+}
+
 /** Nearest ancestor that actually scrolls — screens scroll inside `.content`,
  * not the window, so that box is the real viewport for a step's element. */
 function scrollParent(el: Element): Element | null {
@@ -197,6 +217,7 @@ export function useOnboardingTour({
         const el = await waitForElement(step.selector);
         if (!el) return false;
         markNav(step.view);
+        await openDisclosure(el, step.expand);
         await scrollIntoView(el);
         return true;
       };
