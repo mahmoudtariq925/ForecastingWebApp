@@ -415,6 +415,24 @@ constrained so a tall sidebar scrolls inside the viewport instead of growing
 past it. Verified at 80 / 90 / 110 / 125 / 150% browser zoom: the user menu
 opens fully on screen and nothing critical is clipped or pushed off-screen.
 
+## Pull requests
+
+Before pushing follow-up work to a branch, check whether its pull request has
+already been merged. A merged PR is closed for good — it cannot take new
+commits, and pushing to the branch leaves that work stranded with no open PR
+pointing at it.
+
+If the PR is merged, rebase the unmerged commits onto the latest `main` and
+open a new PR:
+
+```bash
+git fetch origin main
+git rebase --onto origin/main <sha-of-last-merged-commit>
+git push --force-with-lease
+```
+
+Never edit a merged PR's description to describe work it does not contain.
+
 ## Run locally
 
 Requires Node 20+ (Node 24 LTS recommended — what CI builds with).

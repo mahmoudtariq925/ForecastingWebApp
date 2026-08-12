@@ -74,6 +74,22 @@ Test the change, not the whole app.
 - Do not re-walk every screen and every role on every prompt.
 - Always run: type check, lint, build.
 - Reserve a full end-to-end run for a change to the forecast lifecycle (submit → approve → comment → return), or when asked for one.
+## Pull Requests
+Check whether the PR is already merged before pushing follow-up work.
+
+A merged PR is closed permanently: it cannot take new commits, and pushing to
+its branch does nothing. Work pushed after a merge is stranded on a branch with
+no open PR pointing at it.
+
+Before any follow-up push:
+1. Check the PR's state. If it is merged, do NOT reuse it — the branch history
+   is already in `main`.
+2. Rebase the unmerged commits onto the latest `main`
+   (`git fetch origin main && git rebase --onto origin/main <last-merged-sha>`),
+   keeping the same branch name.
+3. Push, then open a NEW PR. Never edit a merged PR's description to describe
+   work it does not contain.
+
 ## Never
 - Reintroduce Express.
 - Reintroduce SQLite.
