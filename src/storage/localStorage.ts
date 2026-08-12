@@ -356,13 +356,48 @@ export function loadLegalEntities(fallback: LegalEntity[]): LegalEntity[] {
   // Guard the assignment lists: older/partial records must not break callers.
   const emails = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((e): e is string => typeof e === 'string') : [];
-  return stored.map((e) => ({
+  const clean: LegalEntity[] = stored.map((e) => ({
     ...e,
     viewers: emails(e.viewers),
     approvers: emails(e.approvers),
     submitters: emails(e.submitters),
     status: e.status === 'inactive' ? 'inactive' : 'active',
   }));
+
+  /**
+   * One-time repair of entities stored before every country was seeded with
+   * the people responsible for it.
+   *
+   * An entity with nobody assigned still collects a forecast, still appears in
+   * the queues and can still be asked a question — the question just has
+   * nobody to go to, and the mail draft was addressed to an address made up
+   * from an empty name. Anything the seed knows about is filled in.
+   *
+   * Guarded by a flag rather than run on every read, because "nobody is
+   * assigned" is also a legitimate state an administrator can choose, and
+   * this must not keep undoing that.
+   */
+  if (loadData<boolean>('assignmentsHealed', false)) return clean;
+  let healed = false;
+  const repaired = clean.map((entity) => {
+    const seed = fallback.find(
+      (f) => f.id === entity.id || f.name.toLowerCase() === entity.name.toLowerCase(),
+    );
+    if (!seed) return entity;
+    const next = { ...entity };
+    if (next.submitters.length === 0 && seed.submitters.length > 0) {
+      next.submitters = [...seed.submitters];
+      healed = true;
+    }
+    if (next.approvers.length === 0 && seed.approvers.length > 0) {
+      next.approvers = [...seed.approvers];
+      healed = true;
+    }
+    return next;
+  });
+  saveData('assignmentsHealed', true);
+  if (healed) saveLegalEntities(repaired);
+  return repaired;
 }
 
 // ---------------------------------------------------------------------------
