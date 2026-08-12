@@ -353,9 +353,11 @@ const COMPARE_LABELS: Record<CompareMetric, string> = {
   outflows: 'Outflows',
 };
 
-/** Distinct from the live series' colours so an overlay is never mistaken
- *  for this week's line. */
-const OVERLAY_COLORS = ['#8e92a3', '#7a5ea8', '#4f8a8b', '#a86b3c'];
+/** Distinct from the live series' colours so an overlay is never mistaken for
+ *  this week's line; warm enough to sit with the design tokens. */
+// The palette's light accents, which is exactly what they are for: an
+// overlay has to be legible without competing with this cycle's line.
+const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#23599c'];
 
 function SubmissionEditor({
   entity,

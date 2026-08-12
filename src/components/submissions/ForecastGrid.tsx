@@ -511,7 +511,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
               </span>
             </th>
           ))}
-          <th className="day-h" style={{ background: '#e7e4dc' }}>
+          <th className="day-h" style={{ background: 'var(--n-200)' }}>
             Total
           </th>
         </tr>
@@ -556,7 +556,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
               })}
               <td
                 className={`cell ${row.kind}-cell${row.signed ? netClass(rowTotal) : ''}`}
-                style={{ background: '#ebe9e0', fontWeight: 600 }}
+                style={{ background: 'var(--n-100)', fontWeight: 600 }}
               >
                 {rowTotal.toLocaleString()}
               </td>
@@ -580,7 +580,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
                 )}
               </td>
             ))}
-            <td className="cell" style={{ background: '#ebe9e0' }} />
+            <td className="cell" style={{ background: 'var(--n-100)' }} />
           </tr>
         )}
       </tbody>

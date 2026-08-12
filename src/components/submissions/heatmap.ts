@@ -28,8 +28,8 @@ const MAX_ALPHA = 0.18;
 const MIN_ALPHA = 0.03;
 
 // Matches --green / --red in the design system.
-const POSITIVE_RGB = '47, 138, 92';
-const NEGATIVE_RGB = '184, 72, 74';
+const POSITIVE_RGB = '63, 98, 35';
+const NEGATIVE_RGB = '156, 47, 34';
 
 /** Build a scale from the values currently on screen. Zero is the midpoint. */
 export function heatScaleFrom(values: Iterable<number>): HeatScale {
