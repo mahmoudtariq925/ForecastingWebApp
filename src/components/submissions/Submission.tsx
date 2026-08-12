@@ -18,7 +18,7 @@ import {
   type GridValues,
 } from './gridMath';
 import { listEntities, seedUsers } from '../../data/appData';
-import { activeWeekKey, cycleForWeek } from '../../data/cycleService';
+import { activeWeekKey } from '../../data/cycleService';
 import {
   shiftWeeks,
   horizonWeeks,
@@ -278,14 +278,14 @@ export function Submission({
  * past week (View Previous) label themselves as such.
  */
 function CycleScope({ week, template }: { week: string; template: ForecastTemplate }) {
-  // The cycle that collects THIS week, not just whichever one is open — a
-  // deep link to a past week used to be labelled with the active cycle's id.
-  const cycle = useMemo(() => cycleForWeek(week), [week]);
   const dates = templateDates(template, week);
   const fmt = (d: Date) => `${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
   const range =
     dates.length > 0 ? `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}` : '';
   const isCurrent = week === activeWeekKey();
+  // The cycle ID lives in the top bar, once. Repeating it here beside the
+  // entity selector said the same thing twice on one screen; what this needs
+  // to add is the DATES the horizon covers, which the top bar does not carry.
   return (
     <span
       className="cycle-scope"
@@ -293,8 +293,8 @@ function CycleScope({ week, template }: { week: string; template: ForecastTempla
       title="The forecast period comes from the active cycle — Treasury manages cycles"
     >
       <span className="dot" />
-      <strong>{isCurrent ? (cycle?.id ?? weekLabelShort(week)) : weekLabelShort(week)}</strong>
-      <span className="range">{range}</span>
+      <strong>{isCurrent ? range : weekLabelShort(week)}</strong>
+      {!isCurrent && <span className="range">{range}</span>}
       {!isCurrent && <span className="tag-past">past week</span>}
     </span>
   );
@@ -453,10 +453,25 @@ function SubmissionEditor({
    * comes back to `rejected` and unlocks.
    */
   const handedOver = isSubmitterView && isHandedOver(status);
-  /** Numbers can be typed into: never for a reader, never once handed over. */
-  const canEditCells = !readOnly && !handedOver;
+  /**
+   * The forecast is back with the submitter to ANSWER a question, not to
+   * rewrite. The figures were handed over and reviewed; a question reopens the
+   * conversation about them, not the entry of them. Leaving the grid live here
+   * let a submitter quietly restate the week under cover of replying, and the
+   * approver would have signed off numbers that no longer existed. If a figure
+   * genuinely has to change, the approver returns the forecast (`rejected`),
+   * which unlocks it properly and is visible as a return.
+   */
+  const answeringOnly = isSubmitterView && status === 'draft' && reopenedBy !== undefined;
+  /**
+   * Numbers can be typed into: never for a reader, never once handed over,
+   * and never while the forecast is back only to answer questions.
+   */
+  const canEditCells = !readOnly && !handedOver && !answeringOnly;
   /** The submitter's own data-entry and workflow actions. */
-  const editorActions = isSubmitterView && !handedOver;
+  const editorActions = isSubmitterView && !handedOver && !answeringOnly;
+  /** Submitting is still theirs while answering — that is the way out of it. */
+  const canSubmit = isSubmitterView && !handedOver;
 
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
@@ -1021,6 +1036,23 @@ function SubmissionEditor({
     });
   };
 
+  /**
+   * Open the dialog on a cell that has a question, from a list rather than
+   * from the grid: expand the section it lives in (a collapsed one would put
+   * the dialog over nothing) and scroll it into view behind the dialog.
+   */
+  const openQuestionCell = (key: string) => {
+    const [c, d] = key.split('-').map(Number);
+    if (!Number.isFinite(c) || !Number.isFinite(d)) return;
+    expandSectionOf(key);
+    openVariance(c, d);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`.forecast-grid [data-cat="${c}"][data-day="${d}"]`)
+        ?.scrollIntoView({ block: 'center', inline: 'center' });
+    });
+  };
+
   /** Move the flow to a cell: expand, scroll it into view, then dock the
    * commentary box on whichever side keeps the cell visible. */
   const focusFlowCell = (key: string) => {
@@ -1391,11 +1423,31 @@ function SubmissionEditor({
                 hint={`Submitted — the numbers are locked until this forecast is returned to you. You can still answer questions on any cell.`}
               />
             )}
+            {answeringOnly && (
+              <ViewOnlyBadge
+                label="Figures Locked"
+                hint="Reopened to answer questions — the figures stay as submitted. Ask your approver to return the forecast if one has to change."
+              />
+            )}
             <CyclePill label="Active cycle" value={activeCycleId()} />
           </>
         }
       />
-      <div className="content content-compact">
+      {/* The page takes on the job in hand. Entering a forecast, walking the
+          submit flow and answering questions are three different tasks on the
+          same screen, and only the banner used to say which one you were in —
+          so the guided flow could run with the page looking exactly as it did
+          a moment before. The mode tints the page edge and the panels. */}
+      <div
+        className={`content content-compact${
+          commentFlow ? ' page-mode page-submitting' : answeringOnly ? ' page-mode page-answering' : ''
+        }`}
+      >
+        {(commentFlow || answeringOnly) && (
+          <div className="page-mode-ribbon" aria-hidden="true">
+            {commentFlow ? 'Submitting · explaining variances' : 'Answering questions'}
+          </div>
+        )}
         {needInput && (
           <div className="variance-panel needs-input" data-tour="needs-input">
             <h4>
@@ -1443,13 +1495,44 @@ function SubmissionEditor({
                   day: 'numeric',
                   month: 'short',
                 })}
-                , which returned it to you. Answer the question{openRequests.length === 1 ? '' : 's'}{' '}
-                below, correct anything that has to change, and submit it again.
+                , which returned it to you. Answer the question
+                {openRequests.length === 1 ? '' : 's'} below and send it back. The figures stay
+                locked while you answer — they have already been reviewed, so if one has to
+                change, ask your approver to return the forecast to you.
               </span>
             </div>
           </div>
         )}
-        {openRequests.length > 0 && (
+        {/* Reviewers get a line, not a banner. The panel below is addressed to
+            whoever has to ANSWER: telling treasury to "open one to answer it"
+            put them in the submitter's shoes on someone else's forecast. */}
+        {openRequests.length > 0 && !isSubmitterView && (
+          <div className="review-question-strip">
+            <span className="strip-mark" aria-hidden="true">
+              ✎
+            </span>
+            <strong>
+              {openRequests.length} question{openRequests.length === 1 ? '' : 's'} outstanding
+            </strong>
+            <span className="text-dim">
+              awaiting {listEntities().find((e) => e.name === entity)?.submitter ?? 'the submitter'}
+              ’s reply · asked by {requesterSummary(openRequests.map((r) => r.fromRole))}
+            </span>
+            <span className="strip-cells">
+              {openRequests.map((r) => (
+                <button
+                  key={r.key}
+                  className="strip-cell"
+                  title={`${r.from} (${requesterLabel(r.fromRole)}): ${r.message}`}
+                  onClick={() => openQuestionCell(r.key)}
+                >
+                  {cellLabelFor(r.key)}
+                </button>
+              ))}
+            </span>
+          </div>
+        )}
+        {openRequests.length > 0 && isSubmitterView && (
           <div className="variance-panel comment-request-panel">
             <h4>
               ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
@@ -1457,8 +1540,8 @@ function SubmissionEditor({
             </h4>
             <div className="row">
               <span>
-                Cells outlined in blue have a question waiting.
-                {isSubmitterView && ' Open one to answer it — you can come back to it any time.'}
+                Cells outlined in blue have a question waiting. Open one to answer it — you can
+                come back to it any time.
               </span>
             </div>
             {/* Every open question, each a door back to its cell. Closing the
@@ -1471,15 +1554,7 @@ function SubmissionEditor({
                   key={r.key}
                   className="comment-request-item"
                   title={`Open ${cellLabelFor(r.key)}`}
-                  onClick={() => {
-                    const [c, d] = r.key.split('-').map(Number);
-                    openVariance(c, d);
-                    requestAnimationFrame(() => {
-                      document
-                        .querySelector(`.forecast-grid [data-cat="${c}"][data-day="${d}"]`)
-                        ?.scrollIntoView({ block: 'center', inline: 'center' });
-                    });
-                  }}
+                  onClick={() => openQuestionCell(r.key)}
                 >
                   <strong>{cellLabelFor(r.key)}</strong>
                   <span className="text-dim">
@@ -1594,13 +1669,27 @@ function SubmissionEditor({
                   >
                     Save Draft
                   </button>
+                </>
+              )}
+              {/* Sending it back is the way OUT of answering, so it survives
+                  the lock that takes the rest of the entry actions away. */}
+              {canSubmit && (
+                <>
+                  {answeringOnly && <span className="toolbar-divider" aria-hidden="true" />}
                   <button
                     className="btn btn-primary"
                     data-tour="submit-forecast"
-                    disabled={commentFlow !== null}
+                    disabled={commentFlow !== null || (answeringOnly && openRequests.length > 0)}
+                    title={
+                      answeringOnly && openRequests.length > 0
+                        ? 'Answer the outstanding question first'
+                        : answeringOnly
+                          ? 'Send the answered forecast back for approval'
+                          : undefined
+                    }
                     onClick={submit}
                   >
-                    Submit for Approval
+                    {answeringOnly ? 'Resubmit for Approval' : 'Submit for Approval'}
                   </button>
                 </>
               )}

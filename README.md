@@ -239,12 +239,15 @@ person, so it can land on any cell:
   comment**: the same dialog, showing the cell, its movement and whatever the
   submitter said so far.
 - **For the submitter** — cells with an open question are outlined in blue and
-  are **answered by clicking the cell**: the dialog carries the question, the
-  cell's value (a corrected figure is a legitimate answer, and it saves with
-  the explanation in one undo step) and the reply box. The banner above the
-  grid **lists every open question and opens the one you click**, so a dialog
-  dismissed without an answer is never lost, and the checklist lists the same
-  questions in a dropdown under the step they are blocking.
+  are **answered by clicking the cell**, which opens the question with the
+  reply box. The banner above the grid **lists every open question and opens
+  the one you click**, so a dialog dismissed without an answer is never lost;
+  a collapsed section carrying a question says so on its band; and the
+  checklist lists the same questions in a dropdown under the step they block.
+- **For treasury and approvers on the forecast page** — one compact line
+  saying how many questions are outstanding and who is being waited on, with
+  a chip per cell. The submitter's "open one to answer it" panel is addressed
+  to whoever has to reply, which on someone else's forecast is nobody.
 
 Answering **stamps** the question rather than deleting it, so whoever asked
 comes back to the question and the answer together — in Comments Review the
@@ -259,11 +262,18 @@ whether to sign a forecast off and treasury consolidating it are not the same
 person waiting.
 
 A question on a forecast that has already been submitted **sends it back** to
-its submitter, so the number itself can change and not only its explanation.
-That forecast is not a fresh draft, and nothing presents it as one: the
-checklist step reads **Answer & resubmit forecast**, the country lists it as
-*reopened by a question*, and the forecast page opens with a banner naming who
-asked and when.
+its submitter. That forecast is not a fresh draft, and nothing presents it as
+one: the checklist step reads **Answer & resubmit forecast** (then **Resubmit
+forecast** once the questions are answered), the country lists it as *reopened
+by a question*, and the page opens in an **answering mode** — a blue page edge,
+a mode ribbon, and a banner naming who asked and when.
+
+While it is back for answers the **figures stay locked**. They have already
+been reviewed, and a live grid let a submitter restate the week under cover of
+replying — the approver would then have signed off numbers that no longer
+existed. Answering and resubmitting are the only actions offered; if a figure
+genuinely has to change, the approver returns the forecast, which unlocks it
+properly and is visible as a return.
 
 Review items sort by **absolute movement, largest first** — the size of the
 swing is what decides whether a comment is worth reading.
