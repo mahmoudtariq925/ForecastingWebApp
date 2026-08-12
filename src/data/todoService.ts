@@ -130,7 +130,7 @@ export function analystTodo(
   const unsubmitted = entities.filter((e) => e.submission.status === 'draft').length;
   // "Consolidated" is treasury's terminal state for a cycle; until then the
   // numbers can still come back.
-  const cycleClosed = cycle?.status === 'consolidated' || cycle?.status === 'approved';
+  const cycleClosed = cycle?.status === 'consolidated';
 
   // ---- Step 1: the numbers arrive ---------------------------------------
   const submitDone = unsubmitted === 0 && entities.length > 0;

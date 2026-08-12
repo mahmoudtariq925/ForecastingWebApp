@@ -16,13 +16,11 @@ import {
   runningBalance,
   type GridValues,
 } from './gridMath';
-import { generateGridValues, seedFor, STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { listCycles, listEntities, seedUsers } from '../../data/appData';
-import { DEMO_DATA } from '../../data/dataSource';
+import { listEntities, seedUsers } from '../../data/appData';
+import { activeWeekKey, cycleForWeek } from '../../data/cycleService';
 import {
-  currentWeekKey,
   shiftWeeks,
-  HORIZON_WEEKS,
+  horizonWeeks,
   templateDates,
   templateDayLabels,
   listYears,
@@ -43,16 +41,18 @@ import {
   isHandedOver,
   isVariance,
   loadDraftCheckpoint,
+  markRequestsSeen,
   peekSubmission,
   priorValueFor,
   requestComment,
   saveDraftCheckpoint,
+  unseenRequestKeys,
   settingsForEntity,
   templatesForEntity,
 } from '../../data/submissionService';
 import { currentUser } from '../../data/session';
+import { useDataVersion } from '../../data/useDataVersion';
 import {
-  loadCycles,
   loadSettings,
   loadSubmission,
   loadTemplates,
@@ -126,7 +126,7 @@ export function Submission({
       ? initial.entity
       : selectableEntities[0]?.name ?? entities[0]?.name ?? 'Netherlands',
   );
-  const [week, setWeek] = useState(() => initial?.week ?? currentWeekKey());
+  const [week, setWeek] = useState(() => initial?.week ?? activeWeekKey());
 
   const available = templatesForEntity(templates, entity);
   const [templateId, setTemplateId] = useState(() => initial?.templateId ?? available[0]?.id ?? '');
@@ -273,15 +273,14 @@ export function Submission({
  * past week (View Previous) label themselves as such.
  */
 function CycleScope({ week, template }: { week: string; template: ForecastTemplate }) {
-  const cycle = useMemo(() => {
-    const cycles = loadCycles(listCycles());
-    return cycles.find((c) => c.status === 'submitted') ?? cycles[0];
-  }, []);
+  // The cycle that collects THIS week, not just whichever one is open — a
+  // deep link to a past week used to be labelled with the active cycle's id.
+  const cycle = useMemo(() => cycleForWeek(week), [week]);
   const dates = templateDates(template, week);
   const fmt = (d: Date) => `${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}`;
   const range =
     dates.length > 0 ? `${fmt(dates[0])} – ${fmt(dates[dates.length - 1])}` : '';
-  const isCurrent = week === currentWeekKey();
+  const isCurrent = week === activeWeekKey();
   return (
     <span
       className="cycle-scope"
@@ -412,6 +411,20 @@ function SubmissionEditor({
     initial.startingBalance ?? null,
   );
   const [status, setStatus] = useState<SubmissionStatus>(initial.status);
+  /**
+   * Keep the status pill honest when the forecast's state changes underneath
+   * this screen — asking a question reopens the forecast, and the header was
+   * left claiming "approved" over a banner saying a question was waiting.
+   * Only the status is re-read: the grid's own values are local edit state and
+   * must not be replaced from storage mid-keystroke.
+   */
+  const dataVersion = useDataVersion();
+  useEffect(() => {
+    const stored = loadSubmission(week, entity, template.id);
+    if (stored && stored.status !== status) setStatus(stored.status);
+    // `status` is the value being reconciled, not an input to the check.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataVersion, week, entity, template.id]);
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
@@ -713,54 +726,40 @@ function SubmissionEditor({
   const reset = async () => {
     // A checkpoint recorded by Save Draft outranks the starting data: reset
     // means "back to what I last deliberately saved", not "start over".
-    const checkpoint = loadDraftCheckpoint(week, entity, template.id);
-    // The live instance never fabricates numbers: reset always means clear.
-    const reseed = DEMO_DATA && template.id === STANDARD_TEMPLATE_ID;
+    // Reset means "back to the last saved state", never "start over from
+    // generated data" — a finance user reading that button does not expect it
+    // to replace their week with numbers the app made up. An explicit Save
+    // Draft is the restore point; failing that, the forecast as it was when
+    // this screen opened.
+    const checkpoint = loadDraftCheckpoint(week, entity, template.id) ?? initial;
+    const savedExplicitly = loadDraftCheckpoint(week, entity, template.id) !== null;
     const confirmed = await confirm({
       title: 'Reset forecast',
-      message: checkpoint
+      message: savedExplicitly
         ? 'Reset all values back to your last saved draft? Changes made since that save will be lost.'
-        : reseed
-          ? 'Reset all values back to the seeded demo forecast? Your edits for this week will be lost.'
-          : 'Clear all values for this week? Your edits will be lost.',
+        : 'Reset all values back to how this forecast was when you opened it? Changes made since will be lost.',
       confirmLabel: 'Reset Values',
       danger: true,
     });
     if (!confirmed) return;
     pushUndo();
     lastEditedCell.current = null;
-    if (checkpoint) {
-      // Same treatment as undo: remount the cells so no in-progress text
-      // lingers over the restored values.
-      setRestoreVersion((n) => n + 1);
-      const restoredFlags = new Set(checkpoint.flags);
-      setValues(checkpoint.values);
-      setFlags(restoredFlags);
-      setComments(checkpoint.comments ?? {});
-      setDayComments(checkpoint.dayComments ?? {});
-      setStartingBalance(checkpoint.startingBalance ?? null);
-      persist({
-        values: checkpoint.values,
-        flags: restoredFlags,
-        comments: checkpoint.comments ?? {},
-        dayComments: checkpoint.dayComments ?? {},
-        startingBalance: checkpoint.startingBalance ?? null,
-      });
-    } else if (reseed) {
-      const { values: v, flags: f } = generateGridValues(
-        template.categories,
-        week,
-        seedFor(`${entity}:${week}`),
-        true,
-      );
-      setValues(v);
-      setFlags(new Set(f));
-      persist({ values: v, flags: new Set(f) });
-    } else {
-      setValues({});
-      setFlags(new Set());
-      persist({ values: {}, flags: new Set() });
-    }
+    // Same treatment as undo: remount the cells so no in-progress text
+    // lingers over the restored values.
+    setRestoreVersion((n) => n + 1);
+    const restoredFlags = new Set(checkpoint.flags);
+    setValues(checkpoint.values);
+    setFlags(restoredFlags);
+    setComments(checkpoint.comments ?? {});
+    setDayComments(checkpoint.dayComments ?? {});
+    setStartingBalance(checkpoint.startingBalance ?? null);
+    persist({
+      values: checkpoint.values,
+      flags: restoredFlags,
+      comments: checkpoint.comments ?? {},
+      dayComments: checkpoint.dayComments ?? {},
+      startingBalance: checkpoint.startingBalance ?? null,
+    });
   };
 
   const copyPrior = async () => {
@@ -821,6 +820,31 @@ function SubmissionEditor({
     // openVariance is stable for a given render of this editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusCell]);
+
+  /**
+   * A question asked while the submitter was away reopens their forecast, so
+   * the first time they come back to it, land on the cell that was asked
+   * about rather than on a grid of 240 numbers with a flag somewhere in it.
+   * Marked seen immediately, so this happens once per question, not on every
+   * visit — and never when a deep link has already chosen a cell.
+   */
+  useEffect(() => {
+    if (!isSubmitterView || focusCell || focusedOnce.current) return;
+    const unseen = unseenRequestKeys(initial);
+    if (unseen.length === 0) return;
+    const [c, d] = unseen[0].split('-').map(Number);
+    if (!Number.isFinite(c) || !Number.isFinite(d)) return;
+    focusedOnce.current = true;
+    markRequestsSeen(initial);
+    openVariance(c, d);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`.forecast-grid [data-cat="${c}"][data-day="${d}"]`)
+        ?.scrollIntoView({ block: 'center', inline: 'center' });
+    });
+    // openVariance is stable for a given render of this editor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, isSubmitterView, focusCell]);
 
   const saveComment = () => {
     if (!varianceCell) return;
@@ -1125,11 +1149,12 @@ function SubmissionEditor({
   // The forecast is rolling, so the question "is this week's shape different
   // from last week's?" needs both drawn together, not two screens compared
   // from memory.
-  // Only the last four cycles can still overlap this horizon (the forecast
-  // rolls one week per cycle), so anything older has nothing to compare.
+  // Only the cycles that still overlap this horizon can be compared against
+  // it, so how many there are follows the configured horizon rather than a
+  // hardcoded four.
   const priorWeekOptions = useMemo(() => {
     const out: { week: string; label: string; saved: boolean }[] = [];
-    for (let back = 1; back <= HORIZON_WEEKS; back++) {
+    for (let back = 1; back <= horizonWeeks(); back++) {
       const key = shiftWeeks(week, -back);
       out.push({
         week: key,

@@ -14,16 +14,10 @@
 // Phase 2 swaps the live branches for API calls; the static demo keeps
 // working unchanged because its branch never leaves this file.
 // ============================================================================
-import type { Cycle, Entity, LegalEntity, User } from '../types';
+import type { Entity, LegalEntity, User } from '../types';
 import { IS_LIVE } from './dataSource';
-import {
-  buildLegalEntities,
-  cycles as demoCycles,
-  entities as demoEntities,
-  users as demoUsers,
-} from './mockData';
-import { currentWeekKey, horizonDates, isoWeekNumber, prevWeekKey } from './periods';
-import { listSubmissions, loadLegalEntities, loadUsers } from '../storage/localStorage';
+import { buildLegalEntities, users as demoUsers } from './mockData';
+import { loadLegalEntities, loadUsers } from '../storage/localStorage';
 
 // ---------------------------------------------------------------------------
 // Users
@@ -64,108 +58,28 @@ export function seedLegalEntities(): LegalEntity[] {
 // Reporting entities
 // ---------------------------------------------------------------------------
 
-/** Total of one entity's stored submissions for a week, in EUR thousands. */
-function storedTotal(entity: string, week: string): number {
-  return listSubmissions(week)
-    .filter((s) => s.entity === entity)
-    .reduce(
-      (total, s) =>
-        total + Object.values(s.values ?? {}).reduce((a, b) => a + (Number(b) || 0), 0),
-      0,
-    );
-}
-
 /**
- * Live entities derive entirely from Legal Entity Setup: names/regions from
- * the configured entities, submitter/approver display names from the
- * responsibility assignments, totals from imported submissions. Status starts
- * 'pending' — workflow state comes from stored submissions and approvals,
- * which `mergedEntityStatus` already prefers over this seed.
+ * The reporting entities every aggregate screen iterates.
+ *
+ * Derived entirely from Legal Entity Setup — names and regions from the
+ * configured entities, submitter/approver display names resolved against User
+ * Management. Demo and live differ only in what Legal Entity Setup is seeded
+ * with, so there is a single implementation and no second list of people to
+ * fall out of step with the first.
+ *
+ * Figures and workflow status are deliberately absent: those belong to the
+ * stored submission, and every screen reads them from there.
  */
-function liveEntities(): Entity[] {
+export function listEntities(): Entity[] {
   const legal = loadLegalEntities(seedLegalEntities()).filter((e) => e.status === 'active');
   const users = loadUsers(seedUsers());
   const nameOf = (email?: string): string =>
     users.find((u) => u.email.toLowerCase() === (email ?? '').toLowerCase())?.name ?? '—';
-  const week = currentWeekKey();
-  const prior = prevWeekKey(week);
 
-  return legal.map((e) => {
-    const total = storedTotal(e.name, week);
-    const prev = storedTotal(e.name, prior);
-    return {
-      name: e.name,
-      region: e.region,
-      submitter: nameOf(e.submitters[0]),
-      approver: nameOf(e.approvers[0]),
-      total,
-      delta: prev ? Math.round(((total - prev) / Math.abs(prev)) * 1000) / 10 : 0,
-      status: 'pending' as const,
-    };
-  });
-}
-
-/**
- * Demo entities, with their master data taken from Legal Entity Setup.
- *
- * The demo list is seeded from the same constants `buildLegalEntities()` is,
- * so they can be matched by the seeded id. Reading the configured name here
- * is what makes renaming an entity actually show up on the other screens —
- * previously the rename lived only on the Legal Entity Setup table.
- */
-function demoEntitiesWithConfig(): Entity[] {
-  const configured = new Map(
-    loadLegalEntities(buildLegalEntities()).map((e) => [e.id, e]),
-  );
-  return demoEntities.map((e) => {
-    const legal = configured.get(`le-${e.name.toLowerCase().replace(/\s+/g, '-')}`);
-    if (!legal) return e;
-    return { ...e, name: legal.name, region: legal.region };
-  });
-}
-
-/** The reporting entities every aggregate screen iterates. */
-export function listEntities(): Entity[] {
-  return IS_LIVE ? liveEntities() : demoEntitiesWithConfig();
-}
-
-// ---------------------------------------------------------------------------
-// Cycles
-// ---------------------------------------------------------------------------
-
-/** The live instance has no history: one generated cycle for this week. */
-function liveCycles(): Cycle[] {
-  const week = currentWeekKey();
-  const dates = horizonDates(week);
-  const fmt = (d: Date) =>
-    d.toLocaleDateString('en-GB', { month: 'short', day: '2-digit' });
-  const expected = loadLegalEntities(seedLegalEntities()).filter(
-    (e) => e.status === 'active',
-  ).length;
-  const stored = listSubmissions(week);
-  const submitted = new Set(
-    stored.filter((s) => s.status !== 'draft').map((s) => s.entity),
-  ).size;
-  const totalK = stored.reduce(
-    (total, s) =>
-      total + Object.values(s.values ?? {}).reduce((a, b) => a + (Number(b) || 0), 0),
-    0,
-  );
-
-  return [
-    {
-      id: `CW-${dates[0].getFullYear()}-${String(isoWeekNumber(dates[0])).padStart(2, '0')}`,
-      start: fmt(dates[0]),
-      closes: `${fmt(dates[4] ?? dates[0])} · 18:00`,
-      // 'submitted' marks the ACTIVE cycle (Dashboard picks it as current).
-      status: 'submitted',
-      subs: `${submitted} / ${Math.max(expected, 1)}`,
-      total: Math.round(totalK / 100) / 10, // €k → €m, one decimal
-    },
-  ];
-}
-
-/** Seed cycle list handed to `loadCycles` everywhere. */
-export function listCycles(): Cycle[] {
-  return IS_LIVE ? liveCycles() : demoCycles;
+  return legal.map((e) => ({
+    name: e.name,
+    region: e.region,
+    submitter: nameOf(e.submitters[0]),
+    approver: nameOf(e.approvers[0]),
+  }));
 }

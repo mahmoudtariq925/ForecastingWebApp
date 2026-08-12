@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -339,14 +340,23 @@ function NumberCell({
 }) {
   // null = not being edited, so the cell shows the stored value.
   const [draft, setDraft] = useState<string | null>(null);
+  // What the cell held when this edit started. The grid commits on every
+  // keystroke, so without remembering this there is nothing for Escape to put
+  // back — pressing it did nothing at all, and Undo was the only way out of a
+  // number you had started typing over.
+  const committedBefore = useRef<number>(value);
 
   return (
     <input
       value={draft ?? (value === 0 ? '' : String(value))}
       data-cat={catIdx}
       data-day={dayIdx}
+      onFocus={() => {
+        committedBefore.current = value;
+      }}
       onChange={(e) => {
         const raw = e.target.value;
+        if (draft === null) committedBefore.current = value;
         setDraft(raw);
         // Emptying a cell empties it. Committing 0 instead would make
         // "no forecast yet" indistinguishable from "the forecast is zero",
@@ -370,7 +380,17 @@ function NumberCell({
         setDraft(null);
         onPaste(e);
       }}
-      onKeyDown={moveWithKeyboard}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          // Abandon the edit: put the cell back exactly as it was found.
+          e.preventDefault();
+          e.stopPropagation();
+          setDraft(null);
+          onChange(committedBefore.current === 0 ? null : committedBefore.current);
+          return;
+        }
+        moveWithKeyboard(e);
+      }}
     />
   );
 }

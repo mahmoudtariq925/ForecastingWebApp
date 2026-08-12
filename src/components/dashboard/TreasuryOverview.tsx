@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from '../submissions/ForecastGrid';
+import { categoryGroups } from '../submissions/gridMath';
 import { CycleProgressModal } from './CycleProgressModal';
 import { AttentionModal } from './AttentionModal';
-import { ConsolidatedModal } from './ConsolidatedModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
 import { MultiSelect } from '../common/MultiSelect';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities, seedUsers } from '../../data/appData';
+import { useDataVersion } from '../../data/useDataVersion';
+import { listCycles, loadChasers, markChaserSent } from '../../data/cycleService';
 import {
+  horizonWeeks,
   periodsOf,
   rollShift,
-  shiftWeeks,
   templateDayLabels,
   weekLabel,
   weekLabelShort,
@@ -83,9 +85,19 @@ export function TreasuryOverview({
   scopeEntities,
   onOpenSubmission,
 }: TreasuryOverviewProps) {
-  const settings = useMemo(() => loadSettings(DEFAULT_SETTINGS), []);
+  // Every rollup below re-reads when anything is written to storage, so a
+  // decision taken on this page refreshes the panels beside it rather than
+  // leaving them asserting the state from before the click.
+  const dataVersion = useDataVersion();
+  const settings = useMemo(() => {
+    void dataVersion;
+    return loadSettings(DEFAULT_SETTINGS);
+  }, [dataVersion]);
   const overrides = loadApprovals(cycleId);
-  const allTemplates = useMemo(() => loadTemplates(), []);
+  const allTemplates = useMemo(() => {
+    void dataVersion;
+    return loadTemplates();
+  }, [dataVersion]);
 
   // Every country in scope, in entity order — the selector's full menu.
   const scopedNames = useMemo(() => {
@@ -125,46 +137,75 @@ export function TreasuryOverview({
   );
 
   /**
-   * The period a single click on the chart has filtered the page to. Null is
-   * the whole horizon. Everything downstream — stat boxes, matrix, modals —
-   * reads this, so one click narrows the page rather than one panel.
+   * The periods a click on the chart has filtered the page to. Empty is the
+   * whole horizon. Everything downstream — stat boxes, matrix, consolidated
+   * table — reads this, so a click narrows the page rather than one panel.
+   *
+   * A plain click replaces the selection; ctrl (or cmd) adds to it, so several
+   * days that are nowhere near each other — three month-ends, say — can be
+   * looked at as one number.
    */
-  const [period, setPeriod] = useState<number | null>(null);
+  const [periods, setPeriods] = useState<number[]>([]);
 
   const [statModal, setStatModal] = useState<StatModal>(null);
-  const [consolidatedOpen, setConsolidatedOpen] = useState(false);
   /** Day the forecast-vs-forecast breakdown is open on (double click). */
   const [dayIdx, setDayIdx] = useState<number | null>(null);
   /** Prior cycles overlaid on the outlook chart (forecast vs forecast). */
   const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
   /** The consolidated table below, folded away until it is asked for. */
   const [tableOpen, setTableOpen] = useState(false);
+  /**
+   * Sections of the consolidated table that are folded to their total. It
+   * opens fully collapsed: the group position is a section-level question, and
+   * twelve line items across twenty days is not what you want to meet first.
+   * `null` means "not decided yet" and resolves to every section on first
+   * render, so a template with different sections still starts folded.
+   */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number> | null>(null);
 
   const dayLabels = useMemo(() => templateDayLabels(template, week), [template, week]);
   const numCats = template?.categories.length ?? 0;
   const numPeriods = periodsOf(template).count;
   // Clicking a column of one template's horizon means nothing on another's.
-  useEffect(() => setPeriod(null), [templateId]);
+  useEffect(() => setPeriods([]), [templateId]);
 
+  const labelFor = (i: number) =>
+    dayLabels[i] ? `${dayLabels[i].dow} ${dayLabels[i].dm}` : `Day ${i + 1}`;
+  const sortedPeriods = useMemo(() => [...periods].sort((a, b) => a - b), [periods]);
   const periodLabel =
-    period !== null && dayLabels[period]
-      ? `${dayLabels[period].dow} ${dayLabels[period].dm}`
-      : null;
+    sortedPeriods.length === 0
+      ? null
+      : sortedPeriods.length === 1
+        ? labelFor(sortedPeriods[0])
+        : `${sortedPeriods.length} periods`;
+
+  /** Plain click replaces the selection; ctrl/cmd click adds to or removes from it. */
+  const pickPeriod = (i: number, additive: boolean) =>
+    setPeriods((prev) => {
+      if (!additive) return prev.length === 1 && prev[0] === i ? [] : [i];
+      return prev.includes(i) ? prev.filter((p) => p !== i) : [...prev, i];
+    });
 
   // ---- One rollup drives the stat boxes AND both progress modals ----------
   const regions = useMemo(
-    () => cycleProgress(week, overrides, countries, period),
+    () => {
+      void dataVersion;
+      return cycleProgress(week, overrides, countries, periods);
+    },
     // overrides is a fresh object per render; its cycle id is the real input.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [week, cycleId, allTemplates, countries, period],
+    [week, cycleId, allTemplates, countries, periods, dataVersion],
   );
   const countryRows = useMemo(() => allCountries(regions), [regions]);
   const received = countryRows.filter((c) => c.received).length;
   const awaiting = countryRows.filter((c) => c.received && !c.approved).length;
 
   const attention = useMemo(
-    () => attentionRows(week, settings, countries, period),
-    [week, settings, countries, period],
+    () => {
+      void dataVersion;
+      return attentionRows(week, settings, countries, periods);
+    },
+    [week, settings, countries, periods, dataVersion],
   );
   const openComments = attention.reduce((s, r) => s + r.needCommentary, 0);
 
@@ -174,6 +215,7 @@ export function TreasuryOverview({
   // edit. The outlook is an aggregation OF the forecasts, never a forecast of
   // its own, so a number changed in a grid moves this chart.
   const outlookSeries: ChartSeries[] = useMemo(() => {
+    void dataVersion;
     if (!template) return [];
     const { values } = consolidatedValues(week, template, countries);
     return [
@@ -199,19 +241,37 @@ export function TreasuryOverview({
         kind: 'line',
       },
     ];
-  }, [template, week, dayLabels, numCats, countries]);
+  }, [template, week, dayLabels, numCats, countries, dataVersion]);
 
   // Forecast vs forecast, folded into the same axes: each selected cycle adds
   // its cumulative net line, aligned on the calendar days the two share.
-  const compareOptions = useMemo(
-    () =>
-      Array.from({ length: COMPARE_DEPTH }, (_v, i) => {
-        const key = shiftWeeks(week, -(i + 1));
-        return { week: key, label: weekLabelShort(key) };
-      }),
-    [week],
-  );
+  /**
+   * The cycles this forecast can be compared against: the COMPARE_DEPTH most
+   * recent ones BEFORE the active cycle, newest first.
+   *
+   * Derived from the cycle list rather than by stepping back a fixed number of
+   * calendar weeks, so opening a new cycle rolls the window forward — the new
+   * one becomes the current forecast and the oldest option drops off — and the
+   * options honour the configured cycle frequency instead of assuming weekly.
+   */
+  const compareOptions = useMemo(() => {
+    void dataVersion;
+    return listCycles()
+      .filter((c) => c.weekKey < week)
+      .slice(0, COMPARE_DEPTH)
+      .map((c) => ({ week: c.weekKey, label: weekLabelShort(c.weekKey) }));
+  }, [week, dataVersion]);
+
+  // A compare week that has rolled out of the window must not stay selected.
+  useEffect(() => {
+    setCompareWeeks((prev) => {
+      const available = new Set(compareOptions.map((o) => o.week));
+      const kept = prev.filter((w) => available.has(w));
+      return kept.length === prev.length ? prev : kept;
+    });
+  }, [compareOptions]);
   const overlaySeries: ChartSeries[] = useMemo(() => {
+    void dataVersion;
     if (!template) return [];
     // Horizons roll forward one week per cycle, so a forecast N weeks back
     // covers this week's day d at its own day d + N·rollShift. Past that its
@@ -233,18 +293,43 @@ export function TreasuryOverview({
         dashed: true,
       };
     });
-  }, [compareWeeks, template, dayLabels, numCats, numPeriods, compareOptions, countries]);
+  }, [compareWeeks, template, dayLabels, numCats, numPeriods, compareOptions, countries, dataVersion]);
 
   const matrix = useMemo(
-    () => (template ? categoryCountryMatrix(week, template, countries, period) : null),
-    [template, week, countries, period],
+    () => {
+      void dataVersion;
+      return template ? categoryCountryMatrix(week, template, countries, periods) : null;
+    },
+    [template, week, countries, periods, dataVersion],
   );
 
   // The consolidated four-week outlook as a grid, on the same filters.
   const consolidated = useMemo(
-    () => (template ? consolidatedValues(week, template, countries) : null),
-    [template, week, countries],
+    () => {
+      void dataVersion;
+      return template ? consolidatedValues(week, template, countries) : null;
+    },
+    [template, week, countries, dataVersion],
   );
+
+  /**
+   * Sections of the consolidated table, folded unless opened. Resolving `null`
+   * here rather than in state keeps "collapsed by default" true for whatever
+   * sections the selected template happens to have.
+   */
+  const foldedGroups = useMemo(() => {
+    if (collapsedGroups) return collapsedGroups;
+    const count = template ? categoryGroups(template.categories).length : 0;
+    return new Set(Array.from({ length: count }, (_v, i) => i));
+  }, [collapsedGroups, template]);
+
+  const toggleGroup = (groupIndex: number) =>
+    setCollapsedGroups(() => {
+      const next = new Set(foldedGroups);
+      if (next.has(groupIndex)) next.delete(groupIndex);
+      else next.add(groupIndex);
+      return next;
+    });
 
   const toggleCompare = (key: string) =>
     setCompareWeeks((prev) =>
@@ -270,7 +355,16 @@ export function TreasuryOverview({
         `Submit or approve it here: ${window.location.origin + window.location.pathname}\n\n` +
         `Best regards,\n${me.name}\n${me.email}`,
     });
+    // Record the send so the row can say so. Opening a mail draft and leaving
+    // the list unchanged gave treasury no way to tell who they had already
+    // nudged, so countries were chased twice or not at all.
+    markChaserSent(cycleId, e.name);
   };
+
+  const chasers = useMemo(() => {
+    void dataVersion;
+    return loadChasers(cycleId);
+  }, [cycleId, dataVersion]);
 
   return (
     <>
@@ -310,10 +404,16 @@ export function TreasuryOverview({
           </div>
           {/* Only present once the chart has been clicked, so it is a state
               to clear rather than a control to set. */}
-          {period !== null && (
+          {sortedPeriods.length > 0 && (
             <div className="filter-field">
-              <span className="filter-field-label">Period</span>
-              <button className="filter-chip on period-chip" onClick={() => setPeriod(null)}>
+              <span className="filter-field-label">
+                {sortedPeriods.length === 1 ? 'Period' : 'Periods'}
+              </span>
+              <button
+                className="filter-chip on period-chip"
+                onClick={() => setPeriods([])}
+                title={sortedPeriods.map(labelFor).join(', ')}
+              >
                 {periodLabel} <span aria-hidden="true">×</span>
                 <span className="sr-only">Clear the period filter</span>
               </button>
@@ -367,16 +467,14 @@ export function TreasuryOverview({
       <div className="outlook-row">
         <div className="panel outlook-panel" data-tour="outlook-chart">
           <div className="panel-header">
-            <h3>4-Week Outlook</h3>
+            {/* The horizon follows the Settings value, so the heading has to
+                as well rather than always claiming four weeks. */}
+            <h3>{horizonWeeks()}-Week Outlook</h3>
             <div className="row-flex">
               <span className="panel-unit">€k</span>
-              <button
-                className="btn btn-ghost"
-                data-tour="open-consolidated"
-                onClick={() => setConsolidatedOpen(true)}
-              >
-                Consolidated Forecast
-              </button>
+              <span className="chart-hint">
+                Click a column to filter · ctrl-click to add · double-click for the day
+              </span>
             </div>
           </div>
           <div className="chart-controls compare-controls">
@@ -405,8 +503,8 @@ export function TreasuryOverview({
               // horizon, so they are marked out rather than left to be
               // counted off in fives.
               emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
-              activeIndex={period}
-              onPointClick={(i) => setPeriod((prev) => (prev === i ? null : i))}
+              activeIndexes={sortedPeriods}
+              onPointClick={pickPeriod}
               onPointDoubleClick={setDayIdx}
             />
           ) : (
@@ -459,6 +557,8 @@ export function TreasuryOverview({
                 startingBalance={consolidated.startingBalance}
                 editable={false}
                 showColumnTotals={template.columnTotals === true}
+                collapsedGroups={foldedGroups}
+                onToggleGroup={toggleGroup}
               />
             </div>
           ) : (
@@ -479,6 +579,7 @@ export function TreasuryOverview({
           onClose={() => setStatModal(null)}
           onView={openForecast}
           onChase={sendChaser}
+          chasers={chasers}
           emptyMessage="No entities are configured yet."
         />
       )}
@@ -491,6 +592,7 @@ export function TreasuryOverview({
           onClose={() => setStatModal(null)}
           onView={openForecast}
           onChase={sendChaser}
+          chasers={chasers}
           emptyMessage="Every submitted forecast has been approved."
         />
       )}
@@ -505,16 +607,6 @@ export function TreasuryOverview({
           onOpen={(r) =>
             openForecast({ entity: r.entity, templateId: r.templateId, focusCell: r.worstCell })
           }
-        />
-      )}
-      {consolidatedOpen && template && (
-        <ConsolidatedModal
-          open
-          week={week}
-          template={template}
-          onlyEntities={countries}
-          dayIdx={period}
-          onClose={() => setConsolidatedOpen(false)}
         />
       )}
       {dayIdx !== null && (

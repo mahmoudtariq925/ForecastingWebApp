@@ -3866,3 +3866,66 @@ tbody td {
   color: var(--text-dim);
   font-weight: 500;
 }
+
+/* "chased 3h ago" beside a country in the cycle-progress list, so the row
+   says whether it has already been nudged rather than looking untouched. */
+.chased-note {
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-dim, #8e92a3);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Foldable sections in the country matrix. The band header is the control, so
+   the whole row reads as one target rather than a caret you have to hit.
+   --------------------------------------------------------------------------- */
+.matrix-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.matrix-section-toggle:hover {
+  color: var(--accent, #8a6d3b);
+}
+.matrix-section-toggle .section-caret {
+  font-size: 9px;
+  opacity: 0.75;
+}
+.matrix-section-count {
+  margin-left: auto;
+  font-size: 9.5px;
+  opacity: 0.6;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.matrix-table td.matrix-row-label.indent {
+  padding-left: 22px;
+}
+.matrix-section-total td {
+  font-weight: 600;
+}
+
+/* Inline hint in the outlook header: the chart's gestures are not
+   discoverable, and a single line beats a legend nobody reads. */
+.chart-hint {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-dim, #8e92a3);
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .chart-hint {
+    display: none;
+  }
+}

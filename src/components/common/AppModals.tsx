@@ -2,91 +2,77 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import { useDialog } from './dialogContext';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { listCycles, listEntities } from '../../data/appData';
+import { listEntities } from '../../data/appData';
+import { activeWeekKey, cycleIdFor, listCycles } from '../../data/cycleService';
 import {
-  currentWeekKey,
+  cadenceWeeks,
   dayLabelsForWeek,
   horizonDates,
   shiftWeeks,
+  weekLabel,
   weekLabelShort,
 } from '../../data/periods';
 import { consolidatedValues } from '../../data/submissionService';
-import { listSubmissions, loadCycles, loadTemplates } from '../../storage/localStorage';
+import { cycleOverview } from '../../data/dashboardService';
+import { listSubmissions, loadTemplates } from '../../storage/localStorage';
 import {
   cyclesTable,
   exportSubmissionXlsx,
   exportTable,
   submissionsTable,
 } from '../../utils/excel';
-import type { Cycle } from '../../types';
 import type { ModalId } from '../../types/nav';
 
 interface AppModalsProps {
   modal: ModalId;
   onClose: () => void;
-  /** Called with the fully-formed cycle when the user confirms creation. */
-  onCreateCycle: (cycle: Cycle) => void;
+  /** Called with the forecast week to open a cycle for. */
+  onCreateCycle: (weekKey: string) => void;
 }
 
-function fmtDay(iso: string): string {
-  const d = new Date(iso);
-  return isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-}
-
-function fmtDeadline(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  const day = d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${day} · ${time}`;
-}
-
-/** Sensible defaults for a new cycle: next id after the latest stored one,
- * starting next Monday, closing that week's Friday 18:00. */
-function nextCycleDefaults(): { id: string; start: string; deadline: string } {
-  const cycles = loadCycles(listCycles());
-  let id = 'CW-2026-22';
-  const parsed = cycles
-    .map((c) => /^CW-(\d{4})-(\d+)$/.exec(c.id))
-    .filter((m): m is RegExpExecArray => m !== null)
-    .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(b[2]) - Number(a[2]))[0];
-  if (parsed) id = `CW-${parsed[1]}-${String(Number(parsed[2]) + 1).padStart(2, '0')}`;
-  const start = shiftWeeks(currentWeekKey(), 1);
-  const [y, m, d] = start.split('-').map(Number);
+/** Friday 18:00 of a forecast week — the submission deadline. */
+function deadlineLabel(weekKey: string): string {
+  const [y, m, d] = weekKey.split('-').map(Number);
   const friday = new Date(y, m - 1, d + 4);
-  const iso = `${friday.getFullYear()}-${String(friday.getMonth() + 1).padStart(2, '0')}-${String(
-    friday.getDate(),
-  ).padStart(2, '0')}`;
-  return { id, start, deadline: `${iso}T18:00` };
+  return `${friday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · 18:00`;
+}
+
+/**
+ * Forecast weeks a cycle can still be opened for: the next eight weeks that do
+ * not already have one.
+ *
+ * A cycle IS a week, so it is chosen rather than typed. The old form asked for
+ * a free-text cycle id, which could be left blank (the dialog then silently
+ * refused to close) or set to anything at all, which is how "CW-2026-21" came
+ * to sit above data for a completely different week.
+ */
+function openableWeeks(): string[] {
+  const taken = new Set(listCycles().map((c) => c.weekKey));
+  const from = activeWeekKey();
+  const step = cadenceWeeks();
+  const out: string[] = [];
+  for (let i = 1; out.length < 8 && i <= 24; i++) {
+    const week = shiftWeeks(from, i * step);
+    if (!taken.has(week)) out.push(week);
+  }
+  return out;
 }
 
 /** Shared dialogs: New Cycle (creates + persists) and Export (real downloads). */
 export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
-  const defaults = useState(nextCycleDefaults)[0];
-  const [cycleId, setCycleId] = useState(defaults.id);
-  const [startDate, setStartDate] = useState(defaults.start);
-  const [deadline, setDeadline] = useState(defaults.deadline);
+  const weeks = useState(openableWeeks)[0];
+  const [week, setWeek] = useState(weeks[0] ?? '');
   const [format, setFormat] = useState<'xlsx' | 'csv' | 'json'>('xlsx');
   const [scope, setScope] = useState('consolidated');
   const [busy, setBusy] = useState(false);
   const { notify } = useDialog();
 
   const createCycle = async () => {
-    const id = cycleId.trim();
-    if (!id) {
-      await notify({ tone: 'error', message: 'Please enter a cycle ID.' });
+    if (!week) {
+      await notify({ tone: 'error', message: 'Please choose a forecast week to open.' });
       return;
     }
-    onCreateCycle({
-      id,
-      start: fmtDay(startDate),
-      closes: fmtDeadline(deadline),
-      status: 'submitted',
-      subs: `0 / ${listEntities().length}`,
-      total: 0,
-    });
+    onCreateCycle(week);
   };
 
   const runExport = async () => {
@@ -96,7 +82,7 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
         const templates = loadTemplates();
         const tpl = templates.find((t) => t.id === STANDARD_TEMPLATE_ID) ?? templates[0];
         if (!tpl) throw new Error('No forecast template available.');
-        const week = currentWeekKey();
+        const week = activeWeekKey();
         // Same live consolidation the Dashboard / Consolidated screens show.
         const { values, startingBalance } = consolidatedValues(week, tpl);
         const dayLabels = dayLabelsForWeek(week);
@@ -127,9 +113,9 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
       } else if (scope === 'submissions') {
         await exportTable(submissionsTable(listSubmissions()), format, 'submissions');
       } else if (scope === 'cycles4') {
-        await exportTable(cyclesTable(loadCycles(listCycles()).slice(0, 4)), format, 'last-4-cycles');
+        await exportTable(cyclesTable(listCycles().slice(0, 4), cycleOverview), format, 'last-4-cycles');
       } else {
-        await exportTable(cyclesTable(loadCycles(listCycles())), format, 'cycles-ytd');
+        await exportTable(cyclesTable(listCycles(), cycleOverview), format, 'cycles-ytd');
       }
       onClose();
     } catch (err) {
@@ -161,32 +147,23 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
         }
       >
         <div className="form-group">
-          <label className="form-label">Cycle ID</label>
-          <input
-            className="form-input"
-            value={cycleId}
-            onChange={(e) => setCycleId(e.target.value)}
-          />
-        </div>
-        <div className="form-row">
-          <div className="form-group">
-            <label className="form-label">Start Date</label>
-            <input
-              className="form-input"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Submission Deadline</label>
-            <input
-              className="form-input"
-              type="datetime-local"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-            />
-          </div>
+          <label className="form-label">Forecast Week</label>
+          <select
+            className="form-select"
+            value={week}
+            onChange={(e) => setWeek(e.target.value)}
+          >
+            {weeks.map((w) => (
+              <option key={w} value={w}>
+                {weekLabel(w)}
+              </option>
+            ))}
+          </select>
+          <p className="form-hint">
+            {week
+              ? `Opens as ${cycleIdFor(week)}, closing ${deadlineLabel(week)}, for ${listEntities().length} entities.`
+              : 'Every upcoming week already has a cycle.'}
+          </p>
         </div>
         <div className="form-group">
           <label className="form-label">Notify</label>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal } from '../common/Modal';
 import { StatusPill } from '../common/StatusPill';
 import type { RegionProgress } from '../../data/dashboardService';
+import { chasedLabel } from '../../data/cycleService';
 import type { Entity } from '../../types';
 
 interface CycleProgressModalProps {
@@ -15,6 +16,8 @@ interface CycleProgressModalProps {
   onView: (row: { entity: string; templateId: string }) => void;
   /** Prefilled reminder email (the old table's Send Chaser button). */
   onChase: (entity: Entity) => void;
+  /** Entity → ISO timestamp of the last chaser sent this cycle. */
+  chasers?: Record<string, string>;
   /** Empty-state copy when every country has cleared this view. */
   emptyMessage: string;
 }
@@ -38,6 +41,7 @@ export function CycleProgressModal({
   onClose,
   onView,
   onChase,
+  chasers = {},
   emptyMessage,
 }: CycleProgressModalProps) {
   // Everything starts closed: the modal opens on the shape of the cycle —
@@ -141,14 +145,24 @@ export function CycleProgressModal({
                             View
                           </button>
                           {c.status !== 'approved' && (
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              title="Opens a prefilled reminder email in Outlook"
-                              onClick={() => onChase(c.entity)}
-                            >
-                              Send Chaser
-                            </button>
+                            <>
+                              {chasers[c.entity.name] && (
+                                <span
+                                  className="chased-note"
+                                  title={new Date(chasers[c.entity.name]).toLocaleString()}
+                                >
+                                  {chasedLabel(chasers[c.entity.name])}
+                                </span>
+                              )}
+                              <button
+                                className="btn btn-ghost"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                title="Opens a prefilled reminder email in Outlook"
+                                onClick={() => onChase(c.entity)}
+                              >
+                                {chasers[c.entity.name] ? 'Chase Again' : 'Send Chaser'}
+                              </button>
+                            </>
                           )}
                         </span>
                       </div>

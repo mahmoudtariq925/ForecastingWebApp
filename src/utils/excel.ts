@@ -799,11 +799,26 @@ export async function exportTemplateXlsx(
 // ---------------------------------------------------------------------------
 export type TableExport = { name: string; header: string[]; rows: (string | number)[][] };
 
-export function cyclesTable(cycles: Cycle[]): TableExport {
+/** Cycle rows for the Export modal. Counts are passed in by the caller so this
+ * stays a pure formatter and cannot invent a figure of its own. */
+export function cyclesTable(
+  cycles: Cycle[],
+  summaryFor?: (cycle: Cycle) => { received: number; expected: number; totalM: number },
+): TableExport {
   return {
     name: 'Cycles',
-    header: ['Cycle ID', 'Period', 'Closes', 'Status', 'Submissions', 'Total (€M)'],
-    rows: cycles.map((c) => [c.id, `${c.start} → +30d`, c.closes, c.status, c.subs, c.total]),
+    header: ['Cycle ID', 'Week', 'Closes', 'Status', 'Submissions', 'Total (€M)'],
+    rows: cycles.map((c) => {
+      const s = summaryFor?.(c);
+      return [
+        c.id,
+        c.weekKey,
+        c.closes,
+        c.status === 'submitted' ? 'open' : 'closed',
+        s ? `${s.received} / ${s.expected}` : '',
+        s ? s.totalM : '',
+      ];
+    }),
   };
 }
 

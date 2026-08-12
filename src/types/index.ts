@@ -5,13 +5,19 @@
 // Phase 2 swap to a real API a matter of matching these contracts.
 // ============================================================================
 
-/** Workflow status shared by submissions, cycle progress rows and approvals. */
+/**
+ * Workflow status shared by submissions, cycle progress rows and approvals.
+ *
+ * There is exactly one of these per (week, entity, template), and it lives on
+ * the stored submission. Screens must never keep a second copy: a seed status
+ * on the entity used to shadow this one, so the same forecast could read as
+ * "approved" on the dashboard and "still in draft" to the person who owns it.
+ */
 export type SubmissionStatus =
   | 'draft'
   | 'submitted'
   | 'approved'
   | 'rejected'
-  | 'pending'
   | 'consolidated';
 
 /** Access role assigned to a user. Global roles say WHAT a user may do;
@@ -25,33 +31,44 @@ export type UserStatus = 'active' | 'inactive';
 /** Entity-level responsibility a user can hold via Legal Entity Setup. */
 export type EntityResponsibility = 'viewer' | 'approver' | 'submitter';
 
-/** A reporting entity / country team that submits a forecast. */
+/**
+ * A reporting entity / country team that submits a forecast.
+ *
+ * Identity and reporting structure only. Who submits and who approves is read
+ * from Legal Entity Setup (and resolved against User Management), and the
+ * forecast figures and workflow status are read from the stored submission —
+ * neither is duplicated here, so no screen can show a name or a number that
+ * disagrees with the rest of the app.
+ */
 export interface Entity {
   /** Country / team display name, also used as the stable key. */
   name: string;
   /** Reporting region the country rolls up into. */
   region: string;
+  /** Display name of the assigned submitter, or "—" when unassigned. */
   submitter: string;
+  /** Display name of the assigned approver, or "—" when unassigned. */
   approver: string;
-  /** Headline total in EUR thousands. */
-  total: number;
-  /** Percentage delta vs the prior cycle. */
-  delta: number;
-  status: SubmissionStatus;
 }
 
-/** A weekly forecast cycle. */
+/**
+ * A weekly forecast cycle. A cycle IS a forecast week — `weekKey` is the
+ * Monday it collects, so the cycle id, its dates and the data every screen
+ * shows can never describe different periods.
+ */
 export interface Cycle {
+  /** e.g. "CW-2026-33" — derived from `weekKey`, never typed by hand. */
   id: string;
-  /** Human-readable start of the horizon, e.g. "May 18". */
+  /** ISO Monday of the week this cycle collects, e.g. "2026-08-10". */
+  weekKey: string;
+  /** Human-readable start of the horizon, e.g. "10 Aug". */
   start: string;
-  /** Human-readable close deadline, e.g. "May 22 · 18:00". */
+  /** Human-readable close deadline, e.g. "14 Aug · 18:00". */
   closes: string;
-  status: SubmissionStatus;
-  /** Submissions received / expected, e.g. "14 / 18". */
-  subs: string;
-  /** Consolidated total in EUR millions. */
-  total: number;
+  /** 'submitted' = open for entry, 'consolidated' = closed. */
+  status: 'submitted' | 'consolidated';
+  /** ISO timestamp the cycle was opened, for the "opened 8h ago" column. */
+  openedAt: string;
 }
 
 /**

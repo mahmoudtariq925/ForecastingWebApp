@@ -36,10 +36,40 @@ export function setSaveFailureHandler(handler: SaveFailureHandler | null): void 
   onSaveFailure = handler;
 }
 
+// ---------------------------------------------------------------------------
+// Change notification.
+//
+// Screens read straight from storage and cache the result behind their own
+// version counters, which works until one part of a screen writes and another
+// part is left showing what it read before. That is how an approver could
+// approve a forecast and have the panel below still tell them it was awaiting
+// approval. Every write now bumps a revision that components can subscribe to,
+// so anything on screen re-reads the moment the data underneath it moves.
+// ---------------------------------------------------------------------------
+let revision = 0;
+const listeners = new Set<() => void>();
+
+/** Subscribe to storage writes. Returns an unsubscribe function. */
+export function subscribeToData(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** The current storage revision — changes on every successful write. */
+export function dataRevision(): number {
+  return revision;
+}
+
+function notifyDataChanged(): void {
+  revision += 1;
+  for (const listener of listeners) listener();
+}
+
 /** Low-level: persist any JSON-serialisable value under a namespaced key. */
 export function saveData<T>(key: string, value: T): boolean {
   try {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
+    notifyDataChanged();
     return true;
   } catch (err) {
     // Storage can throw in private mode or when the quota is exceeded. This
@@ -84,6 +114,7 @@ function objectEntries<T>(v: unknown): T[] | null {
 export function removeData(key: string): void {
   try {
     localStorage.removeItem(PREFIX + key);
+    notifyDataChanged();
   } catch (err) {
     console.warn(`[storage] failed to remove "${key}"`, err);
   }
@@ -215,14 +246,24 @@ function migrateTemplate(legacy: LegacyTemplate): ForecastTemplate {
   };
 }
 
+/** Marks that the template store has been seeded, so an empty list can mean
+ * "the user removed them all" rather than "this browser is new". */
+const TEMPLATES_SEEDED = 'templatesSeeded';
+
 export function loadTemplates(): ForecastTemplate[] {
   const raw = loadData<unknown>('templates', null);
   // Drop junk elements (e.g. null) before inspecting shapes — `'layout' in t`
   // on a non-object would otherwise crash every screen that loads templates.
   const stored = objectEntries<ForecastTemplate | LegacyTemplate>(raw);
   if (!stored || stored.length === 0) {
+    // An empty list used to be indistinguishable from a fresh browser, so
+    // removing the last template appeared to work and then silently undid
+    // itself on the next reload — while the dashboard carried on rendering
+    // the template that had just been deleted.
+    if (loadData<boolean>(TEMPLATES_SEEDED, false)) return [];
     const seeded = [buildStandardTemplate()];
     saveData('templates', seeded);
+    saveData(TEMPLATES_SEEDED, true);
     return seeded;
   }
   // Migrate any templates saved before the layout/category model existed;
@@ -241,6 +282,7 @@ export function loadTemplates(): ForecastTemplate[] {
 
 export function saveTemplates(templates: ForecastTemplate[]): void {
   saveData('templates', templates);
+  saveData(TEMPLATES_SEEDED, true);
 }
 
 // ---------------------------------------------------------------------------

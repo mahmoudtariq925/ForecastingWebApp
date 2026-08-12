@@ -4,8 +4,6 @@ import { Dashboard } from './components/dashboard/Dashboard';
 import { AnalystHome } from './components/home/AnalystHome';
 import { Cycles } from './components/cycles/Cycles';
 import { Submission, type SubmissionTarget } from './components/submissions/Submission';
-import { Approvals } from './components/approvals/Approvals';
-import { Comparison } from './components/comparisons/Comparison';
 import { CommentsReview } from './components/review/CommentsReview';
 import { LegalEntitySetup } from './components/legalEntities/LegalEntitySetup';
 import { Templates } from './components/templates/Templates';
@@ -15,21 +13,16 @@ import { DataImport } from './components/dataImport/DataImport';
 import { AppModals } from './components/common/AppModals';
 import { useDialog } from './components/common/dialogContext';
 import { useOnboardingTour } from './onboarding/useOnboardingTour';
-import { listCycles } from './data/appData';
+import { cycleIdFor, openCycleForWeek } from './data/cycleService';
+import { seedDemoWorkflow } from './data/demoSeed';
 import {
   assignedEntitiesFor,
   currentUser,
   permissionsFor,
   setCurrentUser,
 } from './data/session';
-import {
-  loadCycles,
-  loadData,
-  saveCycle,
-  saveData,
-  setSaveFailureHandler,
-} from './storage/localStorage';
-import type { Cycle } from './types';
+import { weekLabel } from './data/periods';
+import { loadData, saveData, setSaveFailureHandler } from './storage/localStorage';
 import { allowedViews, landingViewFor } from './types/nav';
 import type { ModalId, ViewId } from './types/nav';
 
@@ -85,38 +78,75 @@ export default function App() {
   // screen so it reloads fresh data.
   const [dataVersion, setDataVersion] = useState(0);
 
+  // -------------------------------------------------------------------------
+  // Navigation and browser history.
+  //
+  // Screen changes are React state, not URLs. That is fine until someone
+  // presses Back: with nothing ever pushed onto the history stack, the browser
+  // had no in-app entry to return to and left the app entirely — mid-forecast,
+  // with no warning. Each navigation now pushes an entry carrying the view it
+  // moved to, and popstate puts that view back.
+  // -------------------------------------------------------------------------
+  const pushHistory = (v: ViewId, target: SubmissionTarget | null) => {
+    window.history.pushState({ liquidView: v, liquidTarget: target }, '');
+  };
+
   const navigate = (v: ViewId) => {
     // Plain navigation clears any pending deep-link so "My Submissions"
     // opens on its defaults again.
+    const target = v === 'submission' ? submissionTarget : null;
     if (v !== 'submission') setSubmissionTarget(null);
+    if (v !== view) pushHistory(v, target);
     setView(v);
     setMenuOpen(false);
   };
 
   const openSubmission = (target: SubmissionTarget) => {
     setSubmissionTarget(target);
+    pushHistory('submission', target);
     setView('submission');
     setMenuOpen(false);
   };
 
+  useEffect(() => {
+    window.history.replaceState(
+      { liquidView: landingViewFor(permissionsFor(currentUser())), liquidTarget: null },
+      '',
+    );
+    const onPop = (e: PopStateEvent) => {
+      const state = e.state as { liquidView?: ViewId; liquidTarget?: SubmissionTarget | null } | null;
+      if (!state?.liquidView) return;
+      setSubmissionTarget(state.liquidTarget ?? null);
+      setView(state.liquidView);
+      setMenuOpen(false);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // Runs once: the listener reads the view out of the history entry itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const switchUser = (email: string) => {
     setCurrentUser(email);
     const next = currentUser();
+    const landing = landingViewFor(permissionsFor(next));
     setSubmissionTarget(null);
-    setView(landingViewFor(permissionsFor(next)));
+    pushHistory(landing, null);
+    setView(landing);
     setSessionVersion((n) => n + 1);
     setDataVersion((n) => n + 1);
     setMenuOpen(false);
   };
 
-  const createCycle = async (cycle: Cycle) => {
-    saveCycle(cycle, loadCycles(listCycles()));
+  const createCycle = async (weekKey: string) => {
+    openCycleForWeek(weekKey);
+    seedDemoWorkflow(weekKey);
     setModal(null);
     setDataVersion((n) => n + 1);
     await notify({
       tone: 'success',
       title: 'Cycle opened',
-      message: `Cycle ${cycle.id} opened. Notifications sent to submitters and approvers via Azure AD.`,
+      message: `Cycle ${cycleIdFor(weekKey)} opened for ${weekLabel(weekKey)}. Notifications sent to submitters and approvers via Azure AD.`,
     });
   };
 
@@ -131,16 +161,17 @@ export default function App() {
         key={submissionTarget ? JSON.stringify(submissionTarget) : 'default'}
         initial={submissionTarget ?? undefined}
         allowedEntities={scopedEntities}
-        readOnly={!permissions.canSubmitForecasts}
+        // Treasury oversees; it does not author a country's numbers. Editing
+        // someone else's submitted forecast, with no save button and no trace,
+        // silently moved the group total nobody could then explain.
+        readOnly={!permissions.canSubmitForecasts || permissions.canViewTreasuryDashboard}
         canRequestComments={permissions.canRequestCommentary}
-        // Approvers decide on the forecast itself; treasury keeps its own
-        // Approvals screen for the group-wide queue.
-        canApprove={permissions.canApproveForecasts && !permissions.canSubmitForecasts}
+        // Approvers decide on the forecast itself. Treasury does not decide
+        // at all: it reads and asks questions.
+        canApprove={permissions.canApproveForecasts && !permissions.canViewTreasuryDashboard}
         isTreasury={permissions.canViewTreasuryDashboard}
       />
     ),
-    approvals: <Approvals onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
-    comparison: <Comparison scopeEntities={scopedEntities} />,
     review: (
       <CommentsReview
         onOpenSubmission={openSubmission}
