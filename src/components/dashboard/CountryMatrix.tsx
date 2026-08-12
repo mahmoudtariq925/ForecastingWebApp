@@ -140,9 +140,6 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
                         {isOpen ? '▾' : '▸'}
                       </span>
                       {section.group}
-                      <span className="matrix-section-count">
-                        {section.rows.length} line{section.rows.length === 1 ? '' : 's'}
-                      </span>
                     </button>
                   </td>
                 </tr>
