@@ -4,9 +4,14 @@
 // this; it does not decide any of it, so the rules live here alongside the
 // other submission logic and can move behind an API later untouched.
 // ============================================================================
-import type { Cycle, Submission, User } from '../types';
+import type { Cycle, CommentRequest, Submission, User } from '../types';
 import { assignedEntitiesFor, permissionsFor } from './session';
-import { peekSubmission, templateForEntity } from './submissionService';
+import {
+  activeReopen,
+  peekSubmission,
+  requesterSummary,
+  templateForEntity,
+} from './submissionService';
 import { loadSubmission, loadTemplates } from '../storage/localStorage';
 
 /**
@@ -67,10 +72,16 @@ export interface EntityProgress {
   started: boolean;
   /** Flagged cells with no commentary — treasury cannot close on these. */
   needCommentary: number;
-  /** Open treasury questions waiting on a reply. */
+  /** Open questions (treasury's or the approver's) waiting on a reply. */
   openQuestions: number;
   flagged: number;
   returnedForUpdate: boolean;
+  /**
+   * This forecast has been submitted before and came back because someone
+   * asked about a cell. Without it a reopened forecast is indistinguishable
+   * from one never started — both are simply "draft".
+   */
+  reopenedByQuestion: boolean;
 }
 
 /** Everything one analyst has in flight for a forecast week. */
@@ -94,6 +105,7 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
         openQuestions: Object.keys(submission.commentRequests ?? {}).length,
         flagged: submission.flags.length,
         returnedForUpdate: submission.status === 'rejected',
+        reopenedByQuestion: activeReopen(submission) !== null,
       },
     ];
   });
@@ -124,10 +136,19 @@ export function analystTodo(
   const isApprover = p.canApproveForecasts;
   const isSubmitter = p.canSubmitForecasts;
 
-  const openQuestions = entities.reduce((s, e) => s + e.openQuestions, 0);
+  const questions: CommentRequest[] = entities.flatMap((e) =>
+    Object.values(e.submission.commentRequests ?? {}),
+  );
+  const openQuestions = questions.length;
+  const askedBy = requesterSummary(questions);
   const needCommentary = entities.reduce((s, e) => s + e.needCommentary, 0);
   const returned = entities.filter((e) => e.returnedForUpdate).length;
   const unsubmitted = entities.filter((e) => e.submission.status === 'draft').length;
+  // Drafts that have been submitted before and came back because of a
+  // question. Counting them as plain drafts told a submitter they had not
+  // started a forecast they had in fact already sent.
+  const reopened = entities.filter((e) => e.reopenedByQuestion).length;
+  const neverSubmitted = unsubmitted - reopened;
   // "Consolidated" is treasury's terminal state for a cycle; until then the
   // numbers can still come back.
   const cycleClosed = cycle?.status === 'consolidated';
@@ -136,20 +157,25 @@ export function analystTodo(
   const submitDone = unsubmitted === 0 && entities.length > 0;
   let submit: TodoStep;
   if (isSubmitter) {
-    // Only a RETURNED forecast puts this step back in play. A question from
-    // treasury does not: submitting is a handover, the numbers are locked
-    // behind it, and answering the question is step 2's work — reopening
-    // step 1 for it invited a pointless resubmission of unchanged figures.
+    // A RETURNED forecast puts this step back in play, and so does a question
+    // asked after the handover: that question sends the whole forecast back
+    // (the number itself may have to change), so the step has to say the
+    // forecast is coming round again rather than starting for the first time.
+    const resubmitting = reopened > 0 && neverSubmitted === 0;
     submit = {
       key: 'submit',
-      label: 'Submit forecast',
-      state: returned > 0 ? 'blocked' : submitDone ? 'done' : 'active',
+      label: resubmitting ? 'Answer & resubmit forecast' : 'Submit forecast',
+      state: returned > 0 || reopened > 0 ? 'blocked' : submitDone ? 'done' : 'active',
       detail:
         returned > 0
           ? `${returned} forecast${returned === 1 ? ' was' : 's were'} returned for update`
-          : submitDone
-            ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
-            : `${unsubmitted} of ${entities.length} still in draft`,
+          : reopened > 0
+            ? `${reopened} already-submitted forecast${reopened === 1 ? ' was' : 's were'} reopened by a question from ${askedBy} — answer it and submit again${
+                neverSubmitted > 0 ? ` · ${neverSubmitted} still in draft` : ''
+              }`
+            : submitDone
+              ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
+              : `${unsubmitted} of ${entities.length} still in draft`,
     };
   } else {
     // Approvers and viewers never submit — this step tracks the submitters.
@@ -159,7 +185,9 @@ export function analystTodo(
       state: submitDone ? 'done' : 'waiting',
       detail: submitDone
         ? `All ${entities.length} of your entit${entities.length === 1 ? 'y’s' : 'ies’'} forecasts are in`
-        : `${unsubmitted} of ${entities.length} still with the submitter${returned > 0 ? ` · ${returned} returned for update` : ''}`,
+        : `${unsubmitted} of ${entities.length} still with the submitter${returned > 0 ? ` · ${returned} returned for update` : ''}${
+            reopened > 0 ? ` · ${reopened} reopened by a question` : ''
+          }`,
     };
   }
 
@@ -197,7 +225,7 @@ export function analystTodo(
         submit.state === 'active'
           ? 'Opens once your forecasts are in'
           : openQuestions > 0
-            ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from Treasury`
+            ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from ${askedBy}`
             : needCommentary === 0
               ? 'Nothing waiting on you'
               : `${needCommentary} variance${needCommentary === 1 ? '' : 's'} to explain`,

@@ -185,10 +185,22 @@ function EntityListModal({
                 </span>
                 <StatusPill
                   status={w.submission.status}
-                  label={w.returnedForUpdate ? 'returned for update' : w.submission.status}
+                  label={
+                    w.returnedForUpdate
+                      ? 'returned for update'
+                      : w.reopenedByQuestion
+                        ? 'reopened by a question'
+                        : w.submission.status
+                  }
                 />
                 <span className="text-dim" style={{ fontSize: 12 }}>
-                  {w.started ? `Last saved ${agoLabel(w.submission.updatedAt)}` : 'Not started yet'}
+                  {/* A reopened forecast has been sent once already — saying
+                      "not started" or only "last saved" hid that entirely. */}
+                  {w.reopenedByQuestion
+                    ? 'Submitted once · answer the question and submit again'
+                    : w.started
+                      ? `Last saved ${agoLabel(w.submission.updatedAt)}`
+                      : 'Not started yet'}
                 </span>
               </div>
               <div className="row-flex">
@@ -374,6 +386,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
    */
   const actionFor = (step: TodoStep, isCurrent: boolean): React.ReactNode => {
     if (step.key === 'submit' && work.length > 0 && (isCurrent || submitClosed)) {
+      // A forecast that came back because of a question is being SENT AGAIN;
+      // a button reading "Submit Forecast" made that look like first-time work.
+      const resubmitting = work.some((w) => w.reopenedByQuestion);
       return (
         <button
           className="btn btn-primary"
@@ -390,7 +405,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
             setEntityList(true);
           }}
         >
-          {canEditForecasts ? 'Submit Forecast' : 'View Forecasts'}
+          {!canEditForecasts
+            ? 'View Forecasts'
+            : resubmitting
+              ? 'Answer & Resubmit'
+              : 'Submit Forecast'}
         </button>
       );
     }
@@ -610,6 +629,10 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
               : `Review & Submit · ${preview.entity} · ${weekLabelShort(week)}`
           }
           onClose={() => setPreview(null)}
+          // An approver reading a forecast is exactly the person with a
+          // question about a number in it, so it is asked from here rather
+          // than by leaving for the full forecast page.
+          canRequestComments={preview.mode === 'approve' && permissions.canRequestCommentary}
           actions={
             preview.mode === 'approve' ? (
               previewDecidable && (

@@ -213,7 +213,18 @@ export interface ForecastTemplate {
  * outflows negative.
  */
 /**
- * A treasury request for commentary on one forecast cell.
+ * Which side a question came from.
+ *
+ * Two different people ask a submitter about a cell, and they mean different
+ * things: an APPROVER is deciding whether to sign this forecast off, while
+ * TREASURY is consolidating it into the group position. Labelling every
+ * question "Treasury" told the submitter the wrong person was waiting.
+ */
+export type RequesterRole = 'treasury' | 'approver';
+
+/**
+ * A request for commentary on one forecast cell, from treasury or from the
+ * entity's approver.
  *
  * Distinct from a variance flag: a flag is derived from the numbers, whereas
  * a request is a person asking a question — so it can land on any cell,
@@ -222,8 +233,26 @@ export interface ForecastTemplate {
 export interface CommentRequest {
   /** Display name of whoever asked, for the submitter's benefit. */
   from: string;
+  /** Which role they asked in. Absent on questions stored before this existed. */
+  fromRole?: RequesterRole;
   message: string;
   requestedAt: string;
+}
+
+/**
+ * Why a forecast that had been handed over is back with its submitter: a
+ * question reopens it (see `requestComment`), and without this the checklist
+ * could only see a forecast "in draft" and read it as one never started.
+ *
+ * Only meaningful while the submission is in `draft`; resubmitting moves the
+ * status on and the reopening stops being the current state of affairs.
+ */
+export interface ForecastReopen {
+  /** Display name of whoever asked the question that reopened it. */
+  by: string;
+  role: RequesterRole;
+  /** ISO timestamp of the question. */
+  at: string;
 }
 
 export interface Submission {
@@ -245,6 +274,12 @@ export interface Submission {
    * sit on any cell, flagged or not; it clears when the submitter answers it.
    */
   commentRequests?: Record<string, CommentRequest>;
+  /**
+   * Set when a question sent this forecast back to its submitter, so every
+   * screen can say "reopened, answer and resubmit" rather than "still in
+   * draft". Read only while `status` is `draft`.
+   */
+  reopenedBy?: ForecastReopen;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**

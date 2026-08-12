@@ -10,7 +10,9 @@
 import type {
   CommentRequest,
   Entity,
+  ForecastReopen,
   ForecastTemplate,
+  RequesterRole,
   Settings,
   Submission,
   SubmissionStatus,
@@ -68,6 +70,9 @@ export function pctChange(current: number, prior: number): number | null {
   return Math.abs(pct) > 999 ? null : pct;
 }
 
+const isRequesterRole = (v: unknown): v is RequesterRole =>
+  v === 'treasury' || v === 'approver';
+
 /** Keep only well-formed comment requests — storage can hold anything. */
 function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
@@ -78,11 +83,47 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
     if (typeof r.message !== 'string' || !r.message.trim()) continue;
     out[key] = {
       from: typeof r.from === 'string' ? r.from : 'Treasury',
+      // Questions stored before roles were recorded were treasury's: the
+      // approver could not ask from anywhere until this release.
+      fromRole: isRequesterRole(r.fromRole) ? r.fromRole : 'treasury',
       message: r.message,
       requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
     };
   }
   return out;
+}
+
+/** Keep a stored reopening only when it is complete enough to describe. */
+function normalizeReopen(raw: unknown): ForecastReopen | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const r = raw as Partial<ForecastReopen>;
+  if (typeof r.by !== 'string' || !r.by.trim()) return undefined;
+  return {
+    by: r.by,
+    role: isRequesterRole(r.role) ? r.role : 'treasury',
+    at: typeof r.at === 'string' ? r.at : new Date().toISOString(),
+  };
+}
+
+/** What a question's asker is CALLED to the person answering it. */
+export function requesterLabel(role: RequesterRole | undefined): string {
+  return role === 'approver' ? 'Approver' : 'Treasury';
+}
+
+/**
+ * "Treasury", "your approver" or "Treasury and your approver" — who a
+ * submitter's open questions are from, for the banner above their grid.
+ */
+export function requesterSummary(requests: Iterable<CommentRequest>): string {
+  let treasury = false;
+  let approver = false;
+  for (const r of requests) {
+    if (r.fromRole === 'approver') approver = true;
+    else treasury = true;
+  }
+  if (treasury && approver) return 'Treasury and your approver';
+  if (approver) return 'your approver';
+  return 'Treasury';
 }
 
 /** Fill in fields missing (or of the wrong type) in submissions stored by
@@ -100,6 +141,7 @@ function normalizeSubmission(sub: Submission): Submission {
       : [],
     comments: record(sub.comments) ?? {},
     commentRequests: normalizeRequests(sub.commentRequests),
+    reopenedBy: normalizeReopen(sub.reopenedBy),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -772,9 +814,23 @@ export function requestComment(
     flags: [...flags],
     resolvedFlags: (sub.resolvedFlags ?? []).filter((k) => k !== key),
     commentRequests: { ...(sub.commentRequests ?? {}), [key]: request },
+    // Remember that this draft is a REOPENED forecast, not a new one — a
+    // submitter coming back to it was otherwise told they were starting over.
+    reopenedBy: reopened
+      ? { by: request.from, role: request.fromRole ?? 'treasury', at: request.requestedAt }
+      : sub.reopenedBy,
     updatedAt: new Date().toISOString(),
   });
   if (reopened) clearApprovalDecision(entity);
+}
+
+/**
+ * The reopening to TELL the submitter about: one that explains the state the
+ * forecast is in right now. A resubmitted forecast has moved on, so its record
+ * of having once been reopened is history rather than news.
+ */
+export function activeReopen(sub: Submission): ForecastReopen | null {
+  return sub.status === 'draft' ? (sub.reopenedBy ?? null) : null;
 }
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@
 //   GLOBAL ROLE (here)            — WHAT a user may do.
 //   LEGAL ENTITY SETUP (service)  — WHERE they may do it.
 // ============================================================================
-import type { Role, User } from '../types';
+import type { RequesterRole, Role, User } from '../types';
 import { seedUsers } from './appData';
 import { entityNamesFor, listLegalEntities } from './legalEntityService';
 import { loadData, loadUsers, saveData } from '../storage/localStorage';
@@ -127,6 +127,17 @@ export function currentUser(): User {
     seedUsers()[0];
   if (fallback) saveData(CURRENT_USER_KEY, fallback.email);
   return fallback;
+}
+
+/**
+ * Which side the signed-in user asks a question from.
+ *
+ * Both treasury and an approver may ask a submitter to explain a cell, and the
+ * submitter needs to know which of them is waiting — so the role is read here,
+ * once, rather than inferred from whichever screen the question came off.
+ */
+export function requesterRoleFor(user: User): RequesterRole {
+  return permissionsFor(user).canViewTreasuryDashboard ? 'treasury' : 'approver';
 }
 
 /** Persist the mock-session choice (dev-only user switcher). */

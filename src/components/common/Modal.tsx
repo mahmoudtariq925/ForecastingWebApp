@@ -15,6 +15,21 @@ interface ModalProps {
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** The control a dialog should open ON: what it is asking for, if it asks for
+ *  anything. Falling back to the first focusable element put the caret on the
+ *  × button of every dialog with a form in it. */
+const FIRST_FIELD = 'textarea:not([disabled]), input:not([disabled]), select:not([disabled])';
+
+/**
+ * Open dialogs, innermost last.
+ *
+ * Dialogs stack — a forecast preview opens a commentary request over itself,
+ * and a confirm can open over either. Escape and the focus trap belong to the
+ * TOP one only: every open dialog listening on the document meant one Escape
+ * closed the whole stack, and each trap fought the others for focus.
+ */
+const stack: symbol[] = [];
+
 /**
  * Overlay modal matching the prototype's `.modal-overlay` markup.
  *
@@ -27,18 +42,35 @@ export function Modal({ open, title, onClose, children, footer, size = 'default'
   const dialogRef = useRef<HTMLDivElement>(null);
   const restoreFocusTo = useRef<Element | null>(null);
   const titleId = useRef(`modal-${Math.abs(title.split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7))}`);
+  const id = useRef(Symbol('modal'));
+  /**
+   * The latest close handler, read at event time rather than captured.
+   *
+   * Call sites pass an inline arrow (`onClose={() => setCell(null)}`), so a
+   * dependency on it re-ran this effect on EVERY render. Each re-run tore the
+   * dialog down and set it back up, which moved focus to the first control —
+   * the × button — after every single keystroke in a text box, and typing a
+   * space or Enter there then closed the dialog.
+   */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
+    const self = id.current;
+    stack.push(self);
     restoreFocusTo.current = document.activeElement;
-    // Focus the first control so keyboard users start inside the dialog.
-    const first = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    first?.focus();
+    // Open on whatever the dialog is asking for, so it can be answered
+    // without reaching for the mouse first.
+    const field = dialogRef.current?.querySelector<HTMLElement>(FIRST_FIELD);
+    (field ?? dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Only the dialog on top of the stack answers the keyboard.
+      if (stack[stack.length - 1] !== self) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -57,10 +89,12 @@ export function Modal({ open, title, onClose, children, footer, size = 'default'
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
+      const at = stack.lastIndexOf(self);
+      if (at >= 0) stack.splice(at, 1);
       // Hand focus back to whatever opened the dialog.
       (restoreFocusTo.current as HTMLElement | null)?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <div

@@ -6,6 +6,7 @@ import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
+import { RequestCommentaryModal } from './RequestCommentaryModal';
 import {
   categoryGroups,
   cellKey,
@@ -44,7 +45,8 @@ import {
   markRequestsSeen,
   peekSubmission,
   priorValueFor,
-  requestComment,
+  requesterLabel,
+  requesterSummary,
   saveDraftCheckpoint,
   unseenRequestKeys,
   settingsForEntity,
@@ -65,6 +67,7 @@ import { appUrl, emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type {
   CommentRequest,
+  ForecastReopen,
   ForecastTemplate,
   SubmissionStatus,
   TemplateLayout,
@@ -298,7 +301,6 @@ function CycleScope({ week, template }: { week: string; template: ForecastTempla
 interface VarianceCell {
   key: string;
   label: string;
-  day: number;
   prior: number | null;
   current: number;
 }
@@ -423,13 +425,23 @@ function SubmissionEditor({
   const dataVersion = useDataVersion();
   useEffect(() => {
     const stored = loadSubmission(week, entity, template.id);
-    if (stored && stored.status !== status) setStatus(stored.status);
+    if (stored && stored.status !== status) {
+      setStatus(stored.status);
+      // …and with it, whether the forecast is back here because of a question.
+      setReopenedBy(stored.status === 'draft' ? stored.reopenedBy : undefined);
+    }
     // `status` is the value being reconciled, not an input to the check.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataVersion, week, entity, template.id]);
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
+  /**
+   * Set while this forecast is back with its submitter because someone asked
+   * about a cell — so the page says "reopened, answer and resubmit" instead of
+   * presenting a submitted forecast as a fresh draft.
+   */
+  const [reopenedBy, setReopenedBy] = useState<ForecastReopen | undefined>(initial.reopenedBy);
   /**
    * The forecast is with the approver (or already approved), so the submitter
    * may no longer change the numbers — only answer questions on them. Greying
@@ -446,8 +458,6 @@ function SubmissionEditor({
 
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
-  /** Treasury's question, while it is being written in the cell dialog. */
-  const [requestDraft, setRequestDraft] = useState('');
   /**
    * The guided commentary flow that runs on submit: the flagged cell being
    * explained right now, with the commentary dock beside the grid — on the
@@ -581,6 +591,7 @@ function SubmissionEditor({
     flags?: Set<string>;
     comments?: Record<string, string>;
     commentRequests?: Record<string, CommentRequest>;
+    reopenedBy?: ForecastReopen;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -596,6 +607,9 @@ function SubmissionEditor({
       resolvedFlags,
       comments: snap.comments ?? comments,
       commentRequests: snap.commentRequests ?? commentRequests,
+      // Autosave must not forget that this forecast was reopened by a
+      // question — the checklist reads it to say so.
+      reopenedBy: 'reopenedBy' in snap ? snap.reopenedBy : reopenedBy,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -794,11 +808,9 @@ function SubmissionEditor({
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
     setCommentDraft(comments[key] ?? '');
-    setRequestDraft('');
     setVarianceCell({
       key,
       label: template.categories[catIdx]?.label ?? '',
-      day: dayIdx + 1,
       prior: priorValueFor(prior, catIdx, dayIdx, template),
       current: values[key] || 0,
     });
@@ -863,62 +875,58 @@ function SubmissionEditor({
     setVarianceCell(null);
   };
 
-  /** Treasury asks the submitter about this cell, and emails them about it. */
-  const sendCommentRequest = async () => {
-    if (!varianceCell) return;
-    const message = requestDraft.trim();
-    if (!message) {
-      await notify({ tone: 'error', message: 'Write the question you want answered first.' });
-      return;
-    }
-    const me = currentUser();
-    const request: CommentRequest = {
-      from: me.name,
-      message,
-      requestedAt: new Date().toISOString(),
-    };
-    requestComment(week, entity, template.id, varianceCell.key, request);
-    const next = { ...commentRequests, [varianceCell.key]: request };
-    setCommentRequests(next);
-    setFlags((f) => new Set(f).add(varianceCell.key));
-    setVarianceCell(null);
-    setRequestDraft('');
-    emailCommentRequest(varianceCell, message);
+  /** "Mon 4 Aug" for a cell key, falling back to the column number. */
+  const periodLabelFor = (key: string): string => {
+    const d = Number(key.split('-')[1]);
+    return dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`;
   };
 
-  /** Outlook draft to whoever submits for this entity. */
-  const emailCommentRequest = (cell: VarianceCell, message: string) => {
-    const ent = listEntities().find((e) => e.name === entity);
-    const me = currentUser();
-    const to = ent ? emailForName(ent.submitter, loadUsers(seedUsers()), mailDomain(settings)) : '';
-    openEmail({
-      to,
-      subject: `Question on the ${entity} forecast — ${cell.label} · Day ${cell.day} · ${weekLabel(week)}`,
-      body:
-        `Hi ${ent?.submitter ?? 'there'},\n\n` +
-        `I have a question about the ${entity} cash flow forecast for ${weekLabel(week)}.\n\n` +
-        `Line item: ${cell.label}\n` +
-        `Period: Day ${cell.day}\n` +
-        `Current value: ${fmtK(cell.current)}\n` +
-        (cell.prior === null ? '' : `Prior forecast: ${fmtK(cell.prior)}\n`) +
-        `\nQuestion:\n${message}\n\n` +
-        `Please add your commentary on that cell: ${appUrl()}\n\n` +
-        `Best regards,\n${me.name}\n${me.email}`,
-    });
+  /** "Receivables · Mon 4 Aug" for a cell key, for banners and lists. */
+  const cellLabelFor = (key: string): string => {
+    const c = Number(key.split('-')[0]);
+    return `${template.categories[c]?.label ?? `Line ${c + 1}`} · ${periodLabelFor(key)}`;
+  };
+
+  /** The open cell dialog, as the shared "ask about this cell" dialog wants it. */
+  const askTarget = varianceCell
+    ? {
+        entity,
+        week,
+        templateId: template.id,
+        cellKey: varianceCell.key,
+        label: varianceCell.label,
+        periodLabel: periodLabelFor(varianceCell.key),
+        current: varianceCell.current,
+        prior: varianceCell.prior,
+        comment: comments[varianceCell.key] ?? '',
+      }
+    : null;
+
+  /** Record a question asked from this screen without re-reading storage. */
+  const onQuestionSent = (key: string, request: CommentRequest) => {
+    setCommentRequests((prev) => ({ ...prev, [key]: request }));
+    setFlags((f) => new Set(f).add(key));
+    // Asking about a submitted forecast hands it back to its submitter, so
+    // the pill above the grid must not go on claiming it is submitted.
+    if (isHandedOver(status)) {
+      setStatus('draft');
+      setReopenedBy({
+        by: request.from,
+        role: request.fromRole ?? 'treasury',
+        at: request.requestedAt,
+      });
+    }
   };
 
   const uncommented = [...flags].filter((k) => !comments[k]?.trim());
   const requestedCells = useMemo(() => new Set(Object.keys(commentRequests)), [commentRequests]);
   const openRequests = useMemo(
-    () => Object.entries(commentRequests).map(([key, r]) => ({ key, ...r })),
+    () =>
+      Object.entries(commentRequests)
+        .map(([key, r]) => ({ key, ...r }))
+        .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
     [commentRequests],
   );
-
-  /** "Receivables · Day 3" for a cell key, for banners and email subjects. */
-  const cellLabelFor = (key: string): string => {
-    const [c, d] = key.split('-').map(Number);
-    return `${template.categories[c]?.label ?? `Line ${c + 1}`} · Day ${d + 1}`;
-  };
 
   /**
    * Editable cells with no number in them yet. Subtotals are computed, so
@@ -1013,7 +1021,10 @@ function SubmissionEditor({
     setNeedInput(null);
     setCommentFlow(null);
     setStatus('submitted');
-    persist({ ...snap, status: 'submitted' });
+    // Submitting answers the reopening: the forecast is with the approver
+    // again, so it stops being "reopened, awaiting your resubmission".
+    setReopenedBy(undefined);
+    persist({ ...snap, status: 'submitted', reopenedBy: undefined });
     // A fresh submission reopens the decision: without this, a rejection
     // stuck in the cycle's approval map forever and the approver saw the
     // resubmitted forecast as already "rejected" with no way to approve it.
@@ -1277,7 +1288,10 @@ function SubmissionEditor({
       </div>
       {commentRequests[flowCell.key] && (
         <div className="comment-request-note">
-          <strong>{commentRequests[flowCell.key].from} asked:</strong>{' '}
+          <strong>
+            {commentRequests[flowCell.key].from} (
+            {requesterLabel(commentRequests[flowCell.key].fromRole)}) asked:
+          </strong>{' '}
           {commentRequests[flowCell.key].message}
         </div>
       )}
@@ -1365,18 +1379,66 @@ function SubmissionEditor({
             </div>
           </div>
         )}
+        {/* A forecast that came back because someone asked about it is NOT a
+            forecast being started: say so, or the checklist's "in draft" and a
+            grid full of numbers read as work to do from scratch. */}
+        {isSubmitterView && reopenedBy && status === 'draft' && (
+          <div className="variance-panel reopened-panel">
+            <h4>↩ Reopened — this forecast has already been submitted</h4>
+            <div className="row">
+              <span>
+                {reopenedBy.by} ({requesterLabel(reopenedBy.role)}) asked about a cell on{' '}
+                {new Date(reopenedBy.at).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                })}
+                , which returned it to you. Answer the question{openRequests.length === 1 ? '' : 's'}{' '}
+                below, correct anything that has to change, and submit it again.
+              </span>
+            </div>
+          </div>
+        )}
         {openRequests.length > 0 && (
           <div className="variance-panel comment-request-panel">
             <h4>
-              ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from Treasury
+              ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
+              {requesterSummary(openRequests)}
             </h4>
             <div className="row">
               <span>
-Cells outlined in blue have a question waiting.
+                Cells outlined in blue have a question waiting.
+                {isSubmitterView && ' Open one to answer it — you can come back to it any time.'}
               </span>
-              <span>
-                {openRequests[0].from} · {cellLabelFor(openRequests[0].key)}
-              </span>
+            </div>
+            {/* Every open question, each a door back to its cell. Closing the
+                dialog without answering used to leave the question unreachable:
+                the cell stayed highlighted with no way back into what was
+                asked. */}
+            <div className="comment-request-list">
+              {openRequests.map((r) => (
+                <button
+                  key={r.key}
+                  className="comment-request-item"
+                  title={`Open ${cellLabelFor(r.key)}`}
+                  onClick={() => {
+                    const [c, d] = r.key.split('-').map(Number);
+                    openVariance(c, d);
+                    requestAnimationFrame(() => {
+                      document
+                        .querySelector(`.forecast-grid [data-cat="${c}"][data-day="${d}"]`)
+                        ?.scrollIntoView({ block: 'center', inline: 'center' });
+                    });
+                  }}
+                >
+                  <strong>{cellLabelFor(r.key)}</strong>
+                  <span className="text-dim">
+                    {r.from} ({requesterLabel(r.fromRole)}): {r.message}
+                  </span>
+                  <span className="comment-request-open" aria-hidden="true">
+                    {isSubmitterView ? 'Answer →' : 'Open →'}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -1719,96 +1781,69 @@ Cells outlined in blue have a question waiting.
 
       </div>
 
-      <Modal
-        open={varianceCell !== null}
-        title={
-          canRequestComments
-            ? 'Request Commentary'
-            : readOnly
-              ? 'Variance Detail'
-              : 'Explain Variance'
-        }
-        onClose={() => setVarianceCell(null)}
-        footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
-              {canRequestComments || readOnly ? 'Close' : 'Cancel'}
-            </button>
-            {/* Treasury and approvers ASK; only the submitter writes the
-                commentary, so the two roles never share a Save button. */}
-            {canRequestComments ? (
-              <button
-                className="btn btn-primary"
-                onClick={sendCommentRequest}
-                title="Ask the submitter to explain this cell and email them about it"
-              >
-                Send Request
+      {/* Treasury and approvers ASK about a cell; the submitter EXPLAINS it.
+          Two different jobs, so two dialogs — and the asking one is shared
+          with the preview dialog and Comments Review. */}
+      {canRequestComments && askTarget && varianceCell ? (
+        <RequestCommentaryModal
+          target={askTarget}
+          context={`${entity} · ${weekLabelShort(week)}`}
+          existing={commentRequests[varianceCell.key] ?? null}
+          flagged={flags.has(varianceCell.key)}
+          onClose={() => setVarianceCell(null)}
+          onSent={(request) => onQuestionSent(varianceCell.key, request)}
+        />
+      ) : (
+        <Modal
+          open={varianceCell !== null}
+          title={readOnly ? 'Variance Detail' : 'Explain Variance'}
+          onClose={() => setVarianceCell(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
+                {readOnly ? 'Close' : 'Cancel'}
               </button>
-            ) : (
-              !readOnly && (
+              {!readOnly && (
                 <button className="btn btn-primary" onClick={saveComment}>
                   Save
                 </button>
-              )
-            )}
-          </>
-        }
-      >
-        {varianceCell && (
-          <>
-            <div className="variance-panel" style={{ marginBottom: 18 }}>
-              <h4>{flags.has(varianceCell.key) ? 'Flagged Cell' : 'Cell'}</h4>
-              <div className="row">
-                <span>
-                  {varianceCell.label} · Day {varianceCell.day}
-                </span>
-                <span>
-                  {varianceDelta === null
-                    ? 'new period'
-                    : `${varianceDelta > 0 ? '+' : ''}${varianceDelta.toFixed(1)}%`}
-                </span>
-              </div>
-              <div className="row">
-                <span>
-                  Prior:{' '}
-                  {varianceCell.prior === null
-                    ? '—'
-                    : `€${varianceCell.prior.toLocaleString()}k`}
-                </span>
-                <span>Current: €{varianceCell.current.toLocaleString()}k</span>
-              </div>
-            </div>
-            {commentRequests[varianceCell.key] && (
-              <div className="comment-request-note">
-                <strong>{commentRequests[varianceCell.key].from} asked:</strong>{' '}
-                {commentRequests[varianceCell.key].message}
-              </div>
-            )}
-            {canRequestComments ? (
-              <>
-                {/* What the submitter has said so far, as context — read-only,
-                    because writing their commentary for them is not the job. */}
-                <div className="form-group">
-                  <label className="form-label">Submitter’s commentary</label>
-                  <div className="readback">
-                    {commentDraft.trim() || 'No commentary provided yet.'}
-                  </div>
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">What do you want explained?</label>
-                  <textarea
-                    className="form-textarea"
-                    placeholder="e.g. This is triple last week's payables — is a one-off settlement included?"
-                    value={requestDraft}
-                    onChange={(e) => setRequestDraft(e.target.value)}
-                    aria-label="Request message"
-                  />
-                  <span className="text-muted" style={{ fontSize: 11 }}>
-                    Sending marks the cell for the submitter and opens an Outlook draft to them.
+              )}
+            </>
+          }
+        >
+          {varianceCell && (
+            <>
+              <div className="variance-panel" style={{ marginBottom: 18 }}>
+                <h4>{flags.has(varianceCell.key) ? 'Flagged Cell' : 'Cell'}</h4>
+                <div className="row">
+                  <span>
+                    {varianceCell.label} · {periodLabelFor(varianceCell.key)}
+                  </span>
+                  <span>
+                    {varianceDelta === null
+                      ? 'new period'
+                      : `${varianceDelta > 0 ? '+' : ''}${varianceDelta.toFixed(1)}%`}
                   </span>
                 </div>
-              </>
-            ) : (
+                <div className="row">
+                  <span>
+                    Prior:{' '}
+                    {varianceCell.prior === null
+                      ? '—'
+                      : `€${varianceCell.prior.toLocaleString()}k`}
+                  </span>
+                  <span>Current: €{varianceCell.current.toLocaleString()}k</span>
+                </div>
+              </div>
+              {commentRequests[varianceCell.key] && (
+                <div className="comment-request-note">
+                  <strong>
+                    {commentRequests[varianceCell.key].from} (
+                    {requesterLabel(commentRequests[varianceCell.key].fromRole)}) asked:
+                  </strong>{' '}
+                  {commentRequests[varianceCell.key].message}
+                </div>
+              )}
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">
                   {readOnly ? 'Commentary' : 'Commentary (required)'}
@@ -1831,10 +1866,10 @@ Cells outlined in blue have a question waiting.
                   </span>
                 )}
               </div>
-            )}
-          </>
-        )}
-      </Modal>
+            </>
+          )}
+        </Modal>
+      )}
     </>
   );
 }

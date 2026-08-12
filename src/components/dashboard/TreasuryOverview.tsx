@@ -27,7 +27,8 @@ import {
   filterRegions,
 } from '../../data/dashboardService';
 import { consolidatedValues } from '../../data/submissionService';
-import { currentUser } from '../../data/session';
+import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
+import { currentUser, permissionsFor } from '../../data/session';
 import { loadApprovals, loadSettings, loadTemplates, loadUsers } from '../../storage/localStorage';
 import { dayInflows, dayNet, dayOutflows } from '../submissions/gridMath';
 import { emailForName, mailDomain, openEmail } from '../../utils/email';
@@ -51,6 +52,15 @@ interface TreasuryOverviewProps {
 
 /** Which stat box (if any) has its modal open. */
 type StatModal = 'received' | 'awaiting' | 'attention' | null;
+
+/** A country's forecast opened in a dialog from one of the modals above. */
+interface PreviewTarget {
+  entity: string;
+  templateId?: string;
+  /** Cell to raise the commentary-request dialog on, when arriving from a
+   *  row that named one ("this country's largest unexplained move"). */
+  focusCell?: string;
+}
 
 /** How many prior cycles can be overlaid — beyond four there is no overlap. */
 const COMPARE_DEPTH = 4;
@@ -92,6 +102,8 @@ export function TreasuryOverview({
   // decision taken on this page refreshes the panels beside it rather than
   // leaving them asserting the state from before the click.
   const dataVersion = useDataVersion();
+  /** Treasury and approvers may ask a submitter about a cell from the dialog. */
+  const canAsk = useMemo(() => permissionsFor(currentUser()).canRequestCommentary, []);
   const settings = useMemo(() => {
     void dataVersion;
     return loadSettings(DEFAULT_SETTINGS);
@@ -151,6 +163,8 @@ export function TreasuryOverview({
   const [periods, setPeriods] = useState<number[]>([]);
 
   const [statModal, setStatModal] = useState<StatModal>(null);
+  /** The forecast being read in a dialog over this page, if any. */
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   /** Day the forecast-vs-forecast breakdown is open on (double click). */
   const [dayIdx, setDayIdx] = useState<number | null>(null);
   /** Prior cycles overlaid on the outlook chart (forecast vs forecast). */
@@ -340,8 +354,20 @@ export function TreasuryOverview({
     );
 
   // ---- Actions the progress modals hand back ------------------------------
+  /**
+   * Viewing a country's forecast opens it HERE, in a dialog over the list it
+   * was picked from — the way an approver's checklist already opens one.
+   * Navigating to the full forecast page threw away the progress list, the
+   * filters and the place in it, for a forecast the reader only wanted to look
+   * at. The full page is still one button away inside the dialog.
+   */
   const openForecast = (target: { entity: string; templateId?: string; focusCell?: string }) =>
+    setPreview({ entity: target.entity, templateId: target.templateId, focusCell: target.focusCell });
+
+  const openFullForecast = (target: { entity: string; templateId?: string; focusCell?: string }) => {
+    setPreview(null);
     onOpenSubmission?.({ ...target, week });
+  };
 
   const sendChaser = (e: Entity) => {
     const me = currentUser();
@@ -620,6 +646,26 @@ export function TreasuryOverview({
           }
           onClose={() => setDayIdx(null)}
           onOpen={openForecast}
+        />
+      )}
+      {/* Rendered last so it sits over whichever list it was opened from, and
+          closing it returns to that list rather than to a different screen. */}
+      {preview && (
+        <ForecastPreviewModal
+          open
+          entity={preview.entity}
+          week={week}
+          title={`${preview.entity} · ${weekLabelShort(week)}`}
+          canRequestComments={canAsk}
+          focusCell={preview.focusCell}
+          onClose={() => setPreview(null)}
+          actions={
+            onOpenSubmission && (
+              <button className="btn btn-primary" onClick={() => openFullForecast(preview)}>
+                Open Full Forecast
+              </button>
+            )
+          }
         />
       )}
     </>
