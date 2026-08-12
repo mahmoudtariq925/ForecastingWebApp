@@ -4080,12 +4080,15 @@ tbody td {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-weight: 700;
-  color: var(--text);
-  /* The palette taupe. A 10% tint left the band the same value as the cells
-     around it, so the sections dissolved into the grid. */
-  background: var(--jde-taupe);
-  border-top: 2px solid var(--n-400);
-  border-bottom: 1px solid var(--n-400);
+  color: var(--text-dim);
+  /* Light enough to be a LABEL. Full taupe separated the sections all right,
+     but four dark bars were the first thing the eye met on the dashboard —
+     louder than the numbers they were introducing. The rows they separate are
+     white, so a pale tint and a single rule are enough to hold the structure.
+     (A 10% tint was the other extreme: the bands dissolved into the grid.) */
+  background: var(--n-100);
+  border-top: 1px solid var(--n-300);
+  border-bottom: 1px solid var(--border);
 }
 /* The band spans every column, so the label itself is what has to stay put
    when the country columns scroll sideways. */
