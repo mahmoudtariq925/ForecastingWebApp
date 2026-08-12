@@ -136,6 +136,17 @@ function normalizeReopen(raw: unknown): ForecastReopen | undefined {
   };
 }
 
+/**
+ * How a status reads to a person. A returned forecast is stored as `rejected`,
+ * which is the workflow's word, not the app's: everywhere else — the cycle
+ * list, the checklist, the notification — it is "returned for update". The
+ * pill said REJECTED, so the one place a submitter met the decision was the
+ * one place it sounded final.
+ */
+export function statusLabel(status: SubmissionStatus): string {
+  return status === 'rejected' ? 'returned' : status;
+}
+
 /** What a question's asker is CALLED to the person answering it. */
 export function requesterLabel(role: RequesterRole | undefined): string {
   return role === 'approver' ? 'Approver' : 'Treasury';

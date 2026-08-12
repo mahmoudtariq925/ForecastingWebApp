@@ -50,6 +50,11 @@ export interface ForecastGridProps {
   /** Cells carrying an open treasury question, marked apart from a flag. */
   requested?: Set<string>;
   /**
+   * Cells whose question has been answered. Marked for whoever asked, so a
+   * reply can be found on the grid rather than only in a queue elsewhere.
+   */
+  answered?: Set<string>;
+  /**
    * Focus mode: when set, these cells are spotlit and every other cell is
    * dimmed. Used to point at the cells still needing input before submission.
    */
@@ -245,6 +250,7 @@ function EditableCell({
     values,
     flags,
     requested,
+    answered,
     highlight,
     highlightTone = 'input',
     editable,
@@ -256,6 +262,9 @@ function EditableCell({
   const key = cellKey(catIdx, dayIdx);
   const flagged = flags.has(key);
   const asked = requested?.has(key) ?? false;
+  // A question that has come back. Marked only where `answered` is passed —
+  // the asker's view — and never clickable-by-itself: the cell already opens.
+  const replied = (answered?.has(key) ?? false) && !asked;
   // Focus mode. Pre-submit validation dims the rest of the grid, because the
   // empty cells are the only thing that matters then. The commentary flow
   // does NOT: writing "what drives this change" means reading the numbers
@@ -298,6 +307,8 @@ function EditableCell({
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
+    replied ? 'comment-answered' : ''
+  } ${
     clickable ? 'cell-askable' : ''
   } ${editable && !toAnswer ? 'cell-input' : ''} ${extraClass}${focus}`
     .replace(/\s+/g, ' ')

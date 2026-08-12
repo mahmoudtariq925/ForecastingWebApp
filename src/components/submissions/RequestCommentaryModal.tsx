@@ -111,20 +111,29 @@ export function RequestCommentaryModal({
         </div>
       </div>
       {/* A question already waiting on this cell — so a second one adds to it
-          rather than repeating it. */}
+          rather than repeating it. An answered one says so: the reply below is
+          then an answer to this question, not loose commentary. */}
       {existing && (
-        <div className="comment-request-note">
+        <div className={`comment-request-note${existing.answeredAt ? ' answered-note' : ''}`}>
           <strong>
-            {existing.from} ({requesterLabel(existing.fromRole)}) already asked:
+            {existing.from} ({requesterLabel(existing.fromRole)}) asked:
           </strong>{' '}
           {existing.message}
+          {existing.answeredAt && <span className="text-muted"> · answered</span>}
         </div>
       )}
       {/* What the submitter has said so far, as context — read-only, because
           writing their commentary for them is not the job. */}
       <div className="form-group">
-        <label className="form-label">Submitter’s commentary</label>
-        <div className="readback">{target.comment?.trim() || 'No commentary provided yet.'}</div>
+        <label className="form-label">
+          {existing?.answeredAt ? 'Submitter’s answer' : 'Submitter’s commentary'}
+        </label>
+        <div className="readback">
+          {target.comment?.trim() ||
+            (existing?.answeredAt
+              ? 'Answered without written commentary.'
+              : 'No commentary provided yet.')}
+        </div>
       </div>
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">What do you want explained?</label>

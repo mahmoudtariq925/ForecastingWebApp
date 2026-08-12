@@ -1283,6 +1283,15 @@ td.num {
 .forecast-grid td.cell.comment-requested::after {
   background: var(--blue);
 }
+/* A cell whose question has been answered, marked for the person who asked.
+   Quieter than an open question — nothing is waiting — but findable, so a
+   reply can be read on the forecast instead of only in a queue. */
+.forecast-grid td.cell.comment-answered {
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+.forecast-grid td.cell.comment-answered:hover {
+  box-shadow: inset 0 0 0 2px var(--green);
+}
 /* A read-only cell that opens the commentary dialog reads as clickable. */
 .forecast-grid td.cell.cell-askable {
   cursor: pointer;
@@ -2100,6 +2109,37 @@ td.num {
   color: var(--blue);
   background: var(--blue-soft);
 }
+/* Replies that have come back. Green, because nothing is waiting on anyone —
+   and grouped after the outstanding ones, which are the reason to be here. */
+.strip-answered {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.strip-answered .strip-cells {
+  margin-left: 0;
+}
+.strip-cell.answered {
+  border-color: var(--green-soft);
+  color: var(--green);
+  background: var(--green-soft);
+}
+.strip-cell.answered:hover,
+.strip-cell.answered:focus-visible {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-soft);
+}
+/* Every question on this forecast has been answered: the line is a record,
+   not a chase, so it loses the blue edge that means "someone is waiting". */
+.review-question-strip.strip-settled {
+  border-left-color: var(--green);
+}
+.review-question-strip.strip-settled .strip-mark {
+  color: var(--green);
+}
 
 /* ============================================================
    The questions queue (treasury).
@@ -2338,6 +2378,10 @@ td.num {
   border-radius: 3px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  /* A tag is one object: wrapping split the longer ones ("grouped (one row per
+     day)") across two lines with the pill's background broken in half. */
+  display: inline-block;
+  white-space: nowrap;
 }
 .role-tag.admin {
   background: var(--accent-soft);
