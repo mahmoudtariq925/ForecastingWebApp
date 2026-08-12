@@ -688,20 +688,37 @@ export interface ReviewGroup {
  * screens show), plus any stored submission from other weeks. Malformed
  * legacy storage entries are skipped rather than crashing the screen.
  */
-export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[] {
-  const groups: ReviewGroup[] = [];
-  const seen = new Set<string>();
-
-  // Current week across all entities (peek = stored-or-demo, no writes)…
+/**
+ * Every submission a review screen should consider, without duplicates: the
+ * current week for EVERY entity (stored, or the same deterministic demo data
+ * the other screens show — `peek` writes nothing), plus every submission
+ * actually stored, which is what covers historical weeks and other templates.
+ *
+ * Shared so the comments queue and the questions queue can never disagree
+ * about which forecasts exist.
+ */
+export function reviewCandidates(templates: ForecastTemplate[]): Submission[] {
   const week = currentWeekKey();
-  const allEntities = listEntities();
   const candidates: Submission[] = [];
-  for (const e of allEntities) {
+  for (const e of listEntities()) {
     const template = templatesForEntity(templates, e.name)[0];
     if (template) candidates.push(peekSubmission(e.name, week, template));
   }
-  // …plus everything actually stored (historical weeks, other templates).
   candidates.push(...listSubmissions());
+  const seen = new Set<string>();
+  return candidates.filter((sub) => {
+    const id = `${sub.period}:${sub.entity}:${sub.templateId}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[] {
+  const groups: ReviewGroup[] = [];
+  const seen = new Set<string>();
+  const allEntities = listEntities();
+  const candidates = reviewCandidates(templates);
 
   for (const raw of candidates) {
     const id = `${raw.period}:${raw.entity}:${raw.templateId}`;

@@ -356,8 +356,8 @@ const TREASURY_STEPS: TourStep[] = [
   {
     view: 'review',
     selector: '[data-tour="review-filters"]',
-    title: 'Working through comments',
-    body: 'Search and filter every outstanding comment, then mark them reviewed. A forecast stops blocking the cycle once its comments are cleared.',
+    title: 'Working through questions',
+    body: 'Every question you and the approvers have asked, one row per forecast and the longest wait first. Filter by who is still owed a reply, read the answers that came back, and mark them reviewed to clear them.',
     side: 'bottom',
   },
   // --- Configuration (previously the separate administrator role) ---
