@@ -138,6 +138,7 @@ export function CycleProgressModal({
                           <button
                             className="btn btn-ghost"
                             style={{ padding: '4px 10px', fontSize: 11 }}
+                            title="Open this forecast in a dialog, without leaving the list"
                             onClick={() =>
                               onView({ entity: c.entity.name, templateId: c.templateId })
                             }

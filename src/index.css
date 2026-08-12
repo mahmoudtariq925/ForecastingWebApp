@@ -1911,6 +1911,64 @@ td.num {
 .comment-request-note strong {
   color: var(--text);
 }
+/* The open questions themselves, each one a door back to its cell. Dismissing
+   the dialog used to lose the question: the cell stayed outlined with nothing
+   left to click. */
+.comment-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.comment-request-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.comment-request-item:hover,
+.comment-request-item:focus-visible {
+  background: var(--blue-soft);
+  box-shadow: var(--shadow-md);
+}
+.comment-request-item strong {
+  flex-shrink: 0;
+  color: var(--text);
+}
+.comment-request-item .text-dim {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-request-open {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--blue);
+}
+/* A forecast that came BACK because of a question: already submitted once, so
+   it must not read as a blank week waiting to be filled in. It keeps the
+   panel's amber — something is being asked of the submitter — and drops the
+   mono row type, because this one is a sentence rather than figures. */
+.variance-panel.reopened-panel .row {
+  font-family: var(--sans);
+  line-height: 1.6;
+}
 /* Someone else's text, shown for context rather than offered for editing. */
 .readback {
   padding: 10px 12px;

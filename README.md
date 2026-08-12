@@ -229,13 +229,32 @@ person, so it can land on any cell:
   already in the body. Whoever is asking sees the submitter's commentary
   **read-only** for context and gets one box — the question — because
   writing the submitter's explanation for them is not the job.
+- **From a forecast opened in a dialog** — the same dialog, without leaving
+  the list it was opened from: treasury's cycle-progress, awaiting-approval
+  and attention modals open a country's forecast *over* themselves, and the
+  approver's **Review & Approve** dialog is the same view. Click any cell to
+  ask about it; **Open Full Forecast** is there when the whole page is
+  wanted.
 - **From Comments Review** — the per-comment action is **Request further
-  comment**: it opens a message box showing the cell, its movement and
-  whatever the submitter said so far, then does the same two things.
+  comment**: the same dialog, showing the cell, its movement and whatever the
+  submitter said so far.
 - **For the submitter** — cells with an open question are outlined in blue on
-  their grid, with a banner naming who asked. Answering the cell's commentary
-  closes the request; the review screen shows it as *awaiting reply* until
-  then.
+  their grid, and the banner above it **lists every open question and opens
+  the one you click**, so a dialog dismissed without an answer is never lost.
+  Answering the cell's commentary closes the request; the review screen shows
+  it as *awaiting reply* until then.
+
+Every question records **who asked and in what capacity**, and each surface
+says so — *"Pieter Bakker (Approver) asked…"* — because an approver deciding
+whether to sign a forecast off and treasury consolidating it are not the same
+person waiting.
+
+A question on a forecast that has already been submitted **sends it back** to
+its submitter, so the number itself can change and not only its explanation.
+That forecast is not a fresh draft, and nothing presents it as one: the
+checklist step reads **Answer & resubmit forecast**, the country lists it as
+*reopened by a question*, and the forecast page opens with a banner naming who
+asked and when.
 
 Review items sort by **absolute movement, largest first** — the size of the
 swing is what decides whether a comment is worth reading.
