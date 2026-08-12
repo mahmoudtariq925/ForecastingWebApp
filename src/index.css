@@ -3015,7 +3015,7 @@ tr.entity-row:focus-visible {
 }
 .forecast-grid tr.section-row.band-a > td,
 .forecast-grid tr.section-row.band-b > td {
-  background: var(--accent-soft);
+  background: var(--jde-taupe);
 }
 .forecast-grid tr.subtotal-row > td {
   border-bottom: 2px solid var(--border-strong);
@@ -3486,8 +3486,10 @@ tbody td {
 }
 .forecast-grid thead tr.band-row th.section-band.band-a,
 .forecast-grid thead tr.band-row th.section-band.band-b {
-  /* Opaque equivalents of the translucent accent tint they carried. */
-  background-color: var(--n-100);
+  /* The palette taupe, opaque because these headers are sticky and must not
+     let the rows scroll through them. --n-100 resolved to the same value as
+     the cells beneath, so the four section headers had no edge at all. */
+  background-color: var(--jde-taupe);
 }
 .forecast-grid thead tr.band-row th.band-spacer {
   background-color: var(--bg);
@@ -3763,8 +3765,12 @@ tbody td {
   color: var(--text-muted);
 }
 .matrix-wrap {
-  overflow: auto;
-  max-height: 420px;
+  /* Horizontal scroll for the country columns, but NO fixed height: opening a
+     section used to push the rows into a 420px box, so the band below it and
+     the pinned Net cash flow row collided. The panel now grows to fit whatever
+     is open. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .matrix-table {
   width: 100%;
@@ -3814,8 +3820,19 @@ tbody td {
   text-transform: uppercase;
   font-weight: 700;
   color: var(--text);
-  background: var(--accent-soft);
-  border-top: 2px solid var(--border-strong);
+  /* The palette taupe. A 10% tint left the band the same value as the cells
+     around it, so the sections dissolved into the grid. */
+  background: var(--jde-taupe);
+  border-top: 2px solid var(--n-400);
+  border-bottom: 1px solid var(--n-400);
+}
+/* The band spans every column, so the label itself is what has to stay put
+   when the country columns scroll sideways. */
+.matrix-table tr.matrix-section .matrix-section-toggle {
+  position: sticky;
+  left: 0;
+  width: max-content;
+  min-width: 190px;
 }
 .matrix-table td.matrix-total,
 .matrix-table th.matrix-total-h {
@@ -4290,30 +4307,9 @@ tbody td {
   font-size: 9px;
   opacity: 0.75;
 }
-.matrix-section-count {
-  margin-left: auto;
-  font-size: 9.5px;
-  opacity: 0.6;
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
 .matrix-table td.matrix-row-label.indent {
   padding-left: 22px;
 }
 .matrix-section-total td {
   font-weight: 600;
-}
-
-/* Inline hint in the outlook header: the chart's gestures are not
-   discoverable, and a single line beats a legend nobody reads. */
-.chart-hint {
-  font-size: 10px;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-@media (max-width: 900px) {
-  .chart-hint {
-    display: none;
-  }
 }

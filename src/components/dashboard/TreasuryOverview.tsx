@@ -473,12 +473,7 @@ export function TreasuryOverview({
             {/* The horizon follows the Settings value, so the heading has to
                 as well rather than always claiming four weeks. */}
             <h3>{horizonWeeks()}-Week Outlook</h3>
-            <div className="row-flex">
-              <span className="panel-unit">€k</span>
-              <span className="chart-hint">
-                Click a column to filter · ctrl-click to add · double-click for the day
-              </span>
-            </div>
+            <span className="panel-unit">€k</span>
           </div>
           <div className="chart-controls compare-controls">
             <span className="grid-info">

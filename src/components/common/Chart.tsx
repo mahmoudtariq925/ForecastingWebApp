@@ -77,7 +77,10 @@ const DOUBLE_CLICK_MS = 220;
 
 // Left and bottom leave room for axis labels set at a readable weight and
 // size — at 9px light grey they were decoration you had to lean in to read.
-const PAD_L = 60;
+// Left gutter for the y-axis values. Sized to the widest label the axis
+// actually prints ("-105k" at 10px mono is ~34px), not to a round number —
+// 60px left a visible empty channel between the values and the plot.
+const PAD_L = 44;
 const PAD_R = 12;
 const PAD_T = 14;
 const PAD_B = 30;
