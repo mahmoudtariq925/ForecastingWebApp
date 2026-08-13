@@ -237,7 +237,7 @@ export function ForecastPreviewModal({
                 {template.name} · {weekLabel(week)} · EUR thousands
               </span>
               {canRequestComments && (
-                <span className="text-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>
+                <span className="text-muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
                   Click any cell to ask its submitter about it
                 </span>
               )}

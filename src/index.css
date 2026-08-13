@@ -302,9 +302,11 @@
          is a name for existing sizes rather than a reflow. ---- */
   --fs-4xs: 9px;
   --fs-3xs: 10px;
-  --fs-2xs: 11px;
-  --fs-xs: 11.5px;
-  --fs-sm: 12px;
+  /* Nothing in the UI is set below 12px: the two smallest steps used to be
+     11px and 11.5px, which is where most of the unreadable chrome came from. */
+  --fs-2xs: 12px;
+  --fs-xs: 12px;
+  --fs-sm: 12.5px;
   --fs-base: 12.5px;
   --fs-md: 13px;
   --fs-lg: 14px;
@@ -682,7 +684,7 @@ textarea {
 }
 .page-title-wrap .crumb {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0.16em;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -5150,4 +5152,101 @@ tbody td {
 .matrix-table tfoot td {
   /* Pinned, so it has to sit above the rows scrolling under it. */
   z-index: 2;
+}
+
+/* --------------------------------------------------------------------------
+   …and the rest of it. A second pass, because the first one only caught what
+   was on screen at the time: a question badge on a section band at 9px, the
+   in-cell "?" at 10px, the mode ribbon at 10px, a menu caret at 9px and the
+   figures printed over the chart at 9.5px were all still text you had to lean
+   in to read. Nothing here is smaller than 11.5px, and anything carrying words
+   rather than a count sits at 12px.
+   -------------------------------------------------------------------------- */
+.section-questions {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.forecast-grid td.cell .cell-note-btn {
+  font-size: 12px;
+}
+.page-mode-ribbon {
+  font-size: 11.5px;
+}
+.action-menu-caret {
+  font-size: 11.5px;
+}
+.chart-svg .chart-slot-value {
+  font-size: 11px;
+}
+.forecast-grid thead th.day-h .dow {
+  font-size: 11px;
+}
+.nav-label,
+.brand-sub,
+.setup-heading,
+.kpi-label,
+.filter-field-label,
+.panel-unit,
+.matrix-table th.matrix-row-h,
+.matrix-table thead th.num,
+.form-label,
+.crumb,
+.user-role,
+.kpi-open,
+.variance-badge-label,
+.comment-dock-progress,
+.thread-more,
+.bubble-time,
+.question-card-foot,
+.delta,
+.filter-flag,
+.filter-flag-mark,
+.seg-toggle button,
+.cycle-pill .label,
+.cycle-pill .value {
+  font-size: 12px;
+}
+/* Chips and counts: smaller than body text by design, but not by much. */
+.role-tag,
+.badge-num,
+.status,
+.comment-dock-count,
+.tag {
+  font-size: 11.5px;
+}
+
+/* One more notch: 11.5px is still small for anything with words in it, so the
+   floor for text is 12px and only the sub-labels under a date and the chart's
+   own axis stay below it. */
+thead th,
+.forecast-grid thead th.day-h,
+.variance-panel h4,
+.bubble-head,
+.bubble-head strong,
+.question-card-figures,
+.comment-dock-figures,
+.assignment-chip,
+.assignment-chip .text-muted,
+.assign-option,
+.role-tag,
+.badge-num,
+.status,
+.tag,
+.comment-dock-count,
+.page-mode-ribbon,
+.action-menu-caret,
+.kpi-open,
+.crumb,
+.section-caret,
+.review-caret,
+.user-caret,
+.multi-select-caret,
+.tour-replay-icon,
+.matrix-section-toggle .section-caret {
+  font-size: 12px;
+}
+.forecast-grid thead th.day-h .dow,
+.chart-svg .chart-axis-label,
+.chart-svg .chart-slot-value {
+  font-size: 11.5px;
 }

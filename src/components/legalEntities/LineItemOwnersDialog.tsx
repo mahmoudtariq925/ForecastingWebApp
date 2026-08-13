@@ -125,7 +125,7 @@ export function LineItemOwnersDialog({
       footer={
         <>
           {canManage && (
-            <span className="text-muted" style={{ fontSize: 11, marginRight: 'auto' }}>
+            <span className="text-muted" style={{ fontSize: 12, marginRight: 'auto' }}>
               Changes are saved automatically as you edit.
             </span>
           )}
@@ -187,7 +187,7 @@ export function LineItemOwnersDialog({
                       <td>
                         <strong>{cat.label}</strong>
                       </td>
-                      <td className="text-muted" style={{ fontSize: 11 }}>
+                      <td className="text-muted" style={{ fontSize: 12 }}>
                         {cat.group ?? '—'}
                       </td>
                       <td>

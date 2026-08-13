@@ -227,7 +227,7 @@ function EntityListModal({
                 {onReview &&
                   (submitted ? (
                     <>
-                      <span className="text-muted" style={{ fontSize: 11 }}>
+                      <span className="text-muted" style={{ fontSize: 12 }}>
                         Submitted ✓
                       </span>
                       {canEdit && (
@@ -586,7 +586,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                           </span>
                           <button
                             className="btn btn-primary"
-                            style={{ padding: '4px 10px', fontSize: 11, marginLeft: 'auto' }}
+                            style={{ padding: '4px 10px', fontSize: 12, marginLeft: 'auto' }}
                             title="Open the forecast on this cell with the answer box"
                             onClick={() =>
                               onOpenSubmission({
@@ -627,12 +627,12 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                           <StatusPill status={r.status} />
                           <span className="row-flex" style={{ marginLeft: 'auto' }}>
                             {r.status === 'approved' ? (
-                              <span className="text-muted" style={{ fontSize: 11 }}>
+                              <span className="text-muted" style={{ fontSize: 12 }}>
                                 Approved ✓
                               </span>
                             ) : (
                               !awaitingDecision(r.status) && (
-                                <span className="text-muted" style={{ fontSize: 11 }}>
+                                <span className="text-muted" style={{ fontSize: 12 }}>
                                   with submitter
                                 </span>
                               )
@@ -641,7 +641,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                               className={`btn ${
                                 awaitingDecision(r.status) ? 'btn-success' : 'btn-ghost'
                               }`}
-                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              style={{ padding: '4px 10px', fontSize: 12 }}
                               title="Open the forecast in a dialog and decide on it there"
                               onClick={() => setPreview({ entity: r.entity, mode: 'approve' })}
                             >
@@ -653,7 +653,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                             {r.status === 'approved' && (
                               <button
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                style={{ padding: '4px 10px', fontSize: 12 }}
                                 title="Send this forecast back to its submitter to change"
                                 onClick={() => void returnForUpdate(r.entity)}
                               >

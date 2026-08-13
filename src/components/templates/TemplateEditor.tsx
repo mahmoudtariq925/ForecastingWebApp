@@ -450,7 +450,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                   <option value="days-across">Dates across columns</option>
                   <option value="grouped">Dates down rows</option>
                 </select>
-                <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+                <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
                   Submitters can flip this at any time on the forecast screen.
                 </div>
               </div>
@@ -478,7 +478,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                     ))}
                   </select>
                 </div>
-                <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+                <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
                   Columns run from the Monday of the forecast week.
                 </div>
                 <label className="series-check" style={{ marginTop: 10 }}>
@@ -489,7 +489,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                     aria-label="Show column totals"
                   />
                   Show column totals
-                  <span className="text-muted" style={{ fontSize: 11 }}>
+                  <span className="text-muted" style={{ fontSize: 12 }}>
                     — pinned {transposed ? 'right-most column' : 'row'}, bold, no heatmap
                   </span>
                 </label>

@@ -92,7 +92,7 @@ export function AttentionModal({
                   <td>
                     <button
                       className="btn btn-ghost"
-                      style={{ padding: '4px 10px', fontSize: 11 }}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
                       onClick={() => onOpen(r)}
                     >
                       Open Forecast

@@ -339,7 +339,7 @@ export function DataImport({ onNavigate }: DataImportProps) {
                       <td style={{ textAlign: 'right' }}>
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          style={{ padding: '4px 10px', fontSize: 12 }}
                           onClick={() => void removeImport(s)}
                         >
                           Remove

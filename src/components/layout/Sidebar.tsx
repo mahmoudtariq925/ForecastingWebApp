@@ -156,7 +156,7 @@ export function Sidebar({
                       else onReplayTour?.();
                     }}
                   >
-                    <span className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
+                    <span className="avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
                       {initials(u.name)}
                     </span>
                     <span className="user-switch-name">{u.name}</span>
@@ -178,7 +178,7 @@ export function Sidebar({
                   if (u.email !== user.email) onSwitchUser(u.email);
                 }}
               >
-                <span className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
+                <span className="avatar" style={{ width: 24, height: 24, fontSize: 10 }}>
                   {initials(u.name)}
                 </span>
                 <span className="user-switch-name">{u.name}</span>

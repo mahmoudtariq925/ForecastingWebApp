@@ -200,7 +200,7 @@ export function LegalEntitySetup() {
                       <td>
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          style={{ padding: '4px 10px', fontSize: 12 }}
                           onClick={(ev) => {
                             ev.stopPropagation();
                             setOpenId(e.id);
@@ -294,7 +294,7 @@ export function LegalEntitySetup() {
             <option value="inactive">inactive</option>
           </select>
         </div>
-        <div className="text-muted" style={{ fontSize: 11 }}>
+        <div className="text-muted" style={{ fontSize: 12 }}>
           Viewers, approvers, submitters and the forecast template are assigned after the entity
           is created.
         </div>

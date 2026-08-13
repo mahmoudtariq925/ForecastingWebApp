@@ -137,7 +137,7 @@ export function CycleProgressModal({
                         <span className="row-flex country-actions">
                           <button
                             className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
                             title="Open this forecast in a dialog, without leaving the list"
                             onClick={() =>
                               onView({ entity: c.entity.name, templateId: c.templateId })
@@ -157,7 +157,7 @@ export function CycleProgressModal({
                               )}
                               <button
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                style={{ padding: '4px 10px', fontSize: 12 }}
                                 title="Opens a prefilled reminder email in Outlook"
                                 onClick={() => onChase(c.entity)}
                               >

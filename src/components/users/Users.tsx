@@ -358,7 +358,7 @@ export function Users() {
                 </option>
               ))}
             </select>
-            <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
               {ROLE_HINTS[form.role]}
             </div>
           </div>
