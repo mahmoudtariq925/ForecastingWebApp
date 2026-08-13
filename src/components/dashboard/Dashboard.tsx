@@ -41,9 +41,6 @@ export function Dashboard({ onOpenModal, onOpenSubmission, onNavigate }: Dashboa
             <button className="btn btn-ghost" onClick={() => onOpenModal('export')}>
               Export
             </button>
-            <button className="btn btn-primary" onClick={() => onOpenModal('newCycle')}>
-              + New Cycle
-            </button>
           </>
         }
       />

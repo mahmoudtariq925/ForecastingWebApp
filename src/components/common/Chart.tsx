@@ -70,6 +70,14 @@ interface ChartProps {
    * are the week-to-week reference point. One flag per label.
    */
   emphasis?: boolean[];
+  /**
+   * A number printed above the column, per slot; null leaves the slot bare.
+   *
+   * Used for the week-end figures on the marked slots: a Friday's net is the
+   * number people read off a cash-flow chart, and reading it off the axis by
+   * eye is a guess to the nearest ten thousand.
+   */
+  slotValues?: (number | null)[];
 }
 
 /** How long a single click waits for a second one before acting. */
@@ -82,7 +90,7 @@ const DOUBLE_CLICK_MS = 220;
 // 60px left a visible empty channel between the values and the plot.
 const PAD_L = 44;
 const PAD_R = 12;
-const PAD_T = 14;
+const PAD_T = 20;
 const PAD_B = 30;
 
 function fmtAxis(v: number): string {
@@ -106,6 +114,7 @@ export function Chart({
   onPointDoubleClick,
   activeIndexes,
   emphasis,
+  slotValues,
 }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -251,6 +260,21 @@ export function Chart({
               height={plotH}
             />
           ))}
+        {/* The figure that belongs to a marked slot, printed where it can be
+            read rather than estimated off the axis. */}
+        {slotValues?.map((v, i) =>
+          v === null || v === undefined ? null : (
+            <text
+              key={`sv${i}`}
+              className="chart-slot-value"
+              x={x(i)}
+              y={PAD_T - 3}
+              textAnchor="middle"
+            >
+              {fmtAxis(v)}
+            </text>
+          ),
+        )}
         {/* horizontal gridlines + axis values */}
         {gridVals.map((v, i) => (
           <g key={i}>

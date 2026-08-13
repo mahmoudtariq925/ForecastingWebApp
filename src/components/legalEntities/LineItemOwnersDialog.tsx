@@ -104,7 +104,7 @@ export function LineItemOwnersDialog({
         </div>
       ) : eligible.length === 0 ? (
         <div className="empty-state">
-          <div className="ic">✎</div>
+          <div className="ic">?</div>
           <p>
             No submitters are assigned to {entity.name} yet. Add them under Entity
             responsibilities, then come back to split the template between them.

@@ -82,6 +82,16 @@ export interface ForecastGridProps {
   onChangeDayComment?: (dayIdx: number, comment: string) => void;
   /** Diverging heatmap on the numeric cells (on by default). */
   heatmap?: boolean;
+  /**
+   * What each cell is shaded AGAINST.
+   *
+   * `row` (the default) scales every line item against itself — the colour
+   * then answers "is this a big week for receivables?". `grid` puts every
+   * data cell on one scale, which answers "where is the money in this
+   * forecast at all?" and washes the smaller lines out entirely. Both are
+   * legitimate readings, so the forecast screen offers the choice.
+   */
+  heatmapScope?: 'row' | 'grid';
   /** Extra pinned row/column summing every line item per period. */
   showColumnTotals?: boolean;
   /**
@@ -120,21 +130,32 @@ interface GridScales {
 
 /** Recompute the colour extremes from the cells currently on screen. */
 function useGridScales(props: ForecastGridProps): GridScales {
-  const { categories, values, startingBalance, dayLabels, heatmap = true } = props;
+  const {
+    categories,
+    values,
+    startingBalance,
+    dayLabels,
+    heatmap = true,
+    heatmapScope = 'row',
+  } = props;
   const numDays = dayLabels.length;
   const numCats = categories.length;
 
-  // One band per line item: every cell that category shows on screen.
+  // One band per line item — or, when the whole grid is one scale, the same
+  // band repeated so every cell is measured against the forecast's extremes.
   const catScales = useHeatScales(() => {
     if (!heatmap) return [];
-    return Array.from({ length: numCats }, (_v, c) =>
+    const rows = Array.from({ length: numCats }, (_v, c) =>
       Array.from({ length: numDays }, (_x, d) =>
         categories[c]?.subtotal
           ? subtotalValue(categories, values, c, d)
           : catValue(values, c, d),
       ),
     );
-  }, [heatmap, categories, values, numDays, numCats]);
+    if (heatmapScope === 'row') return rows;
+    const all = rows.flat();
+    return rows.map(() => all);
+  }, [heatmap, heatmapScope, categories, values, numDays, numCats]);
 
   // A collapsed section stands in for its line items, so it takes a band of
   // its own rather than borrowing one of theirs.
@@ -205,7 +226,7 @@ function SectionQuestions({ count }: { count: number }) {
       className="section-questions"
       title={`${count} open question${count === 1 ? '' : 's'} inside this section`}
     >
-      ✎ {count}
+      ? {count}
     </span>
   );
 }
@@ -379,7 +400,7 @@ function EditableCell({
             open();
           }}
         >
-          ✎
+          ?
         </button>
       )}
     </td>

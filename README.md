@@ -11,9 +11,9 @@ later).
 
 | Screen | What it does |
 | --- | --- |
-| **Dashboard** (Treasury) | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json) |
+| **Dashboard** (Treasury) | Computed KPIs, live cycle-progress table (all entities), 4-week outlook chart from the live consolidated data, Outlook chaser emails, real data export (xlsx/csv/json). Filters by country, template and **forecast status** (all / approved / awaiting approval), with a **! flag per country whose forecast is in but not approved** — the numbers in the totals that could still be sent back — each one a click away from filtering the page to it. Countries are ISO codes across the category matrix, which gets the width: the chart says *when*, the matrix says *who and what* |
 | **My Dashboard** (submitter / approver / viewer) | The landing page for the three analyst roles: the active cycle, an **Up next** line, and an ordered three-step checklist, worded per role — a submitter is asked to *submit*, an approver to *review & approve* what their submitters sent, a viewer just watches progress. Steps are green when done, grey when not actionable (or someone else's move), red when something has come back |
-| **Forecast Cycles** | Weekly cycles with persisted open/close and real cycle creation |
+| **Forecast Cycles** | Weekly cycles with persisted open/close. A cycle is a WEEK, so the weeks ahead are already **scheduled**: the next three sit greyed at the top of the list with an Open button on each, and there is no "new cycle" form to invent one. Opening asks **who it collects from** — every entity or a chosen few, and only those entities' figures unlock for that week — with **Notify Submitters / Notify Approvers** buttons that draft the mail to exactly that set |
 | **My Submissions** | Template + period (month/year) + entity selectors, dynamic grid with a **dates-across ⇄ dates-down orientation toggle**, live running-balance chart with **prior cycles overlaid for comparison**, paste-from-Excel, .xlsx import/export, "Email Approver" Outlook draft, variance flags with per-cell commentary, **pre-submit validation** of unfilled cells, per-period history |
 | **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
@@ -23,6 +23,20 @@ later).
 | **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role), its forecast template, and **who owns each line item of that template**: a second dialog with one row per line and one column per submitter, so payroll can belong to HR and tax to the tax team. A question about a line goes to its owner; a line with nobody on it stays with the entity's submitters |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
 | **Settings** | Forecast horizon and cycle frequency, variance threshold rules, and the SSO / allowed-domain configuration |
+
+### Conditional formatting
+
+Every numeric table shades against **its own band, from that band's smallest
+value to its largest** — per line item by default, so the colour answers "which
+day is big for receivables?" rather than "is receivables bigger than payroll?",
+which the labels already say. Zero (and anything within the bottom quarter of a
+band) keeps the surface colour, so only the values worth looking at carry a
+tint; running the ramp from zero instead shaded a row of similar numbers
+uniformly green and hid the peak inside it.
+
+The forecast screen offers the other reading too: **Shade by Row ⇄ Whole
+Forecast**, the second putting every cell on one scale, which washes the small
+lines out and shows where the money is at all.
 
 ### Forecast templates
 

@@ -241,21 +241,14 @@ export interface QuestionTotals {
   answered: number;
   closed: number;
   forecasts: number;
-  /** The longest-waiting unanswered question in the queue, if any. */
-  oldestAwaiting: string | null;
 }
 
 export function questionTotals(groups: QuestionGroup[]): QuestionTotals {
-  const oldest = groups
-    .map((g) => g.oldestAwaiting)
-    .filter((v): v is string => v !== null)
-    .sort()[0];
   return {
     awaiting: groups.reduce((s, g) => s + g.awaiting, 0),
     answered: groups.reduce((s, g) => s + g.answered, 0),
     closed: groups.reduce((s, g) => s + g.closed, 0),
     forecasts: groups.length,
-    oldestAwaiting: oldest ?? null,
   };
 }
 

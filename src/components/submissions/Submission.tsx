@@ -19,7 +19,7 @@ import {
 } from './gridMath';
 import { QuestionThread } from '../review/QuestionThread';
 import { listEntities, seedUsers } from '../../data/appData';
-import { activeWeekKey, isCycleOpen } from '../../data/cycleService';
+import { activeWeekKey, isCycleOpenForEntity } from '../../data/cycleService';
 import {
   shiftWeeks,
   horizonWeeks,
@@ -480,7 +480,7 @@ function SubmissionEditor({
    * withdraws it from approval — see `withdrawFromApproval`), and once the
    * cycle closes the numbers are history and only the conversation carries on.
    */
-  const cycleOpen = useMemo(() => isCycleOpen(week), [week]);
+  const cycleOpen = useMemo(() => isCycleOpenForEntity(week, entity), [week, entity]);
   /** The forecast is with the approver, or already approved. */
   const handedOver = isSubmitterView && isHandedOver(status);
   /** Submitted once, changed since, and not yet sent back. */
@@ -545,6 +545,12 @@ function SubmissionEditor({
   const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
   // Text held while the starting balance is being typed (see NumberCell).
   const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
+  /**
+   * What the conditional formatting measures a cell against: its own line
+   * ("is this a big week for receivables?") or the whole forecast ("where is
+   * the money at all?"). A view preference, so it is not persisted.
+   */
+  const [heatScope, setHeatScope] = useState<'row' | 'grid'>('row');
 
   // Sections start collapsed for anyone who came to READ the forecast —
   // treasury, approvers, viewers — because the shape is the point and every
@@ -897,6 +903,14 @@ function SubmissionEditor({
 
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
+    // Mid-flow, a click on another cell that still needs explaining MOVES the
+    // flow rather than opening a second dialog over the dock. Working down the
+    // grid in the order that makes sense to the person writing is the whole
+    // point of the cells staying clickable.
+    if (commentFlow && flags.has(key) && !comments[key]?.trim()) {
+      focusFlowCell(key);
+      return;
+    }
     setCommentDraft(comments[key] ?? '');
     // The dialog is the only way into a cell that has a question on it, so it
     // carries the number too: "that figure was wrong" is a legitimate answer,
@@ -1185,6 +1199,19 @@ function SubmissionEditor({
   const cancelFlow = () => {
     setCommentFlow(null);
     setFlowDraft('');
+  };
+
+  /**
+   * Move on without explaining this one. Some variances are explained by the
+   * cell next to them, and forcing them in grid order made people write
+   * "see below" — this walks past and comes back at the end.
+   */
+  const skipFlowCell = () => {
+    if (!commentFlow) return;
+    const pending = orderedUncommented();
+    const next = pending.find((k) => k !== commentFlow.key);
+    if (!next) return;
+    focusFlowCell(next);
   };
 
   /**
@@ -1485,6 +1512,9 @@ function SubmissionEditor({
     >
       <div className="comment-dock-head">
         <h4>Explain variance</h4>
+        <span className="comment-dock-count">
+          {flowRemaining} left
+        </span>
         <button className="close-btn" onClick={cancelFlow} aria-label="Stop and keep editing">
           ×
         </button>
@@ -1523,17 +1553,31 @@ function SubmissionEditor({
           disabled={!flowDraft.trim()}
           onClick={saveFlowComment}
         >
-          {flowRemaining > 1 ? 'Save · Next Variance' : 'Save · Submit'}
+          {flowRemaining > 1 ? 'Save · Next' : 'Save · Submit'}
         </button>
+        <button
+          className="btn btn-ghost"
+          disabled={flowRemaining < 2}
+          title={
+            flowRemaining < 2
+              ? 'This is the last one'
+              : 'Leave this cell for now and explain the next one'
+          }
+          onClick={skipFlowCell}
+        >
+          Skip
+        </button>
+      </div>
+      <div className="comment-dock-exits">
         <button className="btn btn-ghost" onClick={cancelFlow}>
           Keep Editing
         </button>
+        <button className="btn btn-ghost" onClick={() => void finishSubmit()}>
+          Submit Without Commentary
+        </button>
       </div>
-      <button className="comment-dock-skip" onClick={() => void finishSubmit()}>
-        Submit without commentary
-      </button>
       <div className="comment-dock-progress">
-        {flowRemaining} variance{flowRemaining === 1 ? '' : 's'} left to explain
+        Click any flagged cell to explain that one instead
       </div>
     </aside>
   );
@@ -1679,7 +1723,7 @@ function SubmissionEditor({
             className={`review-question-strip${openRequests.length === 0 ? ' strip-settled' : ''}`}
           >
             <span className="strip-mark" aria-hidden="true">
-              {openRequests.length > 0 ? '✎' : '✓'}
+              {openRequests.length > 0 ? '?' : '✓'}
             </span>
             {openRequests.length > 0 ? (
               <>
@@ -1737,7 +1781,7 @@ function SubmissionEditor({
         {openRequests.length > 0 && isSubmitterView && (
           <div className="variance-panel comment-request-panel">
             <h4>
-              ✎ {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
+              ? {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
               {requesterSummary(openRequests.map((r) => r.fromRole))}
             </h4>
             <div className="row">
@@ -1780,7 +1824,10 @@ function SubmissionEditor({
             a whole panel of prose for a number the grid already colours in
             cost more space than it earned. */}
 
-        <div className="panel settings-panel">
+        {/* Entering a forecast and explaining one are different jobs, and the
+            second one needs the grid, not the controls: while the commentary
+            flow runs, the filters and the entry actions go away entirely. */}
+        <div className={`panel settings-panel${commentFlow ? ' panel-hidden' : ''}`}>
           <div className="grid-toolbar">
             <div className="grid-toolbar-left" data-tour="submission-filters">{selectors}</div>
             <div className="row-flex">
@@ -1924,6 +1971,27 @@ function SubmissionEditor({
                 <strong>{template.name}</strong>{' '}
                 <span className="text-muted">EUR thousands · inflows +, outflows −</span>
               </div>
+              <div
+                className="seg-toggle"
+                role="group"
+                aria-label="Conditional formatting scale"
+                title="What the cell shading is measured against"
+              >
+                <button
+                  className={heatScope === 'row' ? 'active' : ''}
+                  onClick={() => setHeatScope('row')}
+                  title="Shade each line item against its own biggest days"
+                >
+                  Shade by Row
+                </button>
+                <button
+                  className={heatScope === 'grid' ? 'active' : ''}
+                  onClick={() => setHeatScope('grid')}
+                  title="Shade every cell against the whole forecast"
+                >
+                  Whole Forecast
+                </button>
+              </div>
               <div className="seg-toggle" role="group" aria-label="Grid orientation" data-tour="orientation-toggle">
                 <button
                   className={orientation === 'days-across' ? 'active' : ''}
@@ -1980,7 +2048,7 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className="panel chart-panel" data-tour="forecast-chart">
+        <div className={`panel chart-panel${commentFlow ? ' panel-hidden' : ''}`} data-tour="forecast-chart">
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
@@ -2088,7 +2156,12 @@ function SubmissionEditor({
                   labels={dayLabels.map((dl) => dl.dm)}
                   series={[...overlaySeries, ...chartSeries]}
                   unit="k"
-                  height={176}
+                  height={200}
+                  // Fridays are the week-to-week reference point on a daily
+                  // horizon — marked here as they are on treasury's outlook,
+                  // and carrying the week's net so it is read, not estimated.
+                  emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
+                  slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
                 />
               )}
             </>
@@ -2126,6 +2199,7 @@ function SubmissionEditor({
                 onPaste={handlePaste}
                 onCellClick={openVariance}
                 clickableCells={canRequestComments ? 'all' : 'flagged'}
+                heatmapScope={heatScope}
                 showColumnTotals={template.columnTotals === true}
               />
             </div>

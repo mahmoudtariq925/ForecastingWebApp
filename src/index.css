@@ -2214,6 +2214,39 @@ td.num {
   padding: 6px 2px 10px;
 }
 
+/* Countries whose forecast is in but not approved, flagged beside the filter
+   they qualify: the totals include them, and they can still change. */
+.filter-flags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+.filter-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.filter-flag:hover,
+.filter-flag.on {
+  border-color: var(--amber);
+}
+.filter-flag-mark {
+  font-weight: 700;
+}
+
 /* Regions inside a column: a group-wide reader has eleven countries in one
    pile, so they arrive as closed bands with the countries named on them. */
 .question-region + .question-region {
@@ -3795,9 +3828,15 @@ tr.entity-row:focus-visible {
   flex: 1 1 auto;
   min-width: 0;
 }
+/* Hidden while another job owns the page (the commentary flow), without
+   unmounting the state behind it. */
+.panel-hidden {
+  display: none;
+}
+
 .comment-dock {
-  flex: 0 0 300px;
-  width: 300px;
+  flex: 0 0 320px;
+  width: 320px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3816,17 +3855,34 @@ tr.entity-row:focus-visible {
   align-items: center;
 }
 .comment-dock-head h4 {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+.comment-dock-count {
+  margin-left: auto;
+  margin-right: 8px;
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 10px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--amber-soft);
   color: var(--amber);
 }
 .comment-dock-cell {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13px;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+.comment-dock-cell strong {
+  font-size: 15px;
 }
 .comment-dock-figures {
   display: flex;
@@ -3844,22 +3900,27 @@ tr.entity-row:focus-visible {
   gap: 8px;
   flex-wrap: wrap;
 }
-.comment-dock-skip {
-  align-self: flex-start;
-  padding: 0;
-  font-size: var(--fs-2xs);
-  color: var(--link);
-  text-decoration: underline;
+/* The two ways OUT of the flow, as real buttons: "submit without commentary"
+   was a 10px underlined link under the primary action, which is not the size
+   of the decision it takes. */
+.comment-dock-exits {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
-.comment-dock-skip:hover {
-  color: var(--blue-hover);
+.comment-dock-exits .btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  font-size: 12px;
 }
 .comment-dock-progress {
   margin-top: auto;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-muted);
 }
 /* The commentary flow spotlights the cell being explained and leaves the
@@ -3895,10 +3956,19 @@ tr.entity-row:focus-visible {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+/* The trend under the grid. Narrower than the xl dialog it sits in and taller
+   than it was: a four-week line stretched across 1100px is a flat one, and the
+   shape is the only reason the chart is here. */
 .preview-chart {
-  margin-top: 12px;
+  margin: 14px auto 0;
+  max-width: 760px;
+  padding: 6px 10px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+.preview-chart .compare-controls {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
 }
 
 /* ============================================================
@@ -3945,6 +4015,40 @@ tr.entity-row:focus-visible {
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------------------
+   Numeric tables: one face for labels, one for figures.
+
+   The grid, the consolidated table and the category matrix each grew their own
+   overrides, so a section band was monospace where its line items were not and
+   a totals row could land in a different face from the numbers it totalled.
+   These two rules are the whole convention, and they come last so they win.
+   -------------------------------------------------------------------------- */
+.forecast-grid td.row-label,
+.forecast-grid th.row-label-h,
+.forecast-grid tr.section-row td.row-label,
+.matrix-table td.matrix-row-label,
+.matrix-table th.matrix-row-h,
+.matrix-section-toggle {
+  font-family: var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.forecast-grid td.cell,
+.forecast-grid td.cell input,
+.forecast-grid td.totals-cell,
+.forecast-grid th.totals-head,
+.matrix-table td.num,
+.matrix-table th.num,
+.matrix-table tfoot td.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+/* …except the free-text comment column, which is prose. */
+.forecast-grid td.cell.comment-cell,
+.forecast-grid td.cell input.comment-input {
+  font-family: var(--sans);
 }
 
 /* ==========================================================================
@@ -4398,12 +4502,14 @@ tbody td {
   gap: 16px;
   flex-wrap: wrap;
 }
+/* The chart says WHEN, the matrix says WHO and WHAT — and the matrix is the
+   one carrying eleven columns of figures, so it gets the room. */
 .outlook-panel {
-  flex: 1 1 520px;
+  flex: 2 1 420px;
   min-width: 0;
 }
 .matrix-panel {
-  flex: 1 1 380px;
+  flex: 3 1 560px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -4463,27 +4569,7 @@ tbody td {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
-.matrix-table tr.matrix-section td {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--text-dim);
-  /* A LABEL for the numbers under it, not a bar competing with them: pale
-     fill, and the weight carried by a rule above rather than by darkness.
-     (Full taupe was the loudest thing on the dashboard; a 10% tint was the
-     other extreme, dissolving into the grid.) */
-  background: var(--n-100);
-  border-top: 2px solid var(--n-300);
-  border-bottom: none;
-  padding-top: 7px;
-  padding-bottom: 4px;
-}
 /* The band belongs to the row beneath it, so no rule comes between them. */
-.matrix-table tr.matrix-section + tr > td {
-  border-top: none;
-}
 /* A folded section's total: bold, and left clear so its conditional
    formatting is the fill — it used to sit on grey, which made every folded
    section the same colour as the band above it. */
@@ -4501,14 +4587,6 @@ tbody td {
 }
 .matrix-table thead th {
   border-bottom: 1px solid var(--border-strong);
-}
-/* The band spans every column, so the label itself is what has to stay put
-   when the country columns scroll sideways. */
-.matrix-table tr.matrix-section .matrix-section-toggle {
-  position: sticky;
-  left: 0;
-  width: max-content;
-  min-width: 190px;
 }
 .matrix-table td.matrix-total,
 .matrix-table th.matrix-total-h {
@@ -4647,7 +4725,13 @@ tbody td {
    The axis values used to be 9px of the lightest grey on the palette, which
    made the one part of a chart you have to READ the hardest part to see.
    ========================================================================== */
-.chart-svg .chart-axis-label {
+.chart-svg .chart-slot-value {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  fill: var(--text-dim);
+}
+.chart-axis-label {
   font-family: var(--sans);
   font-size: 11px;
   font-weight: 600;

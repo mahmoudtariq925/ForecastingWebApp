@@ -172,7 +172,7 @@ function EntityListModal({
       </div>
       {rows.length === 0 ? (
         <div className="empty-state">
-          <div className="ic">✎</div>
+          <div className="ic">?</div>
           <p>
             No entities are assigned to you yet. Treasury assigns responsibilities under Legal
             Entity Setup.

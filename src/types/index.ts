@@ -65,8 +65,18 @@ export interface Cycle {
   start: string;
   /** Human-readable close deadline, e.g. "14 Aug · 18:00". */
   closes: string;
-  /** 'submitted' = open for entry, 'consolidated' = closed. */
-  status: 'submitted' | 'consolidated';
+  /**
+   * `scheduled` = laid out for a future week, not open yet; `submitted` = open
+   * for entry; `consolidated` = closed. Upcoming cycles are shown rather than
+   * created, so treasury opens the next week instead of inventing it.
+   */
+  status: 'scheduled' | 'submitted' | 'consolidated';
+  /**
+   * Entities this cycle collects from, by name. Absent means every active
+   * entity — a cycle can be opened for a subset (one region's countries
+   * first, say), and only those entities' forecasts are then editable.
+   */
+  entities?: string[];
   /** ISO timestamp the cycle was opened, for the "opened 8h ago" column. */
   openedAt: string;
 }
