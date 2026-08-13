@@ -191,16 +191,16 @@ function EntityListModal({
                   label={
                     w.returnedForUpdate
                       ? 'returned for update'
-                      : w.reopenedByQuestion
-                        ? 'reopened by a question'
+                      : w.revised
+                        ? 'changed — resubmit'
                         : w.submission.status
                   }
                 />
                 <span className="text-dim" style={{ fontSize: 12 }}>
-                  {/* A reopened forecast has been sent once already — saying
+                  {/* A revised forecast has been sent once already — saying
                       "not started" or only "last saved" hid that entirely. */}
-                  {w.reopenedByQuestion
-                    ? 'Submitted once · answer the question and submit again'
+                  {w.revised
+                    ? 'Submitted once · figures changed, send it back for approval'
                     : w.started
                       ? `Last saved ${agoLabel(w.submission.updatedAt)}`
                       : 'Not started yet'}
@@ -298,16 +298,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const questions = useMemo(() => openQuestionsFor(todo.entities), [todo]);
   const [questionsOpen, setQuestionsOpen] = useState(true);
   /**
-   * Which step the questions belong under.
-   *
-   * While a forecast is REOPENED they block step 1 — it cannot be sent again
-   * until they are answered. Once it has gone (or has yet to go) they are
-   * review work, and listing them under a finished "Submit forecast" left
-   * them attached to a step nobody was on any more.
+   * Which step the questions belong under: always the review one. A question
+   * no longer sends a forecast back — the figures stand and somebody owes a
+   * reply — so answering is review work whether or not the forecast has gone.
    */
-  const questionsStep: TodoStep['key'] = todo.entities.some((e) => e.reopenedByQuestion)
-    ? 'submit'
-    : 'review';
+  const questionsStep: TodoStep['key'] = 'review';
 
   // The approver's decision list: every country they cover, with Review /
   // Approve in place — this replaces the separate Approvals screen.
@@ -340,8 +335,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
    * work that has already moved on to the approver.
    *
    * Read off the submissions themselves rather than the step's state, so it
-   * agrees exactly with the lock on the forecast page — a returned forecast
-   * unlocks both, a question from treasury unlocks neither.
+   * agrees exactly with the forecast page: a returned forecast reopens this
+   * step, and so does a revision — a question on its own does not, because it
+   * asks for a reply rather than for the forecast back.
    */
   const submitClosed =
     canEditForecasts &&
@@ -409,10 +405,10 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
    */
   const actionFor = (step: TodoStep, isCurrent: boolean): React.ReactNode => {
     if (step.key === 'submit' && work.length > 0 && (isCurrent || submitClosed)) {
-      // A forecast that came back because of a question is being SENT AGAIN;
-      // a button reading "Submit Forecast" made that look like first-time work.
-      const resubmitting = work.some((w) => w.reopenedByQuestion);
-      const stillAsking = resubmitting && questions.length > 0;
+      // A forecast whose figures changed after the handover is being SENT
+      // AGAIN; a button reading "Submit Forecast" made that look like
+      // first-time work.
+      const resubmitting = work.some((w) => w.revised);
       return (
         <button
           className="btn btn-primary"
@@ -431,11 +427,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         >
           {!canEditForecasts
             ? 'View Forecasts'
-            : stillAsking
-              ? 'Answer & Resubmit'
-              : resubmitting
-                ? 'Resubmit Forecast'
-                : 'Submit Forecast'}
+            : resubmitting
+              ? 'Resubmit Forecast'
+              : 'Submit Forecast'}
         </button>
       );
     }

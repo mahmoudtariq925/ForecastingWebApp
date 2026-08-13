@@ -4,7 +4,6 @@ import { Dashboard } from './components/dashboard/Dashboard';
 import { AnalystHome } from './components/home/AnalystHome';
 import { Cycles } from './components/cycles/Cycles';
 import { Submission, type SubmissionTarget } from './components/submissions/Submission';
-import { CommentsReview } from './components/review/CommentsReview';
 import { QuestionsReview } from './components/review/QuestionsReview';
 import { LegalEntitySetup } from './components/legalEntities/LegalEntitySetup';
 import { Templates } from './components/templates/Templates';
@@ -177,19 +176,11 @@ export default function App() {
         onNavigate={allowedViews(permissions).has('cycles') ? navigate : undefined}
       />
     ),
-    // Treasury reviews the QUESTIONS it and the approvers have asked — not
-    // every comment ever written on a forecast, which is the submitters' own
-    // commentary and belongs beside the numbers it explains. Analysts keep
-    // the comments view: on their own forecasts, that IS the conversation.
-    review: permissions.canReviewComments ? (
-      <QuestionsReview onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />
-    ) : (
-      <CommentsReview
-        onOpenSubmission={openSubmission}
-        scopeEntities={scopedEntities}
-        canExplain={permissions.canSubmitForecasts}
-      />
-    ),
+    // One conversation, one screen. Treasury works the whole group's
+    // questions; everyone else sees the same board scoped to the entities
+    // they are responsible for. The commentary itself stays on the forecast,
+    // beside the numbers it explains.
+    review: <QuestionsReview onOpenSubmission={openSubmission} scopeEntities={scopedEntities} />,
     templates: <Templates />,
     legalEntities: <LegalEntitySetup />,
     users: <Users />,

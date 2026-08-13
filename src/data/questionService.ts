@@ -15,14 +15,17 @@ import type {
   RequesterRole,
   Submission,
   SubmissionStatus,
+  ThreadMessage,
 } from '../types';
 import { listEntities } from './appData';
+import { lineOwners } from './legalEntityService';
 import { templateDayLabels } from './periods';
 import {
   getPriorValues,
   pctChange,
   priorValueFor,
   reviewCandidates,
+  threadOf,
 } from './submissionService';
 
 /**
@@ -52,15 +55,25 @@ export interface QuestionItem {
   prior: number | null;
   /** Null when a percentage would mislead — see `pctChange`. */
   pct: number | null;
-  /** Who asked, and in what capacity. */
+  /** Who opened the thread, and in what capacity. */
   from: string;
   role: RequesterRole;
+  /** The opening question. */
   message: string;
   requestedAt: string;
   answeredAt?: string;
-  /** The submitter's commentary on that cell — the reply, when there is one. */
+  /** The submitter's latest reply — empty while nothing has come back. */
   answer: string;
+  /** The whole conversation, oldest first: question, replies, answers. */
+  thread: ThreadMessage[];
+  /** When the thread was last added to — what "quiet since" is measured from. */
+  lastAt: string;
   state: QuestionState;
+  /** The forecast this cell belongs to, so a card can stand on its own. */
+  templateName: string;
+  forecastStatus: SubmissionStatus;
+  /** Who answers for this LINE ITEM (its owner, else the entity submitter). */
+  owner: string;
 }
 
 /** Every question on one forecast, with the counts the header shows. */
@@ -102,10 +115,18 @@ function questionsOf(
   const prior = template ? getPriorValues(sub.entity, sub.period, template) : {};
   const resolved = new Set(sub.resolvedFlags ?? []);
 
+  const submitter = submitterOf.get(sub.entity) ?? '—';
   const items: QuestionItem[] = requests.map(([cellKey, request]) => {
     const [c, d] = cellKey.split('-').map(Number);
     const current = sub.values[cellKey] || 0;
     const prev = template ? priorValueFor(prior, c, d, template) : null;
+    const category = template?.categories[c]?.label ?? `Line ${c + 1}`;
+    const answer = sub.comments?.[cellKey]?.trim() ?? '';
+    const thread = threadOf(request, answer, submitter);
+    // Whoever owns this LINE is the person on the hook for the answer — not
+    // necessarily the entity's first submitter.
+    const owner = lineOwners(sub.entity, category)[0]?.name ?? submitter;
+    const replies = thread.filter((m) => m.role === 'submitter');
     return {
       id: `${sub.period}:${sub.entity}:${sub.templateId}:${cellKey}`,
       entity: sub.entity,
@@ -113,7 +134,7 @@ function questionsOf(
       period: sub.period,
       templateId: sub.templateId,
       cellKey,
-      category: template?.categories[c]?.label ?? `Line ${c + 1}`,
+      category,
       dateLabel: labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`,
       current,
       prior: prev,
@@ -123,8 +144,13 @@ function questionsOf(
       message: request.message,
       requestedAt: request.requestedAt,
       answeredAt: request.answeredAt,
-      answer: sub.comments?.[cellKey]?.trim() ?? '',
+      answer: replies[replies.length - 1]?.text ?? '',
+      thread,
+      lastAt: thread[thread.length - 1]?.at ?? request.requestedAt,
       state: stateOf(request, resolved.has(cellKey)),
+      templateName: template?.name ?? sub.templateId,
+      forecastStatus: sub.status,
+      owner,
     };
   });
 
@@ -143,7 +169,7 @@ function questionsOf(
     period: sub.period,
     templateId: sub.templateId,
     templateName: template?.name ?? sub.templateId,
-    submitter: submitterOf.get(sub.entity) ?? '—',
+    submitter,
     forecastStatus: sub.status,
     items,
     awaiting: awaitingItems.length,
@@ -182,6 +208,31 @@ export function collectQuestionGroups(templates: ForecastTemplate[]): QuestionGr
     return b.period.localeCompare(a.period) || a.entity.localeCompare(b.entity);
   });
   return groups;
+}
+
+/**
+ * Every question as a flat list — one card per conversation, which is what the
+ * board is made of. Grouping by forecast is still how the queue is COLLECTED
+ * (and how the totals are counted); it is not how it is worked through.
+ */
+export function flattenQuestions(groups: QuestionGroup[]): QuestionItem[] {
+  return groups.flatMap((g) => g.items);
+}
+
+/**
+ * A column's cards in the order that column is worked.
+ *
+ * Awaiting is a queue: the longest wait leads. Answered and closed are a log:
+ * whatever happened last is what you have not read yet.
+ */
+export function sortForColumn(items: QuestionItem[], state: QuestionState): QuestionItem[] {
+  const sorted = [...items];
+  if (state === 'awaiting') {
+    sorted.sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
+  } else {
+    sorted.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }
+  return sorted;
 }
 
 /** Queue-wide counts for the headline figures. */

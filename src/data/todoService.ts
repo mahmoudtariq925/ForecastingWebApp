@@ -8,7 +8,7 @@ import type { Cycle, CommentRequest, RequesterRole, Submission, User } from '../
 import { assignedEntitiesFor, permissionsFor } from './session';
 import { templateDayLabels } from './periods';
 import {
-  activeReopen,
+  activeQuestion,
   openQuestionEntries,
   peekSubmission,
   requesterSummary,
@@ -78,18 +78,20 @@ export interface EntityProgress {
   openQuestions: number;
   flagged: number;
   returnedForUpdate: boolean;
+  /** Somebody has asked about this forecast and is still owed a reply. */
+  awaitingAnswers: boolean;
   /**
-   * This forecast has been submitted before and came back because someone
-   * asked about a cell. Without it a reopened forecast is indistinguishable
-   * from one never started — both are simply "draft".
+   * The figures were changed after this forecast had been handed over, so it
+   * has to go round the approval cycle again. Without it a withdrawn forecast
+   * is indistinguishable from one never started — both are simply "draft".
    */
-  reopenedByQuestion: boolean;
+  revised: boolean;
 }
 
 /**
  * One open question, ready to list: which cell it is on, who asked it and
- * what they asked. The checklist shows these so a reopened forecast arrives
- * with its questions in hand rather than as a grid to go hunting through.
+ * what they asked. The checklist shows these so a forecast with questions on
+ * it arrives with them in hand, rather than as a grid to go hunting through.
  */
 export interface OpenQuestion {
   entity: string;
@@ -151,7 +153,8 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
         openQuestions: openQuestionEntries(submission.commentRequests).length,
         flagged: submission.flags.length,
         returnedForUpdate: submission.status === 'rejected',
-        reopenedByQuestion: activeReopen(submission) !== null,
+        awaitingAnswers: activeQuestion(submission) !== null,
+        revised: submission.revisedFrom !== undefined && submission.status === 'draft',
       },
     ];
   });
@@ -190,15 +193,13 @@ export function analystTodo(
   const needCommentary = entities.reduce((s, e) => s + e.needCommentary, 0);
   const returned = entities.filter((e) => e.returnedForUpdate).length;
   const unsubmitted = entities.filter((e) => e.submission.status === 'draft').length;
-  // Drafts that have been submitted before and came back because of a
-  // question. Counting them as plain drafts told a submitter they had not
-  // started a forecast they had in fact already sent.
-  const reopens = entities.flatMap((e) => activeReopen(e.submission) ?? []);
-  const reopened = reopens.length;
-  const neverSubmitted = unsubmitted - reopened;
-  // Who sent it back — read off the reopening itself, because the questions
-  // that caused it are gone from the open list the moment they are answered.
-  const reopenedBy = requesterSummary(reopens.map((r) => r.role));
+  // Drafts that HAVE been submitted before, and are back because their
+  // submitter changed a figure after the handover. Counting them as plain
+  // drafts told a submitter they had not started a forecast they had in fact
+  // already sent — and hid the one thing that matters about them, which is
+  // that the approver has to see the new numbers.
+  const revised = entities.filter((e) => e.revised).length;
+  const neverSubmitted = unsubmitted - revised;
   // "Consolidated" is treasury's terminal state for a cycle; until then the
   // numbers can still come back.
   const cycleClosed = cycle?.status === 'consolidated';
@@ -207,32 +208,20 @@ export function analystTodo(
   const submitDone = unsubmitted === 0 && entities.length > 0;
   let submit: TodoStep;
   if (isSubmitter) {
-    // A RETURNED forecast puts this step back in play, and so does a question
-    // asked after the handover: that question sends the whole forecast back
-    // (the number itself may have to change), so the step has to say the
-    // forecast is coming round again rather than starting for the first time.
-    const resubmitting = reopened > 0 && neverSubmitted === 0;
-    // Once the questions are answered the step is no longer about answering:
-    // what is left is sending the forecast back, and saying "answer it" over
-    // an empty question list is how a finished job reads as an outstanding one.
-    const answeredAndWaiting = reopened > 0 && openQuestions === 0;
-    const wasWere = reopened === 1 ? ' was' : 's were';
+    // A RETURNED forecast puts this step back in play, and so does a REVISED
+    // one: its figures changed after the handover, so the approver has to see
+    // them again and the step is a resubmission rather than a first send.
+    const resubmitting = revised > 0 && neverSubmitted === 0;
+    const wasWere = revised === 1 ? ' was' : 's were';
     submit = {
       key: 'submit',
-      label: resubmitting
-        ? answeredAndWaiting
-          ? 'Resubmit forecast'
-          : 'Answer & resubmit forecast'
-        : 'Submit forecast',
-      state: returned > 0 || reopened > 0 ? 'blocked' : submitDone ? 'done' : 'active',
+      label: resubmitting ? 'Resubmit forecast' : 'Submit forecast',
+      state: returned > 0 || revised > 0 ? 'blocked' : submitDone ? 'done' : 'active',
       detail:
         returned > 0
           ? `${returned} forecast${returned === 1 ? ' was' : 's were'} returned for update`
-          : reopened > 0
-            ? `${reopened} already-submitted forecast${wasWere} reopened by a question from ${reopenedBy}` +
-              (answeredAndWaiting
-                ? ' — answered, now send it back'
-                : ' — answer it and submit again') +
+          : revised > 0
+            ? `${revised} submitted forecast${wasWere} changed after the handover — resubmit so it can be approved again` +
               (neverSubmitted > 0 ? ` · ${neverSubmitted} still in draft` : '')
             : submitDone
               ? `All ${entities.length} forecast${entities.length === 1 ? '' : 's'} submitted`
@@ -247,7 +236,7 @@ export function analystTodo(
       detail: submitDone
         ? `All ${entities.length} of your entit${entities.length === 1 ? 'y’s' : 'ies’'} forecasts are in`
         : `${unsubmitted} of ${entities.length} still with the submitter${returned > 0 ? ` · ${returned} returned for update` : ''}${
-            reopened > 0 ? ` · ${reopened} reopened by a question` : ''
+            revised > 0 ? ` · ${revised} changed after submitting` : ''
           }`,
     };
   }

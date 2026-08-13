@@ -17,8 +17,9 @@ import {
   runningBalance,
   type GridValues,
 } from './gridMath';
+import { QuestionThread } from '../review/QuestionThread';
 import { listEntities, seedUsers } from '../../data/appData';
-import { activeWeekKey } from '../../data/cycleService';
+import { activeWeekKey, isCycleOpen } from '../../data/cycleService';
 import {
   shiftWeeks,
   horizonWeeks,
@@ -37,6 +38,7 @@ import {
   answerCommentRequest,
   applyApprovalDecision,
   clearApprovalDecision,
+  figuresEditable,
   getOrCreateSubmission,
   getPriorValues,
   isHandedOver,
@@ -50,7 +52,9 @@ import {
   requesterLabel,
   requesterSummary,
   saveDraftCheckpoint,
+  withThreadMessage,
   statusLabel,
+  threadOf,
   unseenRequestKeys,
   settingsForEntity,
   templatesForEntity,
@@ -71,7 +75,7 @@ import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { ViewId } from '../../types/nav';
 import type {
   CommentRequest,
-  ForecastReopen,
+  ForecastQuestion,
   ForecastTemplate,
   SubmissionStatus,
   TemplateLayout,
@@ -438,8 +442,8 @@ function SubmissionEditor({
     const stored = loadSubmission(week, entity, template.id);
     if (stored && stored.status !== status) {
       setStatus(stored.status);
-      // …and with it, whether the forecast is back here because of a question.
-      setReopenedBy(stored.status === 'draft' ? stored.reopenedBy : undefined);
+      // …and with it, who is waiting on an answer.
+      setQuestionedBy(stored.questionedBy);
     }
     // `status` is the value being reconciled, not an input to the check.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,40 +451,43 @@ function SubmissionEditor({
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
+  /** Who asked the most recent question on this forecast, if anyone has. */
+  const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
+    initial.questionedBy,
+  );
   /**
-   * Set while this forecast is back with its submitter because someone asked
-   * about a cell — so the page says "reopened, answer and resubmit" instead of
-   * presenting a submitted forecast as a fresh draft.
+   * Set when this forecast's figures were changed after it had been handed
+   * over: it was withdrawn from approval by that edit and has to go round the
+   * cycle again.
    */
-  const [reopenedBy, setReopenedBy] = useState<ForecastReopen | undefined>(initial.reopenedBy);
+  const [revisedFrom, setRevisedFrom] = useState<SubmissionStatus | undefined>(
+    initial.revisedFrom,
+  );
   /**
-   * The forecast is with the approver (or already approved), so the submitter
-   * may no longer change the numbers — only answer questions on them. Greying
-   * the checklist's Submit button was not enough on its own: the forecast page
-   * was still a live grid, and an edit there rewrote what had already been
-   * signed off. Treasury keeps its correcting rights; a returned forecast
-   * comes back to `rejected` and unlocks.
+   * The cycle collecting this week is still open, so its figures can still
+   * move. This is what decides whether the grid is live: inside the cycle a
+   * submitter may correct a number even after handing the forecast over (which
+   * withdraws it from approval — see `withdrawFromApproval`), and once the
+   * cycle closes the numbers are history and only the conversation carries on.
    */
+  const cycleOpen = useMemo(() => isCycleOpen(week), [week]);
+  /** The forecast is with the approver, or already approved. */
   const handedOver = isSubmitterView && isHandedOver(status);
+  /** Submitted once, changed since, and not yet sent back. */
+  const revised = isSubmitterView && revisedFrom !== undefined && status === 'draft';
   /**
-   * The forecast is back with the submitter to ANSWER a question, not to
-   * rewrite. The figures were handed over and reviewed; a question reopens the
-   * conversation about them, not the entry of them. Leaving the grid live here
-   * let a submitter quietly restate the week under cover of replying, and the
-   * approver would have signed off numbers that no longer existed. If a figure
-   * genuinely has to change, the approver returns the forecast (`rejected`),
-   * which unlocks it properly and is visible as a return.
+   * Numbers can be typed into: never for a reader, and never once the cycle
+   * that collects them has closed.
    */
-  const answeringOnly = isSubmitterView && status === 'draft' && reopenedBy !== undefined;
-  /**
-   * Numbers can be typed into: never for a reader, never once handed over,
-   * and never while the forecast is back only to answer questions.
-   */
-  const canEditCells = !readOnly && !handedOver && !answeringOnly;
+  const canEditCells = !readOnly && figuresEditable(status, cycleOpen);
   /** The submitter's own data-entry and workflow actions. */
-  const editorActions = isSubmitterView && !handedOver && !answeringOnly;
-  /** Submitting is still theirs while answering — that is the way out of it. */
-  const canSubmit = isSubmitterView && !handedOver;
+  const editorActions = isSubmitterView && canEditCells;
+  /**
+   * Sending it (back) to the approver is theirs whenever it is not already
+   * there — and only while the cycle is open, since a forecast submitted into
+   * a closed cycle would be a set of figures nobody can act on.
+   */
+  const canSubmit = isSubmitterView && !handedOver && cycleOpen;
 
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
@@ -619,7 +626,8 @@ function SubmissionEditor({
     flags?: Set<string>;
     comments?: Record<string, string>;
     commentRequests?: Record<string, CommentRequest>;
-    reopenedBy?: ForecastReopen;
+    questionedBy?: ForecastQuestion;
+    revisedFrom?: SubmissionStatus;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -635,9 +643,10 @@ function SubmissionEditor({
       resolvedFlags,
       comments: snap.comments ?? comments,
       commentRequests: snap.commentRequests ?? commentRequests,
-      // Autosave must not forget that this forecast was reopened by a
-      // question — the checklist reads it to say so.
-      reopenedBy: 'reopenedBy' in snap ? snap.reopenedBy : reopenedBy,
+      // Autosave must not forget who is waiting on an answer, nor that this
+      // forecast has been submitted once already — the checklist reads both.
+      questionedBy: 'questionedBy' in snap ? snap.questionedBy : questionedBy,
+      revisedFrom: 'revisedFrom' in snap ? snap.revisedFrom : revisedFrom,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -645,6 +654,26 @@ function SubmissionEditor({
     };
     saveSubmission(record);
     return record;
+  };
+
+  /**
+   * A figure just changed. If this forecast had already been handed over, that
+   * edit WITHDRAWS it: the numbers the approver saw (or signed off) no longer
+   * exist, so it goes back to the submitter's hands and round the approval
+   * cycle again once they resubmit.
+   *
+   * Returns the fields to save with the edit itself, so the withdrawal and the
+   * new figure land in storage together rather than one render apart.
+   */
+  const withdrawFromApproval = (): Snapshot => {
+    if (!isSubmitterView || !isHandedOver(status)) return {};
+    const from = status;
+    setStatus('draft');
+    setRevisedFrom(from);
+    // The decision goes with it — a resubmitted forecast must arrive in the
+    // approver's queue undecided rather than carrying its old approval.
+    clearApprovalDecision(entity);
+    return { status: 'draft', revisedFrom: from };
   };
 
   // Ctrl/Cmd+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo — anywhere on the screen,
@@ -707,7 +736,7 @@ function SubmissionEditor({
     const nextFlags = reflag(nextValues, [key], flags);
     setValues(nextValues);
     setFlags(nextFlags);
-    persist({ values: nextValues, flags: nextFlags });
+    persist({ values: nextValues, flags: nextFlags, ...withdrawFromApproval() });
   };
 
   const handlePaste = (
@@ -754,7 +783,7 @@ function SubmissionEditor({
     const nextFlags = reflag(nextValues, touched, flags);
     setValues(nextValues);
     setFlags(nextFlags);
-    persist({ values: nextValues, flags: nextFlags });
+    persist({ values: nextValues, flags: nextFlags, ...withdrawFromApproval() });
 
     // Dropped cells used to vanish without a word — which is exactly how a
     // pasted block looked like it "didn't paste all of them".
@@ -775,7 +804,7 @@ function SubmissionEditor({
       lastEditedCell.current = 'starting-balance';
     }
     setStartingBalance(v);
-    persist({ startingBalance: v });
+    persist({ startingBalance: v, ...withdrawFromApproval() });
   };
 
   const reset = async () => {
@@ -914,6 +943,7 @@ function SubmissionEditor({
     // one undo — the two halves of the same answer.
     let nextValues = values;
     let nextFlags = flags;
+    let withdrawn: Snapshot = {};
     if (canEditCells) {
       const typed = valueDraft.trim();
       const parsed = typed === '' ? null : parseCellNumber(typed);
@@ -930,17 +960,27 @@ function SubmissionEditor({
         // The grid cells hold their own in-progress text; remount so the
         // restored cell shows the number saved here rather than the old one.
         setRestoreVersion((n) => n + 1);
+        // "That figure was wrong" is a perfectly good answer — and correcting
+        // it on a forecast already handed over sends it round again.
+        withdrawn = withdrawFromApproval();
       }
     }
 
-    // Answering the question closes it — this is the reply to whoever asked.
-    const nextRequests = answerCommentRequest({ ...initial, commentRequests }, key);
-    setCommentRequests(nextRequests ?? {});
+    // The answer joins the thread, so whoever asked reads the reply against
+    // the question rather than as loose commentary.
+    const nextRequests = answerCommentRequest(
+      commentRequests,
+      key,
+      commentDraft.trim(),
+      currentUser().name,
+    );
+    setCommentRequests(nextRequests);
     persist({
       values: nextValues,
       flags: nextFlags,
       comments: nextComments,
-      commentRequests: nextRequests ?? {},
+      commentRequests: nextRequests,
+      ...withdrawn,
     });
     setVarianceCell(null);
   };
@@ -974,18 +1014,27 @@ function SubmissionEditor({
 
   /** Record a question asked from this screen without re-reading storage. */
   const onQuestionSent = (key: string, request: CommentRequest) => {
-    setCommentRequests((prev) => ({ ...prev, [key]: request }));
+    setCommentRequests((prev) => {
+      const existing = prev[key];
+      // Asking again about the same cell CONTINUES the conversation. Storing
+      // the new question on its own dropped everything said before it.
+      return existing
+        ? withThreadMessage(prev, key, {
+            from: request.from,
+            role: request.fromRole ?? 'treasury',
+            text: request.message,
+            at: request.requestedAt,
+          })
+        : { ...prev, [key]: request };
+    });
     setFlags((f) => new Set(f).add(key));
-    // Asking about a submitted forecast hands it back to its submitter, so
-    // the pill above the grid must not go on claiming it is submitted.
-    if (isHandedOver(status)) {
-      setStatus('draft');
-      setReopenedBy({
-        by: request.from,
-        role: request.fromRole ?? 'treasury',
-        at: request.requestedAt,
-      });
-    }
+    // The question does not take the forecast off the approver — it puts a
+    // reply on somebody's list, which is what the banner above the grid says.
+    setQuestionedBy({
+      by: request.from,
+      role: request.fromRole ?? 'treasury',
+      at: request.requestedAt,
+    });
   };
 
   const uncommented = [...flags].filter((k) => !comments[k]?.trim());
@@ -1017,6 +1066,8 @@ function SubmissionEditor({
     () => new Set(answeredRequests.map((r) => r.key)),
     [answeredRequests],
   );
+  /** Questions are waiting on THIS user — the page takes on that job. */
+  const answering = isSubmitterView && openRequests.length > 0;
 
   /**
    * Editable cells with no number in them yet. Subtotals are computed, so
@@ -1125,18 +1176,24 @@ function SubmissionEditor({
    * therefore left unexplained on every guided submission.
    */
   const finishSubmit = async (snap: Snapshot = {}) => {
+    const resubmission = revised;
     setNeedInput(null);
     setCommentFlow(null);
     setStatus('submitted');
-    // Submitting answers the reopening: the forecast is with the approver
-    // again, so it stops being "reopened, awaiting your resubmission".
-    setReopenedBy(undefined);
-    persist({ ...snap, status: 'submitted', reopenedBy: undefined });
+    // Whatever this forecast was before its figures were revised, it is a
+    // fresh submission now.
+    setRevisedFrom(undefined);
+    persist({ ...snap, status: 'submitted', revisedFrom: undefined });
     // A fresh submission reopens the decision: without this, a rejection
     // stuck in the cycle's approval map forever and the approver saw the
     // resubmitted forecast as already "rejected" with no way to approve it.
     clearApprovalDecision(entity);
-    await notify({ tone: 'success', message: 'Forecast submitted for approval.' });
+    await notify({
+      tone: 'success',
+      message: resubmission
+        ? 'Forecast resubmitted — your approver has the revised figures to sign off.'
+        : 'Forecast submitted for approval.',
+    });
   };
 
   /** Save the docked commentary and walk on to the next flagged cell —
@@ -1147,13 +1204,19 @@ function SubmissionEditor({
     if (!text) return;
     const nextComments = { ...comments, [commentFlow.key]: text };
     setComments(nextComments);
-    // Answering the question closes it — treasury asked, this is the reply.
-    const nextRequests = answerCommentRequest({ ...initial, commentRequests }, commentFlow.key);
-    setCommentRequests(nextRequests ?? {});
-    persist({ comments: nextComments, commentRequests: nextRequests ?? {} });
+    // On a cell somebody asked about, the commentary IS the answer — it joins
+    // the thread rather than sitting beside it.
+    const nextRequests = answerCommentRequest(
+      commentRequests,
+      commentFlow.key,
+      text,
+      currentUser().name,
+    );
+    setCommentRequests(nextRequests);
+    persist({ comments: nextComments, commentRequests: nextRequests });
     const remaining = orderedUncommented(nextComments);
     if (remaining.length === 0)
-      void finishSubmit({ comments: nextComments, commentRequests: nextRequests ?? {} });
+      void finishSubmit({ comments: nextComments, commentRequests: nextRequests });
     else focusFlowCell(remaining[0]);
   };
 
@@ -1446,15 +1509,10 @@ function SubmissionEditor({
           <>
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={statusLabel(status)} />
             {readOnly && <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />}
-            {handedOver && (
-              <ViewOnlyBadge
-                hint={`Submitted — the numbers are locked until this forecast is returned to you. You can still answer questions on any cell.`}
-              />
-            )}
-            {answeringOnly && (
+            {isSubmitterView && !cycleOpen && (
               <ViewOnlyBadge
                 label="Figures Locked"
-                hint="Reopened to answer questions — the figures stay as submitted. Ask your approver to return the forecast if one has to change."
+                hint="This cycle is closed — the figures are history now. You can still answer questions on any cell."
               />
             )}
             <CyclePill
@@ -1472,10 +1530,10 @@ function SubmissionEditor({
           a moment before. The mode tints the page edge and the panels. */}
       <div
         className={`content content-compact${
-          commentFlow ? ' page-mode page-submitting' : answeringOnly ? ' page-mode page-answering' : ''
+          commentFlow ? ' page-mode page-submitting' : answering ? ' page-mode page-answering' : ''
         }`}
       >
-        {(commentFlow || answeringOnly) && (
+        {(commentFlow || answering) && (
           <div className="page-mode-ribbon" aria-hidden="true">
             {commentFlow ? 'Submitting · explaining variances' : 'Answering questions'}
           </div>
@@ -1502,35 +1560,33 @@ function SubmissionEditor({
             </div>
           </div>
         )}
+        {/* Handed over, and still changeable: the cycle is open, so a figure
+            that turns out to be wrong is fixed here rather than by asking the
+            approver to hand the whole forecast back. What that costs is the
+            approval, which is exactly what it should cost. */}
         {handedOver && (
           <div className="variance-panel handover-panel">
             <h4>✓ Submitted — {status === 'approved' ? 'approved' : 'with your approver'}</h4>
             <div className="row">
               <span>
-                The numbers are locked while this forecast is being reviewed. Commentary is
-                still yours to write. If a figure has to change, ask your approver to return
-                the forecast to you.
+                {cycleOpen
+                  ? 'Commentary and answers are still yours to write. You can also correct a figure while this cycle is open — that withdraws the forecast from approval, and you resubmit it for a fresh decision.'
+                  : 'This cycle is closed, so the figures stay as reported. Commentary and answers are still yours to write.'}
               </span>
             </div>
           </div>
         )}
-        {/* A forecast that came back because someone asked about it is NOT a
-            forecast being started: say so, or the checklist's "in draft" and a
-            grid full of numbers read as work to do from scratch. */}
-        {isSubmitterView && reopenedBy && status === 'draft' && (
+        {/* Submitted once, changed since. The checklist's "in draft" and a grid
+            full of numbers otherwise read as work to do from scratch, when in
+            fact the only thing left is to send it back. */}
+        {revised && (
           <div className="variance-panel reopened-panel">
-            <h4>↩ Reopened — this forecast has already been submitted</h4>
+            <h4>↩ Withdrawn for revision — this forecast has already been submitted</h4>
             <div className="row">
               <span>
-                {reopenedBy.by} ({requesterLabel(reopenedBy.role)}) asked about a cell on{' '}
-                {new Date(reopenedBy.at).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                })}
-                , which returned it to you. Answer the question
-                {openRequests.length === 1 ? '' : 's'} below and send it back. The figures stay
-                locked while you answer — they have already been reviewed, so if one has to
-                change, ask your approver to return the forecast to you.
+                You changed a figure after it was {statusLabel(revisedFrom ?? 'submitted')}, so it
+                came off your approver's desk: the numbers they saw no longer exist. Finish the
+                changes and resubmit, and it goes through approval again.
               </span>
             </div>
           </div>
@@ -1620,8 +1676,8 @@ function SubmissionEditor({
             </h4>
             <div className="row">
               <span>
-                Cells outlined in blue have a question waiting. Open one to answer it — you can
-                come back to it any time.
+                Cells outlined in blue have a question waiting. Open one to reply — the forecast
+                stays where it is{cycleOpen ? ', and correcting the figure is a fair answer too' : ''}.
               </span>
             </div>
             {/* Every open question, each a door back to its cell. Closing the
@@ -1751,25 +1807,21 @@ function SubmissionEditor({
                   </button>
                 </>
               )}
-              {/* Sending it back is the way OUT of answering, so it survives
-                  the lock that takes the rest of the entry actions away. */}
               {canSubmit && (
                 <>
-                  {answeringOnly && <span className="toolbar-divider" aria-hidden="true" />}
+                  {!editorActions && <span className="toolbar-divider" aria-hidden="true" />}
                   <button
                     className="btn btn-primary"
                     data-tour="submit-forecast"
-                    disabled={commentFlow !== null || (answeringOnly && openRequests.length > 0)}
+                    disabled={commentFlow !== null}
                     title={
-                      answeringOnly && openRequests.length > 0
-                        ? 'Answer the outstanding question first'
-                        : answeringOnly
-                          ? 'Send the answered forecast back for approval'
-                          : undefined
+                      revised
+                        ? 'Send the revised figures back for a fresh approval'
+                        : undefined
                     }
                     onClick={submit}
                   >
-                    {answeringOnly ? 'Resubmit for Approval' : 'Submit for Approval'}
+                    {revised ? 'Resubmit for Approval' : 'Submit for Approval'}
                   </button>
                 </>
               )}
@@ -2067,16 +2119,18 @@ function SubmissionEditor({
                   <span>Current: €{varianceCell.current.toLocaleString()}k</span>
                 </div>
               </div>
+              {/* The whole conversation about this cell, not just the last
+                  thing said: an answer three exchanges in makes no sense
+                  without the question it came from. */}
               {cellRequest && (
-                <div className="comment-request-note">
-                  <strong>
-                    {cellRequest.from} ({requesterLabel(cellRequest.fromRole)}) asked:
-                  </strong>{' '}
-                  {cellRequest.message}
-                  {cellRequest.answeredAt && (
-                    <span className="text-muted"> · answered</span>
+                <QuestionThread
+                  messages={threadOf(
+                    cellRequest,
+                    comments[varianceCell.key] ?? '',
+                    listEntities().find((e) => e.name === entity)?.submitter ?? 'Submitter',
                   )}
-                </div>
+                  viewerRole={isSubmitterView ? 'submitter' : null}
+                />
               )}
               {/* The figure itself, because "that number was wrong" is one of
                   the answers — and on a cell with a question the dialog is the
@@ -2098,6 +2152,9 @@ function SubmissionEditor({
                   <span className="text-muted" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
                     Inflows positive, outflows negative. Saving keeps this and the commentary
                     together, and one undo reverses both.
+                    {handedOver
+                      ? ' Changing it withdraws the forecast from approval — resubmit when you are done.'
+                      : ''}
                   </span>
                 </div>
               )}
@@ -2105,8 +2162,8 @@ function SubmissionEditor({
                 <label className="form-label">
                   {readOnly
                     ? 'Commentary'
-                    : varianceCell && commentRequests[varianceCell.key]
-                      ? 'Your answer (required)'
+                    : cellRequest
+                      ? 'Your reply (required)'
                       : 'Commentary (required)'}
                 </label>
                 <textarea
@@ -2122,8 +2179,8 @@ function SubmissionEditor({
                 />
                 {handedOver && (
                   <span className="text-muted" style={{ fontSize: 11 }}>
-                    The numbers are with your approver, but commentary on them is still yours
-                    to add.
+                    This forecast is with your approver; replying to a question does not take it
+                    off their desk.
                   </span>
                 )}
               </div>

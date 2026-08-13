@@ -7,14 +7,12 @@
 // the wording of the mail depended on where the question was raised from. All
 // of it lives here, so a question is the same thing wherever it is asked.
 // ============================================================================
-import type { CommentRequest, Submission } from '../types';
-import { listEntities, seedUsers } from './appData';
+import type { CommentRequest } from '../types';
+import { lineOwners, type LineOwner } from './legalEntityService';
 import { currentUser, requesterRoleFor } from './session';
 import { weekLabel } from './periods';
-import { requestComment, settingsForEntity } from './submissionService';
-import { loadSettings, loadUsers } from '../storage/localStorage';
-import { appUrl, emailForName, mailDomain, openEmail } from '../utils/email';
-import { DEFAULT_SETTINGS } from '../components/settings/defaults';
+import { requestComment } from './submissionService';
+import { appUrl, openEmail } from '../utils/email';
 
 /** The cell a question is about, with everything the mail draft quotes. */
 export interface CommentaryTarget {
@@ -37,19 +35,21 @@ export interface CommentaryTarget {
 const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
 /**
- * Who a question about this entity would go to, or null when nobody is
- * assigned to submit for it.
+ * Who a question about this cell would go to, or null when nobody is assigned
+ * to submit it.
  *
- * Worth its own answer, because "no submitter" used to end in a mail draft
- * addressed to an address synthesized from an empty name — the question
- * looked sent and reached nobody.
+ * Line items can have owners of their own (Legal Entity Setup), so a question
+ * about salaries goes to whoever forecasts salaries rather than to whoever is
+ * first in the entity's submitter list. Worth its own answer, because "no
+ * submitter" used to end in a mail draft addressed to an address synthesized
+ * from an empty name — the question looked sent and reached nobody.
  */
-export function submitterFor(entity: string): { name: string; email: string } | null {
-  const configured = listEntities().find((e) => e.name === entity);
-  const name = configured?.submitter;
-  if (!name || name === '—') return null;
-  const settings = settingsForEntity(entity, loadSettings(DEFAULT_SETTINGS));
-  return { name, email: emailForName(name, loadUsers(seedUsers()), mailDomain(settings)) };
+export function submitterFor(
+  entity: string,
+  /** Line item the question is about; omitted, the entity's submitters. */
+  lineLabel?: string,
+): LineOwner | null {
+  return lineOwners(entity, lineLabel)[0] ?? null;
 }
 
 /**
@@ -70,7 +70,7 @@ export function askForCommentary(target: CommentaryTarget, message: string): Com
   };
   requestComment(target.week, target.entity, target.templateId, target.cellKey, request);
 
-  const to = submitterFor(target.entity);
+  const to = submitterFor(target.entity, target.label);
   const submitter = to?.name ?? 'there';
   openEmail({
     to: to?.email ?? '',
@@ -91,11 +91,4 @@ export function askForCommentary(target: CommentaryTarget, message: string): Com
       `Best regards,\n${me.name}\n${me.email}`,
   });
   return request;
-}
-
-/** Open questions on a submission, oldest first, for banners and lists. */
-export function openQuestions(sub: Submission): (CommentRequest & { key: string })[] {
-  return Object.entries(sub.commentRequests ?? {})
-    .map(([key, request]) => ({ key, ...request }))
-    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
 }

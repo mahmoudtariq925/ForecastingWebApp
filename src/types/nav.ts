@@ -78,9 +78,9 @@ export function navFor(p: Permissions): NavSections {
   // Approvers decide straight from their dashboard checklist (approve /
   // review per country) — a separate Approvals screen was one page too many.
   // Forecast-vs-forecast is not a screen either: the variances that need
-  // explaining arrive as comments, and the numbers behind them are on the
+  // explaining arrive as questions, and the numbers behind them are on the
   // forecast itself.
-  workspace.push({ view: 'review', label: 'Comments / Feedback' });
+  workspace.push({ view: 'review', label: 'Questions' });
   return { workspace, admin: [] };
 }
 
