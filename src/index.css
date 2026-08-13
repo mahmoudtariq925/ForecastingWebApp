@@ -2142,144 +2142,273 @@ td.num {
 }
 
 /* ============================================================
-   The questions queue (treasury).
-   One row per FORECAST, closed until opened, ordered by who has been waiting
-   longest. It has to stay readable at a hundred forecasts, so the closed
-   state carries everything needed to decide whether to open it: country,
-   week, submitter, counts, and the length of the longest wait.
+   The questions board.
+
+   Every question on every forecast in scope, one card per conversation, in the
+   three states that decide what to do with it: waiting on a reply, answered
+   and unread, closed. The queue this replaced was one row per forecast with
+   the conversation folded away inside it, which meant the state of a hundred
+   questions could only be discovered a click at a time.
    ============================================================ */
-.panel.question-group {
-  margin-bottom: 10px;
+.question-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
 }
-/* Someone is waiting on a submitter — the queue's whole point, so it is the
-   one thing marked on a closed row. */
-.panel.question-group.question-waiting {
-  border-left: 3px solid var(--blue);
-}
-.question-head {
+.question-col {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 5px;
-  width: 100%;
-  padding: 11px 16px;
-  text-align: left;
-  font-size: 13px;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-.question-head-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-/* The reply, on the closed row: one line, truncated, so a page of answers can
-   be read without opening anything. */
-.question-head-answer {
+  min-width: 0;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-left: 22px;
-  font-size: 12px;
-  color: var(--text-muted);
 }
-.question-head-answer strong {
-  color: var(--green);
-  font-weight: 600;
-}
-.question-head:hover {
-  background: var(--n-25);
-}
-.question-head .question-entity {
-  color: var(--text);
-  font-size: 14px;
-}
-.question-submitter {
-  font-size: 12px;
-}
-.question-counts {
+.question-col-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   flex-wrap: wrap;
+  padding: 11px 14px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  /* The column's own colour, so the board can be read at a glance from the
+     other side of a desk. */
+  border-top: 3px solid var(--n-300);
 }
-.question-age {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--blue);
+.col-awaiting .question-col-head {
+  border-top-color: var(--blue);
 }
-.question-list {
-  border-top: 1px solid var(--border);
-  background: var(--n-25);
-  padding: 10px 14px 14px;
+.col-answered .question-col-head {
+  border-top-color: var(--green);
+}
+.question-col-head strong {
+  font-size: 13px;
+}
+.question-col-blurb {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+.question-col-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 12px;
+  /* Long columns scroll on their own — the board's headers stay put. */
+  max-height: calc(100vh - 330px);
+  overflow-y: auto;
 }
-/* One question: what was asked, what came back, and what to do about it. */
-.question-row {
-  padding: 10px 14px;
+.question-col-empty {
+  font-size: 12px;
+  padding: 6px 2px 10px;
+}
+
+/* One conversation. */
+.question-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  background: var(--bg-elev);
   border: 1px solid var(--border);
   border-left: 3px solid var(--n-300);
   border-radius: var(--r-md);
-  background: var(--bg-elev);
   box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
-.question-row.state-awaiting {
+.question-card:hover,
+.question-card:focus-visible {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+  outline: none;
+}
+.question-card.state-awaiting {
   border-left-color: var(--blue);
 }
-.question-row.state-answered {
+.question-card.state-answered {
   border-left-color: var(--green);
 }
-.question-row-head {
+.question-card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 7px;
+  font-size: 12px;
 }
-.question-figures {
+.question-card-head strong {
+  font-size: 13.5px;
+}
+.question-card-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.question-card-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--text-dim);
 }
-.question-figures .delta {
-  margin-left: 6px;
-}
-.question-row-actions {
+.question-card-foot {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
-.question-ask,
-.question-answer {
-  font-size: 12.5px;
-  line-height: 1.6;
+.question-card-owner {
+  font-weight: 600;
   color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.question-ask strong {
-  color: var(--text);
+
+/* ============================================================
+   Threads.
+   A question about a number is a conversation, so it is drawn as one: the
+   asker on one side, whoever answers on the other, oldest first.
+   ============================================================ */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 14px;
 }
-.question-answer {
-  margin-top: 6px;
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
-  background: var(--green-soft);
+.thread-compact {
+  gap: 6px;
+  margin: 0;
 }
-.question-answer.pending {
-  background: var(--blue-soft);
+.thread-more {
+  font-size: 10.5px;
   color: var(--text-muted);
   font-style: italic;
 }
-/* A stat box doubling as the filter for what it counts says which one is on. */
-.kpi-card.kpi-active {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-focus);
+.bubble-row {
+  display: flex;
+  justify-content: flex-start;
+}
+/* The reader's own messages sit on the right — the shape of the thread then
+   says who is waiting on whom before a word of it is read. */
+.bubble-row.is-mine {
+  justify-content: flex-end;
+}
+.bubble {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+.bubble-row.role-submitter .bubble {
+  background: var(--green-soft);
+  border-color: transparent;
+}
+.bubble-row.role-treasury .bubble,
+.bubble-row.role-approver .bubble {
+  background: var(--blue-soft);
+  border-color: transparent;
+}
+.bubble-row.is-mine .bubble {
+  background: var(--accent-softer);
+  border-color: var(--border);
+}
+.bubble-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.bubble-head strong {
+  color: var(--text);
+  font-size: 11.5px;
+}
+.bubble-time {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.bubble-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+}
+.thread-compact .bubble {
+  max-width: 100%;
+  padding: 7px 10px;
+}
+.thread-compact .bubble-text {
+  font-size: 12px;
+  /* Three lines is enough to know whether the card is worth opening. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.thread-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.thread-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* A forecast that is already in: the row recedes, because there is nothing
+   left to do on it — but its actions stay live, since a figure can still be
+   corrected while the cycle is open. */
+.entity-list-row.row-submitted {
+  background: var(--bg-sunken);
+}
+.entity-list-row.row-submitted .entity-list-info > strong {
+  color: var(--text-muted);
+}
+
+/* A submitted forecast that its submitter has unlocked: in play, not yet
+   resubmitted. */
+.tag.tag-editing {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-color: transparent;
+}
+
+/* Line item owners: one row per line, one column per submitter. */
+.line-owner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.line-owner-col {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .question-board {
+    grid-template-columns: 1fr;
+  }
+  .question-col-body {
+    max-height: none;
+  }
 }
 
 /* An answer that has come back: green, because this one is finished — the

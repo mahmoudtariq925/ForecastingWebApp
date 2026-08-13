@@ -18,10 +18,9 @@ later).
 | **Approvals** | Approve/reject queue persisted against the active cycle **and onto the stored submission** (materialized if the submitter never opened it), with live flag counts and a read-only deep link into the forecast. Decided forecasts stay listed with their decision; a resubmitted forecast reopens as pending |
 | **Consolidated** | Treasury read-only cell-wise sum of every entity's submission, computed KPIs, real XLSX export, Outlook summary email, and a note naming any line item that could not be mapped onto the display template |
 | **Comparisons** | Forecast-vs-forecast on the **same live submission data**: daily chart (metric selector), by-entity and by-category tabs, computed largest-variances table, week-pair selector. Available to Treasury across the group and to approvers / submitters scoped to their own entities |
-| **Questions** (Treasury) | The queue of every question **treasury and the approvers** have asked, across every forecast — one queue, with a **Both / Treasury / Approvers** toggle carrying live counts. Headline counts of what is awaiting a reply / answered / closed (each doubling as a filter), plus filters for region, period and a search. **One collapsed row per forecast** — country, week, submitter, counts, longest wait, and *the newest answer read straight off the closed row* — ordered by who has been waiting longest. Opening one shows each question with the reply beneath it, **Open Forecast** onto the cell, **Ask Again**, and **Mark Reviewed** to close it off |
-| **Comments & Feedback** (submitter / approver / viewer) | The conversation on their own forecasts: what they still owe an explanation for, what has been asked of them, and what they have answered — with **Reply / Explain** deep links onto the cell |
+| **Questions** (every role) | The board of every question **treasury and the approvers** have asked — treasury sees the group, everyone else the entities they are responsible for. Three columns, left to right: **awaiting a reply**, **answered**, **closed**, one card per conversation, carrying the country, week, line item, the figures behind it, the line's owner and the last thing said. Filters for who asked (**Both / Treasury / Approvers**, with live counts), region, period and a search across the threads. Opening a card shows the **whole thread as a conversation** with a reply box — the submitter answers, the asker follows up, and the card moves columns as it goes — plus **Open Forecast** onto the cell and **Mark Reviewed** to close it off |
 | **Templates** | Two authoring routes to the same structure: **build one in the browser** with the spreadsheet-style Template Builder (rows = sections / line items / computed subtotals, columns = forecast periods, editable starting values, live preview) or **upload an .xlsx** (structure & orientation auto-detected). Assign to countries, reopen and keep editing, replace / download / remove |
-| **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role) and its forecast template |
+| **Legal Entity Setup** | A list of every legal entity; **clicking a row opens that entity's setup in a dialog** — master data (country, region, currency, status), the users responsible for it (viewers / approvers / submitters, each selectable only from users holding that global role), its forecast template, and **who owns each line item of that template**: a second dialog with one row per line and one column per submitter, so payroll can belong to HR and tax to the tax team. A question about a line goes to its owner; a line with nobody on it stays with the entity's submitters |
 | **User Management** | Add / edit / activate / deactivate / remove users and set their **global role** (Treasury / Approver / Submitter / Viewer), with a read-only Responsibilities column derived from Legal Entity Setup, plus a prefilled Outlook setup email per user |
 | **Settings** | Forecast horizon and cycle frequency, variance threshold rules, and the SSO / allowed-domain configuration |
 
@@ -236,8 +235,10 @@ person, so it can land on any cell:
   approver's **Review & Approve** dialog is the same view. Click any cell to
   ask about it; **Open Full Forecast** is there when the whole page is
   wanted.
-- **From the Questions queue** — **Ask Again** raises the same dialog on a
-  question that has already been asked once.
+- **From the Questions board** — the reply box under a thread. Whoever asked
+  writes a follow-up, which reopens the question; the submitter writes an
+  answer, which closes it. Asking again about the same cell **continues the
+  thread** rather than replacing what was asked before.
 - **For the submitter** — cells with an open question are outlined in blue and
   are **answered by clicking the cell**, which opens the question with the
   reply box. The banner above the grid **lists every open question and opens
@@ -249,31 +250,45 @@ person, so it can land on any cell:
   a chip per cell. The submitter's "open one to answer it" panel is addressed
   to whoever has to reply, which on someone else's forecast is nobody.
 
-Answering **stamps** the question rather than deleting it, so whoever asked
-comes back to the question and the answer together — the Questions queue shows
-the reply under the ask, and in the forecast dialog the pair sits above the
-grid. A cell that has been asked about also stays in the review queue even
-if the corrected number no longer breaches the variance threshold; it used to
-vanish from treasury's queue, taking the answer with it.
+A question is a **thread**, not a single exchange: every reply is kept in
+order, and the answer never replaces the question that produced it. The board
+draws it as a conversation — asker on one side, whoever answers on the other —
+and the same thread appears above the grid when the cell is opened on the
+forecast. The submitter's latest reply is also the cell's commentary, which is
+what the grid and the variance checks read. A cell that has been asked about
+stays in the queue even if the corrected number no longer breaches the
+variance threshold; it used to vanish from treasury's queue, taking the answer
+with it.
 
 Every question records **who asked and in what capacity**, and each surface
 says so — *"Pieter Bakker (Approver) asked…"* — because an approver deciding
 whether to sign a forecast off and treasury consolidating it are not the same
 person waiting.
 
-A question on a forecast that has already been submitted **sends it back** to
-its submitter. That forecast is not a fresh draft, and nothing presents it as
-one: the checklist step reads **Answer & resubmit forecast** (then **Resubmit
-forecast** once the questions are answered), the country lists it as *reopened
-by a question*, and the page opens in an **answering mode** — a blue page edge,
-a mode ribbon, and a banner naming who asked and when.
+A question on a forecast that has already been submitted **does not send it
+back**. It used to, which meant one question undid an approver's decision and
+handed a submitter with a sentence to write a whole forecast to submit again.
+What a question creates is a reply owed: the forecast stays where it is, the
+page opens in an **answering mode** (a blue page edge, a mode ribbon, the open
+questions listed above the grid), and answering it is the whole job.
 
-While it is back for answers the **figures stay locked**. They have already
-been reviewed, and a live grid let a submitter restate the week under cover of
-replying — the approver would then have signed off numbers that no longer
-existed. Answering and resubmitting are the only actions offered; if a figure
-genuinely has to change, the approver returns the forecast, which unlocks it
-properly and is visible as a return.
+Changing a **figure** is the act with consequences, so a submitted forecast
+opens **locked and saying so**: a *Figures Locked* badge, a banner reading
+*✓ Submitted — with your approver*, and one way in — **Edit Forecast**, which
+asks first, because the edit is what withdraws the forecast from approval and
+nobody should learn that from a banner appearing under their hands. The
+checklist matches: with everything in, the Submit step is ticked and greyed but
+its button stays **pressable**, reading *Edit & Resubmit* and opening the
+countries it covers; each already-submitted country greys out with an
+*Edit & Resubmit* of its own, which opens the forecast unlocked in one step.
+
+Once unlocked, the first figure that moves **withdraws the forecast from
+approval**: its status returns to draft, the approver's decision is cleared, a
+banner says so, and the button reads **Resubmit for Approval**. The approver
+then sees the revised figures as a fresh decision, and resubmitting locks the
+forecast again. Nothing is withdrawn until a number actually changes —
+unlocking and changing your mind costs nothing. Once the cycle is consolidated
+the figures are history: no Edit button, and only the conversation carries on.
 
 Review items sort by **absolute movement, largest first** — the size of the
 swing is what decides whether a comment is worth reading.
@@ -557,7 +572,7 @@ src/
     approvals/     Approvals screen
     consolidated/  Treasury consolidated (read-only) view
     comparisons/   Forecast vs forecast
-    review/        Questions queue (treasury) and Comments & Feedback (analysts)
+    review/        Questions board + the thread view every screen shares
     templates/     Forecast template upload / assignment management
     users/         User management
     settings/      Settings screen (+ defaults)
@@ -572,7 +587,7 @@ src/
     mockData.ts    Seed data, the standard template, demo-value generation
     periods.ts     Reporting periods (month/year) and day labels
     session.ts     The signed-in user + permissions (until Phase 3 SSO)
-    submissionService.ts  Submissions, consolidation, variances, review groups
+    submissionService.ts  Submissions, consolidation, variances, question threads
   storage/
     localStorage.ts  saveData()/loadData() + named helpers (saveSubmission, ...)
   types/

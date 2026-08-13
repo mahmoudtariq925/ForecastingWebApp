@@ -15,7 +15,13 @@
 //
 // The live instance seeds nothing: its numbers come from imported workbooks.
 // ============================================================================
-import type { CommentRequest, ForecastTemplate, Submission, SubmissionStatus } from '../types';
+import type {
+  CommentRequest,
+  ForecastTemplate,
+  Submission,
+  SubmissionStatus,
+  ThreadMessage,
+} from '../types';
 import { DEMO_DATA } from './dataSource';
 import { demoCountries } from './mockData';
 import { listEntities, seedUsers } from './appData';
@@ -69,6 +75,14 @@ const questionsSeededKey = (week: string) => `demoQuestionsSeeded:${week}`;
 // question are the ones worth asking about, and a template without that line
 // simply skips it instead of asking about a cell that isn't there.
 // ---------------------------------------------------------------------------
+interface DemoReply {
+  /** `asker` is whoever opened the thread — treasury or the approver. */
+  by: 'asker' | 'submitter';
+  /** How long ago it was written, in hours. */
+  hoursAgo: number;
+  text: string;
+}
+
 interface DemoQuestion {
   /** Line item the question is about; skipped when the template lacks it. */
   category: string;
@@ -77,15 +91,10 @@ interface DemoQuestion {
   /** How long ago it was asked, in hours. */
   hoursAgo: number;
   message: string;
-  /** The submitter's reply. Omitted = still waiting on them. */
-  answer?: string;
+  /** Everything said after the opening question, oldest first. */
+  replies?: DemoReply[];
   /** The asker has read the answer and closed the question. */
   closed?: boolean;
-  /**
-   * The question came in after the forecast had been submitted, so it went
-   * back to its submitter — the state a reopened forecast is actually in.
-   */
-  reopened?: boolean;
 }
 
 const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
@@ -96,8 +105,13 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       hoursAgo: 30,
       message:
         'Payables step up sharply here against last week — is a supplier settlement being pulled forward?',
-      answer:
-        'Yes — the Hamburg supplier run moved forward a week to catch the early-payment discount. It reverses next cycle.',
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 22,
+          text: 'Yes — the Hamburg supplier run moved forward a week to catch the early-payment discount. It reverses next cycle.',
+        },
+      ],
     },
   ],
   'United Kingdom': [
@@ -107,7 +121,13 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       hoursAgo: 96,
       message:
         'Receivables look light against the order book — has the Q3 rebate already been netted off here?',
-      answer: 'Netted, yes. The rebate lands with the September invoice run rather than this one.',
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 88,
+          text: 'Netted, yes. The rebate lands with the September invoice run rather than this one.',
+        },
+      ],
       closed: true,
     },
     {
@@ -115,8 +135,25 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       from: 'treasury',
       hoursAgo: 70,
       message: 'CAPEX is roughly triple its usual weekly run rate on this day. What is in it?',
-      answer:
-        'Fleet renewal instalment — second of three, per the approved capital plan. Nothing unexpected.',
+      // A thread rather than a single exchange — which is how most questions
+      // about a number actually go.
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 62,
+          text: 'Fleet renewal instalment — second of three, per the approved capital plan.',
+        },
+        {
+          by: 'asker',
+          hoursAgo: 40,
+          text: 'Thanks. Is the third instalment inside this horizon, or does it fall into next cycle?',
+        },
+        {
+          by: 'submitter',
+          hoursAgo: 30,
+          text: 'Next cycle — it is due on the 9th, so it lands in the following week’s forecast.',
+        },
+      ],
     },
   ],
   Spain: [
@@ -134,7 +171,13 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       from: 'treasury',
       hoursAgo: 120,
       message: 'IC outflows are double the usual weekly run rate — is this the quarterly settlement?',
-      answer: 'It is: the quarterly IC settlement with Milan. One-off, back to normal next week.',
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 110,
+          text: 'It is: the quarterly IC settlement with Milan. One-off, back to normal next week.',
+        },
+      ],
       closed: true,
     },
   ],
@@ -145,7 +188,6 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       hoursAgo: 6,
       message:
         'Other taxes are an order of magnitude above last week — is the VAT payment sitting in the right week?',
-      reopened: true,
     },
   ],
   Switzerland: [
@@ -163,8 +205,13 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       hoursAgo: 52,
       message:
         'Receivables and payables both step up on the same day — is that the same counterparty on both sides?',
-      answer:
-        'Different ones: the receipt is the Antwerp distributor, the payment is the annual insurance premium.',
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 44,
+          text: 'Different ones: the receipt is the Antwerp distributor, the payment is the annual insurance premium.',
+        },
+      ],
     },
   ],
   Portugal: [
@@ -173,8 +220,13 @@ const DEMO_QUESTIONS: Record<string, DemoQuestion[]> = {
       from: 'approver',
       hoursAgo: 130,
       message: 'The Other line carries most of the week’s inflow — what sits in it?',
-      answer:
-        'A reclassified grant receipt. It moves to Corporate Income from next cycle, once the coding is fixed.',
+      replies: [
+        {
+          by: 'submitter',
+          hoursAgo: 120,
+          text: 'A reclassified grant receipt. It moves to Corporate Income from next cycle, once the coding is fixed.',
+        },
+      ],
       closed: true,
     },
   ],
@@ -228,12 +280,12 @@ function seedDemoQuestions(week: string): void {
     if (Object.keys(stored.commentRequests ?? {}).length > 0) return;
 
     const approver = entities.find((e) => e.name === country.name)?.approver;
+    const submitter = entities.find((e) => e.name === country.name)?.submitter ?? 'Submitter';
     const requests: Record<string, CommentRequest> = {};
     const comments = { ...stored.comments };
     const flags = new Set(stored.flags);
     const resolved = new Set(stored.resolvedFlags ?? []);
-    let reopenedBy = stored.reopenedBy;
-    let status = stored.status;
+    let questionedBy = stored.questionedBy;
 
     asks.forEach((ask, qi) => {
       const cell = biggestCellOf(stored, template, ask.category);
@@ -243,39 +295,45 @@ function seedDemoQuestions(week: string): void {
       const from =
         ask.from === 'approver' ? approver : treasury[(ci + qi) % treasury.length].name;
       if (!from || from === '—') return;
-      const requestedAt = new Date(Date.now() - ask.hoursAgo * 3_600_000).toISOString();
+      const at = (hoursAgo: number) =>
+        new Date(Date.now() - Math.max(hoursAgo, 0) * 3_600_000).toISOString();
+      const requestedAt = at(ask.hoursAgo);
+      const replies: ThreadMessage[] = (ask.replies ?? []).map((r) => ({
+        from: r.by === 'submitter' ? submitter : from,
+        role: r.by === 'submitter' ? 'submitter' : ask.from,
+        text: r.text,
+        at: at(r.hoursAgo),
+      }));
+      const lastReply = replies[replies.length - 1];
       requests[cell] = {
         from,
         fromRole: ask.from,
         message: ask.message,
         requestedAt,
-        ...(ask.answer
-          ? {
-              answeredAt: new Date(
-                Date.now() - Math.max(ask.hoursAgo - 8, 1) * 3_600_000,
-              ).toISOString(),
-            }
-          : {}),
+        replies,
+        // The ball is with the asker only while the LAST word was the
+        // submitter's — a follow-up puts the question back to them.
+        ...(lastReply?.role === 'submitter' ? { answeredAt: lastReply.at } : {}),
       };
       // Asking flags the cell, exactly as `requestComment` does.
       flags.add(cell);
-      if (ask.answer && !comments[cell]?.trim()) comments[cell] = ask.answer;
+      // The submitter's latest reply is the cell's commentary, which is what
+      // the grid and the variance checks read.
+      const lastAnswer = [...replies].reverse().find((r) => r.role === 'submitter');
+      if (lastAnswer && !comments[cell]?.trim()) comments[cell] = lastAnswer.text;
       if (ask.closed) resolved.add(cell);
-      if (ask.reopened) {
-        status = 'draft';
-        reopenedBy = { by: from, role: ask.from, at: requestedAt };
-      }
+      // Somebody asked, so the forecast is in review whatever its status.
+      questionedBy = { by: from, role: ask.from, at: requestedAt };
     });
 
     if (Object.keys(requests).length === 0) return;
     saveSubmission({
       ...stored,
-      status,
       flags: [...flags],
       resolvedFlags: [...resolved],
       comments,
       commentRequests: requests,
-      reopenedBy,
+      questionedBy,
     });
   });
 

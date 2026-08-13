@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
+import { QuestionThread } from '../review/QuestionThread';
 import {
   askForCommentary,
   submitterFor,
   type CommentaryTarget,
 } from '../../data/commentaryService';
-import { pctChange, requesterLabel } from '../../data/submissionService';
+import { pctChange, threadOf } from '../../data/submissionService';
 import type { CommentRequest } from '../../types';
 
 interface RequestCommentaryModalProps {
@@ -14,7 +15,7 @@ interface RequestCommentaryModalProps {
   target: CommentaryTarget;
   /** Context line for the panel head, e.g. "Netherlands · CW 33". */
   context?: string;
-  /** A question already open on this cell — asking again replaces it. */
+  /** A conversation already running on this cell — asking again continues it. */
   existing?: CommentRequest | null;
   /** Whether the variance threshold flagged this cell (heading wording). */
   flagged?: boolean;
@@ -46,8 +47,9 @@ export function RequestCommentaryModal({
 
   const pct = target.prior === null ? null : pctChange(target.current, target.prior);
 
-  /** Nobody to ask: the question would be recorded and reach no one. */
-  const submitter = submitterFor(target.entity);
+  /** Nobody to ask: the question would be recorded and reach no one. The line
+   *  item decides who that is — see Legal Entity Setup. */
+  const submitter = submitterFor(target.entity, target.label);
 
   const send = async () => {
     const message = draft.trim();
@@ -110,33 +112,25 @@ export function RequestCommentaryModal({
           <span>Current: {fmtK(target.current)}</span>
         </div>
       </div>
-      {/* A question already waiting on this cell — so a second one adds to it
-          rather than repeating it. An answered one says so: the reply below is
-          then an answer to this question, not loose commentary. */}
-      {existing && (
-        <div className={`comment-request-note${existing.answeredAt ? ' answered-note' : ''}`}>
-          <strong>
-            {existing.from} ({requesterLabel(existing.fromRole)}) asked:
-          </strong>{' '}
-          {existing.message}
-          {existing.answeredAt && <span className="text-muted"> · answered</span>}
+      {/* The conversation so far, so a second question adds to it rather than
+          repeating it — and so the answers that came back are read against the
+          questions that produced them. */}
+      {existing ? (
+        <QuestionThread
+          messages={threadOf(existing, target.comment ?? '', submitter?.name ?? 'Submitter')}
+        />
+      ) : (
+        <div className="form-group">
+          <label className="form-label">Submitter’s commentary</label>
+          <div className="readback">
+            {target.comment?.trim() || 'No commentary provided yet.'}
+          </div>
         </div>
       )}
-      {/* What the submitter has said so far, as context — read-only, because
-          writing their commentary for them is not the job. */}
-      <div className="form-group">
-        <label className="form-label">
-          {existing?.answeredAt ? 'Submitter’s answer' : 'Submitter’s commentary'}
-        </label>
-        <div className="readback">
-          {target.comment?.trim() ||
-            (existing?.answeredAt
-              ? 'Answered without written commentary.'
-              : 'No commentary provided yet.')}
-        </div>
-      </div>
       <div className="form-group" style={{ marginBottom: 0 }}>
-        <label className="form-label">What do you want explained?</label>
+        <label className="form-label">
+          {existing ? 'Your follow-up' : 'What do you want explained?'}
+        </label>
         <textarea
           className="form-textarea"
           placeholder="e.g. This is triple last week's payables — is a one-off settlement included?"
@@ -146,7 +140,7 @@ export function RequestCommentaryModal({
         />
         <span className="text-muted" style={{ fontSize: 11 }}>
           {submitter
-            ? `Sending marks the cell for ${submitter.name} and opens an Outlook draft to them. A submitted forecast comes back to them to answer and resubmit.`
+            ? `Sending marks the cell for ${submitter.name} and opens an Outlook draft to them. The forecast stays where it is — what changes is that they owe a reply.`
             : `${target.entity} has nobody assigned to submit its forecast — assign a submitter under Legal Entity Setup before asking, or the question reaches no one.`}
         </span>
       </div>

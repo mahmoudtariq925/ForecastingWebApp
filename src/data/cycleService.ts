@@ -133,6 +133,25 @@ export function cycleForWeek(weekKey: string): Cycle | null {
   return listCycles().find((c) => c.weekKey === weekKey) ?? null;
 }
 
+/**
+ * Is the cycle collecting this week still open for changes?
+ *
+ * This is what decides whether a FIGURE can still move. Inside an open cycle a
+ * submitter may revise and resubmit — a question is often answered by
+ * correcting the number, and locking the grid made that impossible without the
+ * approver returning the whole forecast. Once the cycle is consolidated the
+ * numbers are history: the conversation about them carries on, but nobody
+ * restates a week treasury has already reported.
+ *
+ * A week the app has no cycle for is open only if it is still ahead of us —
+ * an unknown PAST week is closed, not editable by default.
+ */
+export function isCycleOpen(weekKey: string): boolean {
+  const cycle = cycleForWeek(weekKey);
+  if (cycle) return cycle.status === 'submitted';
+  return weekKey >= currentWeekKey();
+}
+
 // ---------------------------------------------------------------------------
 // Counts — computed from the same submissions every other screen reads.
 // ---------------------------------------------------------------------------

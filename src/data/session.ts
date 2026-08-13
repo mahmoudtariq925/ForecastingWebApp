@@ -28,11 +28,10 @@ export interface Permissions {
   canApproveForecasts: boolean;
   canSubmitForecasts: boolean;
   canViewAllEntities: boolean;
-  canReviewComments: boolean;
   /**
-   * Ask a submitter to explain a cell. Distinct from `canReviewComments`
-   * (which is the triage screen): an approver judging a forecast needs to
-   * ask about a number without also owning the group-wide review queue.
+   * Ask a submitter to explain a cell — treasury and the entity's approver.
+   * Everyone can READ the questions board; only these two open a question on
+   * a number.
    */
   canRequestCommentary: boolean;
   canViewConsolidated: boolean;
@@ -51,7 +50,6 @@ const NO_ACCESS: Permissions = {
   canApproveForecasts: false,
   canSubmitForecasts: false,
   canViewAllEntities: false,
-  canReviewComments: false,
   canRequestCommentary: false,
   canViewConsolidated: false,
   canViewForecasts: false,
@@ -77,7 +75,6 @@ function permissionsForRole(role: Role): Permissions {
         canApproveForecasts: true,
         canSubmitForecasts: true,
         canViewAllEntities: true,
-        canReviewComments: true,
         canRequestCommentary: true,
         canViewConsolidated: true,
         canViewForecasts: true,

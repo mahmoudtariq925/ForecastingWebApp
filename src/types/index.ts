@@ -120,6 +120,17 @@ export interface LegalEntity {
   /** Forecast template this entity submits on. */
   forecastTemplateId: string;
   /**
+   * Who owns each LINE ITEM of that template, keyed by the line's label and
+   * holding submitter emails.
+   *
+   * A country's forecast is rarely one person's work — payroll comes from HR,
+   * tax from the tax team — so a question about salaries has to reach whoever
+   * actually produces that line rather than the entity's first submitter.
+   * A line with no entry here falls back to `submitters`, which is what every
+   * entity had before this existed.
+   */
+  lineItemSubmitters?: Record<string, string[]>;
+  /**
    * Percentage move versus the prior cycle that flags a cell for commentary.
    * Set per entity because a small entity's numbers swing far harder than a
    * large one's. Omitted = fall back to the group default in Settings.
@@ -223,25 +234,53 @@ export interface ForecastTemplate {
 export type RequesterRole = 'treasury' | 'approver';
 
 /**
- * A request for commentary on one forecast cell, from treasury or from the
+ * Who wrote one message in a question thread: the two sides that ASK, plus
+ * the submitter who answers.
+ */
+export type ThreadRole = RequesterRole | 'submitter';
+
+/** One message in the conversation about a cell. */
+export interface ThreadMessage {
+  /** Display name of whoever wrote it. */
+  from: string;
+  role: ThreadRole;
+  text: string;
+  /** ISO timestamp. */
+  at: string;
+}
+
+/**
+ * The conversation about one forecast cell, opened by treasury or by the
  * entity's approver.
  *
  * Distinct from a variance flag: a flag is derived from the numbers, whereas
- * a request is a person asking a question — so it can land on any cell,
+ * a question is a person asking about them — so it can land on any cell,
  * including one the threshold never flagged.
+ *
+ * A question is rarely settled in one exchange, so this is a THREAD: the
+ * opening question (`from` / `message` / `requestedAt`) plus every reply that
+ * followed, in order. `answeredAt` still says which side the ball is on — set
+ * when the submitter replies, cleared when the asker comes back.
  */
 export interface CommentRequest {
-  /** Display name of whoever asked, for the submitter's benefit. */
+  /** Display name of whoever opened the thread. */
   from: string;
   /** Which role they asked in. Absent on questions stored before this existed. */
   fromRole?: RequesterRole;
+  /** The opening question. */
   message: string;
   requestedAt: string;
   /**
-   * When the submitter answered. Set rather than deleting the request, so the
-   * QUESTION stays beside the answer: whoever asked comes back to a cell with
-   * a paragraph of commentary on it, and without this there is nothing left
-   * to say what that paragraph is an answer to.
+   * Everything said after the opening question, oldest first. Absent on
+   * threads stored before replies existed — those carry at most a single
+   * answer, which lives in `Submission.comments` for the cell.
+   */
+  replies?: ThreadMessage[];
+  /**
+   * When the submitter last replied. Set rather than deleting the request, so
+   * the QUESTION stays beside the answer: whoever asked comes back to a cell
+   * with a paragraph of commentary on it, and without this there is nothing
+   * left to say what that paragraph is an answer to.
    *
    * An unset value is what "open question" means everywhere.
    */
@@ -249,15 +288,15 @@ export interface CommentRequest {
 }
 
 /**
- * Why a forecast that had been handed over is back with its submitter: a
- * question reopens it (see `requestComment`), and without this the checklist
- * could only see a forecast "in draft" and read it as one never started.
+ * The question that put a handed-over forecast back in front of its submitter.
  *
- * Only meaningful while the submission is in `draft`; resubmitting moves the
- * status on and the reopening stops being the current state of affairs.
+ * Being asked about a cell no longer RETURNS the forecast — the numbers stay
+ * where they are and the approval stands; what changes is that somebody owes a
+ * reply. Recorded so every screen can say "in review, questions waiting"
+ * instead of showing a submitted forecast with nothing going on.
  */
-export interface ForecastReopen {
-  /** Display name of whoever asked the question that reopened it. */
+export interface ForecastQuestion {
+  /** Display name of whoever asked. */
   by: string;
   role: RequesterRole;
   /** ISO timestamp of the question. */
@@ -284,11 +323,18 @@ export interface Submission {
    */
   commentRequests?: Record<string, CommentRequest>;
   /**
-   * Set when a question sent this forecast back to its submitter, so every
-   * screen can say "reopened, answer and resubmit" rather than "still in
-   * draft". Read only while `status` is `draft`.
+   * The most recent question asked on this forecast, so every screen can say
+   * "in review — questions waiting" rather than leaving a submitted forecast
+   * looking untouched. Read while any question is still open.
    */
-  reopenedBy?: ForecastReopen;
+  questionedBy?: ForecastQuestion;
+  /**
+   * The status this forecast held when its submitter changed a figure after
+   * handing it over. Editing withdraws a submitted (or approved) forecast:
+   * the numbers someone signed off no longer exist, so it goes round the
+   * approval cycle again. Cleared on resubmission.
+   */
+  revisedFrom?: SubmissionStatus;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**

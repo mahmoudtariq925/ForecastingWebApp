@@ -57,8 +57,8 @@ const CLOSING: TourStep = {
 const COMMENTS_STEP: TourStep = {
   view: 'review',
   selector: '[data-tour="nav-review"]',
-  title: 'Comments and feedback',
-  body: 'Every question Treasury has raised on your entities collects here, together with the answers, so the state of the conversation is never in doubt.',
+  title: 'The questions board',
+  body: 'Every question raised on your entities sits here as a conversation you can reply to, in three columns: awaiting a reply, answered, and closed.',
   side: 'right',
 };
 
@@ -187,7 +187,7 @@ const SUBMITTER_JOURNEY: TourStep[] = [
     view: 'review',
     selector: '[data-tour="nav-review"]',
     title: '9 · The conversation',
-    body: 'Every question on your numbers and every answer you give collects under Comments / Feedback, so nothing gets lost in email.',
+    body: 'Every question on your numbers is a thread under Questions — read it, answer it there, and nothing gets lost in email.',
     side: 'right',
   },
 ];
@@ -267,7 +267,7 @@ const APPROVER_JOURNEY: TourStep[] = [
     view: 'review',
     selector: '[data-tour="nav-review"]',
     title: '5 · Keep up with the answers',
-    body: 'Questions you or Treasury raise, and the submitters’ answers, collect here — check it before the cycle closes.',
+    body: 'Questions you or Treasury raise become threads here, with the submitters’ answers — reply to them and close them off before the cycle closes.',
     side: 'right',
   },
 ];
@@ -370,7 +370,7 @@ const TREASURY_STEPS: TourStep[] = [
     view: 'review',
     selector: '[data-tour="review-filters"]',
     title: 'Working through questions',
-    body: 'Every question you and the approvers have asked, one row per forecast and the longest wait first. Filter by who is still owed a reply, read the answers that came back, and mark them reviewed to clear them.',
+    body: 'Every question you and the approvers have asked, one card per conversation, moving left to right as it is answered and closed. Filter by who asked, open a card to read the thread and reply, and mark it reviewed to clear it.',
     side: 'bottom',
   },
   // --- Configuration (previously the separate administrator role) ---

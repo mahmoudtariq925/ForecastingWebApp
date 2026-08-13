@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '../common/Modal';
-import { assignmentList, eligibleUsers, withAssignment } from '../../data/legalEntityService';
+import { LineItemOwnersDialog } from './LineItemOwnersDialog';
+import {
+  assignmentList,
+  eligibleUsers,
+  lineItemAssignmentCount,
+  withAssignment,
+} from '../../data/legalEntityService';
 import { loadSettings } from '../../storage/localStorage';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { EntityResponsibility, ForecastTemplate, LegalEntity, User } from '../../types';
@@ -69,6 +75,8 @@ export function EntitySetupDialog({
 }: EntitySetupDialogProps) {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [picking, setPicking] = useState<EntityResponsibility | null>(null);
+  /** The template opened for line-by-line assignment, over this dialog. */
+  const [owningLines, setOwningLines] = useState(false);
   // The fallback an entity without its own threshold is held to.
   const defaultThreshold = useMemo(
     () => loadSettings(DEFAULT_SETTINGS).varianceThreshold,
@@ -100,13 +108,20 @@ export function EntitySetupDialog({
   const close = () => {
     setNameDraft(null);
     setPicking(null);
+    setOwningLines(false);
     onClose();
   };
 
   const assignedTemplate = templates.find((t) => t.id === entity?.forecastTemplateId);
+  /** Input lines only — a subtotal is computed, so nobody forecasts it. */
+  const templateLines = (assignedTemplate?.categories ?? [])
+    .filter((c) => !c.subtotal)
+    .map((c) => c.label);
+  const ownedLines = entity ? lineItemAssignmentCount(entity, templateLines) : 0;
   const displayName = (email: string) => users.find((u) => u.email === email)?.name ?? email;
 
   return (
+    <>
     <Modal
       open={entity !== null}
       size="wide"
@@ -366,8 +381,44 @@ export function EntitySetupDialog({
               )}
             </div>
           </div>
+          {/* Who owns each LINE of that template. A country forecast is rarely
+              one person's work, and the whole template landing on one submitter
+              is what sent every question to the same inbox. */}
+          {assignedTemplate && (
+            <div className="setup-block" style={{ marginTop: 14 }}>
+              <div className="setup-block-head">
+                <div>
+                  <strong>Line item owners</strong>
+                  <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {ownedLines === 0
+                      ? `All ${templateLines.length} line items are owned by this entity's submitters. Split them up if different people forecast different lines.`
+                      : `${ownedLines} of ${templateLines.length} line items have an owner of their own; the rest stay with this entity's submitters.`}
+                  </div>
+                </div>
+                <button
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  onClick={() => setOwningLines(true)}
+                >
+                  {canManage ? 'Assign Line Items' : 'View Line Items'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Modal>
+    {/* Stacked deliberately: the line items belong to the template chosen in
+        the dialog underneath, and Modal hands Escape and the focus trap to
+        whichever dialog is on top. */}
+    <LineItemOwnersDialog
+      entity={owningLines ? entity : null}
+      template={assignedTemplate ?? null}
+      users={users}
+      canManage={canManage}
+      onClose={() => setOwningLines(false)}
+      onChange={onChange}
+    />
+    </>
   );
 }

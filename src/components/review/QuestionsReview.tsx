@@ -1,207 +1,235 @@
 import { useMemo, useState } from 'react';
 import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
-import { RequestCommentaryModal } from '../submissions/RequestCommentaryModal';
+import { Modal } from '../common/Modal';
+import { QuestionThread, ThreadComposer } from './QuestionThread';
 import { useDataVersion } from '../../data/useDataVersion';
-import { activeWeekKey } from '../../data/cycleService';
+import { activeWeekKey, isCycleOpen } from '../../data/cycleService';
 import { weekLabel, weekLabelShort } from '../../data/periods';
 import {
   collectQuestionGroups,
+  flattenQuestions,
   questionTotals,
+  sortForColumn,
   waitedLabel,
-  type QuestionGroup,
   type QuestionItem,
   type QuestionState,
 } from '../../data/questionService';
-import { requesterLabel, setFlagResolved } from '../../data/submissionService';
+import { postThreadMessage, setFlagResolved } from '../../data/submissionService';
+import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates } from '../../storage/localStorage';
+import type { ThreadRole } from '../../types';
 import type { SubmissionTarget } from '../submissions/Submission';
 
 interface QuestionsReviewProps {
   onOpenSubmission?: (target: SubmissionTarget) => void;
-  /** Restrict to these entities (approver scoping); undefined = the group. */
+  /** Restrict to these entities (role scoping); undefined = the group. */
   scopeEntities?: string[];
 }
 
 const ALL = 'all';
-const PAGE_SIZE = 12;
 
-/** The queue's shape, chosen by what the reader is doing. */
-type StateFilter = 'open' | 'awaiting' | 'answered' | 'closed' | 'all';
-
-const STATE_OPTIONS: { value: StateFilter; label: string }[] = [
-  { value: 'open', label: 'Open questions' },
-  { value: 'awaiting', label: 'Awaiting a reply' },
-  { value: 'answered', label: 'Answered — to read' },
-  { value: 'closed', label: 'Closed' },
-  { value: 'all', label: 'Every question' },
+/** The board's columns, left to right: what is owed, what came back, what is done. */
+const COLUMNS: { state: QuestionState; title: string; blurb: string }[] = [
+  { state: 'awaiting', title: 'Awaiting reply', blurb: 'Someone is waiting on an answer' },
+  { state: 'answered', title: 'Answered', blurb: 'Replies nobody has closed off yet' },
+  { state: 'closed', title: 'Closed', blurb: 'Answered and marked reviewed' },
 ];
-
-const STATE_MATCH: Record<StateFilter, (s: QuestionState) => boolean> = {
-  open: (s) => s !== 'closed',
-  awaiting: (s) => s === 'awaiting',
-  answered: (s) => s === 'answered',
-  closed: (s) => s === 'closed',
-  all: () => true,
-};
 
 const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
-/** The newest reply on a forecast that its asker has not closed off yet. */
-function latestAnswer(group: QuestionGroup): QuestionItem | undefined {
-  return group.items
-    .filter((i) => i.state === 'answered' && i.answer)
-    .sort((a, b) => (b.answeredAt ?? '').localeCompare(a.answeredAt ?? ''))[0];
+/** Which side of the conversation the signed-in user writes from. */
+function viewerRoleOf(): ThreadRole | null {
+  const p = permissionsFor(currentUser());
+  if (p.canViewTreasuryDashboard) return 'treasury';
+  if (p.canApproveForecasts) return 'approver';
+  if (p.canSubmitForecasts) return 'submitter';
+  // A viewer reads the conversation and takes no part in it.
+  return null;
 }
 
-function StatePill({ state }: { state: QuestionState }) {
-  if (state === 'awaiting') return <StatusPill status="rejected" label="awaiting reply" />;
-  if (state === 'answered') return <StatusPill status="submitted" label="answered" />;
-  return <StatusPill status="approved" label="closed" />;
-}
-
-/** A headline number. Clicking it filters the queue to what it counts. */
+/** A headline number. */
 function Stat({
   label,
   value,
   sub,
   tone,
-  active,
-  onClick,
 }: {
   label: string;
   value: string;
   sub: string;
   tone: 'ok' | 'warn' | 'plain';
-  active?: boolean;
-  onClick?: () => void;
 }) {
-  const className = `kpi-card${onClick ? ' kpi-clickable' : ''}${
-    tone === 'plain' ? '' : ` tone-${tone}`
-  }${active ? ' kpi-active' : ''}`;
-  const body = (
-    <>
+  return (
+    <div className={`kpi-card${tone === 'plain' ? '' : ` tone-${tone}`}`}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
       <div className="kpi-sub text-dim">{sub}</div>
-    </>
+    </div>
   );
-  return onClick ? (
-    <button className={className} onClick={onClick} aria-pressed={active}>
-      {body}
-    </button>
-  ) : (
-    <div className={className}>{body}</div>
+}
+
+/** One conversation, as a card on the board. */
+function QuestionCard({
+  item,
+  viewerRole,
+  onOpen,
+}: {
+  item: QuestionItem;
+  viewerRole: ThreadRole | null;
+  onOpen: () => void;
+}) {
+  const replies = item.thread.length - 1;
+  return (
+    <article
+      className={`question-card state-${item.state}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open the conversation about ${item.category} on ${item.entity}`}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <header className="question-card-head">
+        <strong>{item.entity}</strong>
+        <span className="text-dim">{weekLabelShort(item.period)}</span>
+        <StatusPill status={item.forecastStatus} />
+      </header>
+      <div className="question-card-cell">
+        <strong>{item.category}</strong>
+        <span className="text-dim">{item.dateLabel}</span>
+      </div>
+      <div className="question-card-figures">
+        <span>{fmtK(item.current)}</span>
+        {item.prior !== null && (
+          <>
+            <span className="text-muted">vs {fmtK(item.prior)}</span>
+            {item.pct !== null && (
+              <span className={`delta ${item.pct > 0 ? 'up' : 'down'}`}>
+                {item.pct > 0 ? '+' : ''}
+                {item.pct.toFixed(1)}%
+              </span>
+            )}
+          </>
+        )}
+      </div>
+      <QuestionThread messages={item.thread} viewerRole={viewerRole} compact />
+      <footer className="question-card-foot">
+        <span className="question-card-owner" title="Who answers for this line item">
+          {item.owner}
+        </span>
+        <span className="text-muted">
+          {replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'} · ` : ''}
+          {item.state === 'awaiting'
+            ? `waiting ${waitedLabel(item.requestedAt)}`
+            : `${waitedLabel(item.lastAt)} ago`}
+        </span>
+      </footer>
+    </article>
   );
 }
 
 /**
- * Treasury's questions queue.
+ * The questions board — every role's review screen.
  *
- * This screen used to list every comment on every forecast — the submitters'
- * own variance commentary, hundreds of rows of it, most of which nobody was
- * waiting on. What treasury actually has to keep on top of is the QUESTIONS
- * it and the approvers have asked: who has not replied, what came back, and
- * what can be closed.
+ * Treasury, approvers and submitters were all working the same conversation
+ * from different screens: treasury had a queue of questions, everyone else a
+ * list of every comment ever written on a forecast. They are one board now,
+ * scoped to whatever the reader is responsible for, laid out by the only thing
+ * that decides what to do next: whether a question is waiting on a reply, has
+ * one to read, or is finished with.
  *
- * Built for a queue that gets long: counts first, one row per FORECAST,
- * everything collapsed until it is opened, ordered by who has been waiting
- * longest. The commentary itself is untouched — it is written and read on the
- * forecast, where the numbers it explains are.
+ * The commentary itself is untouched — it is written and read on the forecast,
+ * where the numbers it explains are.
  */
 export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsReviewProps) {
   const version = useDataVersion();
+  const viewerRole = useMemo(() => {
+    void version;
+    return viewerRoleOf();
+  }, [version]);
+
   const groups = useMemo(() => {
     void version; // storage changed → recollect
     const all = collectQuestionGroups(loadTemplates());
     return scopeEntities ? all.filter((g) => scopeEntities.includes(g.entity)) : all;
   }, [version, scopeEntities]);
+  const items = useMemo(() => flattenQuestions(groups), [groups]);
+  const totals = useMemo(() => questionTotals(groups), [groups]);
 
   const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState<StateFilter>('open');
   const [askedBy, setAskedBy] = useState(ALL);
   const [regionFilter, setRegionFilter] = useState(ALL);
   /** Opens on the cycle in progress; older weeks are one dropdown away. */
   const [periodFilter, setPeriodFilter] = useState(() => activeWeekKey());
-  const [page, setPage] = useState(0);
-  /** Forecasts opened by the reader. Everything starts closed. */
-  const [opened, setOpened] = useState<Set<string>>(new Set());
-  /** The question being asked again, if any. */
-  const [asking, setAsking] = useState<QuestionItem | null>(null);
+  /** The conversation being read, if any. */
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const options = useMemo(() => {
     const uniq = (v: string[]) => [...new Set(v)].sort();
     return {
-      regions: uniq(groups.map((g) => g.region)),
-      periods: [...new Set(groups.map((g) => g.period))].sort().reverse(),
+      regions: uniq(items.map((i) => i.region)),
+      periods: [...new Set(items.map((i) => i.period))].sort().reverse(),
     };
-  }, [groups]);
+  }, [items]);
 
   /** How many questions each side of the conversation has open right now. */
   const counts = useMemo(() => {
-    const items = groups.flatMap((g) => g.items).filter((i) => i.state !== 'closed');
+    const open = items.filter((i) => i.state !== 'closed');
     return {
-      treasury: items.filter((i) => i.role === 'treasury').length,
-      approver: items.filter((i) => i.role === 'approver').length,
+      treasury: open.filter((i) => i.role === 'treasury').length,
+      approver: open.filter((i) => i.role === 'approver').length,
     };
-  }, [groups]);
+  }, [items]);
 
-  const resetPage = () => setPage(0);
-
-  /** Groups carrying only the questions that pass the filters. */
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const out: QuestionGroup[] = [];
-    for (const g of groups) {
-      if (regionFilter !== ALL && g.region !== regionFilter) continue;
-      if (periodFilter !== ALL && g.period !== periodFilter) continue;
-      const groupText = `${g.entity} ${g.submitter} ${g.templateName} ${weekLabel(g.period)}`
-        .toLowerCase();
-      const items = g.items.filter((i) => {
-        if (!STATE_MATCH[stateFilter](i.state)) return false;
-        if (askedBy !== ALL && i.role !== askedBy) return false;
-        if (!q) return true;
-        return (
-          groupText.includes(q) ||
-          i.category.toLowerCase().includes(q) ||
-          i.message.toLowerCase().includes(q) ||
-          i.answer.toLowerCase().includes(q) ||
-          i.from.toLowerCase().includes(q)
-        );
-      });
-      if (items.length === 0) continue;
-      out.push({
-        ...g,
-        items,
-        awaiting: items.filter((i) => i.state === 'awaiting').length,
-        answered: items.filter((i) => i.state === 'answered').length,
-        closed: items.filter((i) => i.state === 'closed').length,
-        oldestAwaiting: items.find((i) => i.state === 'awaiting')?.requestedAt ?? null,
-      });
-    }
-    return out;
-  }, [groups, search, stateFilter, askedBy, regionFilter, periodFilter]);
-
-  const totals = useMemo(() => questionTotals(groups), [groups]);
-  const shown = filtered.reduce((s, g) => s + g.items.length, 0);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const pageGroups = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
-
-  const toggle = (id: string) =>
-    setOpened((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    return items.filter((i) => {
+      if (regionFilter !== ALL && i.region !== regionFilter) return false;
+      if (periodFilter !== ALL && i.period !== periodFilter) return false;
+      if (askedBy !== ALL && i.role !== askedBy) return false;
+      if (!q) return true;
+      return (
+        i.entity.toLowerCase().includes(q) ||
+        i.category.toLowerCase().includes(q) ||
+        i.owner.toLowerCase().includes(q) ||
+        i.from.toLowerCase().includes(q) ||
+        weekLabel(i.period).toLowerCase().includes(q) ||
+        i.thread.some((m) => m.text.toLowerCase().includes(q))
+      );
     });
-  const allOpen = pageGroups.length > 0 && pageGroups.every((g) => opened.has(g.id));
-  const toggleAll = () =>
-    setOpened(allOpen ? new Set() : new Set(pageGroups.map((g) => g.id)));
+  }, [items, search, askedBy, regionFilter, periodFilter]);
+
+  const columns = useMemo(
+    () =>
+      COLUMNS.map((c) => ({
+        ...c,
+        items: sortForColumn(
+          filtered.filter((i) => i.state === c.state),
+          c.state,
+        ),
+      })),
+    [filtered],
+  );
+
+  const openItem = openId ? (items.find((i) => i.id === openId) ?? null) : null;
 
   /** Close a question off (or put it back) — the asker's own bookkeeping. */
-  const setClosed = (item: QuestionItem, closed: boolean) => {
+  const setClosed = (item: QuestionItem, closed: boolean) =>
     setFlagResolved(item.period, item.entity, item.templateId, item.cellKey, closed);
+
+  const reply = (item: QuestionItem, text: string) => {
+    if (!viewerRole) return;
+    postThreadMessage(item.period, item.entity, item.templateId, item.cellKey, {
+      from: currentUser().name,
+      role: viewerRole,
+      text,
+      at: new Date().toISOString(),
+    });
   };
 
   const openForecast = (item: QuestionItem) =>
@@ -212,11 +240,8 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
       focusCell: item.cellKey,
     });
 
-  /** A stat box doubles as the filter for what it counts. */
-  const pick = (next: StateFilter) => () => {
-    setStateFilter((prev) => (prev === next ? 'open' : next));
-    resetPage();
-  };
+  /** Whoever is not the submitter is the one who can call a question done. */
+  const isAsker = viewerRole === 'treasury' || viewerRole === 'approver';
 
   return (
     <div className="view active">
@@ -238,28 +263,17 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
             sub={
               totals.oldestAwaiting
                 ? `Longest waiting ${waitedLabel(totals.oldestAwaiting)}`
-                : 'Nobody is waiting on a submitter'
+                : 'Nobody is waiting on an answer'
             }
             tone={totals.awaiting === 0 ? 'ok' : 'warn'}
-            active={stateFilter === 'awaiting'}
-            onClick={pick('awaiting')}
           />
           <Stat
-            label="Answered — to read"
+            label="Answered"
             value={String(totals.answered)}
-            sub={totals.answered === 0 ? 'Nothing new came back' : 'Replies you have not closed'}
+            sub={totals.answered === 0 ? 'Nothing new came back' : 'Replies not yet closed off'}
             tone={totals.answered === 0 ? 'ok' : 'warn'}
-            active={stateFilter === 'answered'}
-            onClick={pick('answered')}
           />
-          <Stat
-            label="Closed"
-            value={String(totals.closed)}
-            sub="Answered and marked reviewed"
-            tone="plain"
-            active={stateFilter === 'closed'}
-            onClick={pick('closed')}
-          />
+          <Stat label="Closed" value={String(totals.closed)} sub="Answered and reviewed" tone="plain" />
           <Stat
             label="Forecasts in play"
             value={String(totals.forecasts)}
@@ -276,29 +290,10 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 style={{ width: 240 }}
                 placeholder="Search country, line item, question…"
                 value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  resetPage();
-                }}
+                onChange={(e) => setSearch(e.target.value)}
                 aria-label="Search questions"
               />
-              <select
-                className="form-select"
-                style={{ width: 'auto' }}
-                value={stateFilter}
-                onChange={(e) => {
-                  setStateFilter(e.target.value as StateFilter);
-                  resetPage();
-                }}
-                aria-label="Filter by state"
-              >
-                {STATE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              {/* Treasury's questions and the approvers' sit in one queue —
+              {/* Treasury's questions and the approvers' sit on one board —
                   they are the same conversation with the same submitter — and
                   this is how you look at either side of it on its own. */}
               <div className="seg-toggle" role="group" aria-label="Filter by who asked">
@@ -313,10 +308,7 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                     key={value}
                     className={askedBy === value ? 'active' : ''}
                     aria-pressed={askedBy === value}
-                    onClick={() => {
-                      setAskedBy(value);
-                      resetPage();
-                    }}
+                    onClick={() => setAskedBy(value)}
                   >
                     {label}
                   </button>
@@ -326,10 +318,7 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 className="form-select"
                 style={{ width: 'auto' }}
                 value={regionFilter}
-                onChange={(e) => {
-                  setRegionFilter(e.target.value);
-                  resetPage();
-                }}
+                onChange={(e) => setRegionFilter(e.target.value)}
                 aria-label="Filter by region"
               >
                 <option value={ALL}>All regions</option>
@@ -343,10 +332,7 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 className="form-select"
                 style={{ width: 'auto' }}
                 value={periodFilter}
-                onChange={(e) => {
-                  setPeriodFilter(e.target.value);
-                  resetPage();
-                }}
+                onChange={(e) => setPeriodFilter(e.target.value)}
                 aria-label="Filter by forecast period"
               >
                 <option value={ALL}>All periods</option>
@@ -357,207 +343,128 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 ))}
               </select>
             </div>
-            <div className="row-flex">
-              <span className="grid-info">
-                <strong>{shown}</strong> question{shown === 1 ? '' : 's'} across{' '}
-                <strong>{filtered.length}</strong> forecast{filtered.length === 1 ? '' : 's'}
-              </span>
-              {pageGroups.length > 0 && (
-                <button className="btn btn-ghost" onClick={toggleAll}>
-                  {allOpen ? 'Collapse all' : 'Expand all'}
-                </button>
-              )}
-            </div>
+            <span className="grid-info">
+              <strong>{filtered.length}</strong> question{filtered.length === 1 ? '' : 's'} on this
+              board
+            </span>
           </div>
         </div>
 
-        {pageGroups.length === 0 ? (
+        {items.length === 0 ? (
           <div className="panel">
             <div className="empty-state">
               <div className="ic">✓</div>
               <p>
-                {groups.length === 0
-                  ? 'No questions have been asked yet. Open a forecast and click a cell to ask its submitter about it.'
-                  : 'Nothing matches these filters — try "Every question" or clear the search.'}
+                No questions have been asked yet. Open a forecast and click a cell to ask its
+                submitter about it.
               </p>
             </div>
           </div>
         ) : (
-          pageGroups.map((g) => {
-            const isOpen = opened.has(g.id);
-            return (
-              <div
-                className={`panel question-group${g.awaiting > 0 ? ' question-waiting' : ''}`}
-                key={g.id}
-              >
-                <button
-                  className="question-head"
-                  aria-expanded={isOpen}
-                  onClick={() => toggle(g.id)}
-                >
-                  <span className="question-head-main">
-                    <span className="review-caret" aria-hidden="true">
-                      {isOpen ? '▾' : '▸'}
-                    </span>
-                    <strong className="question-entity">{g.entity}</strong>
-                    <span className="text-dim">{weekLabelShort(g.period)}</span>
-                    <StatusPill status={g.forecastStatus} />
-                    <span className="text-muted question-submitter">{g.submitter}</span>
-                    <span className="question-counts">
-                      {g.awaiting > 0 && (
-                        <span className="badge-num warn">{g.awaiting} awaiting reply</span>
-                      )}
-                      {g.answered > 0 && <span className="badge-num ok">{g.answered} answered</span>}
-                      {g.closed > 0 && <span className="badge-num">{g.closed} closed</span>}
-                      {g.oldestAwaiting && (
-                        <span
-                          className="question-age"
-                          title="How long the oldest reply has been outstanding"
-                        >
-                          waiting {waitedLabel(g.oldestAwaiting)}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  {/* The reply itself, on the closed row. An answer that has
-                      come back is the thing worth reading, and hiding it
-                      behind a click made a queue of them look like a queue of
-                      questions with nothing in it. */}
-                  {!isOpen && latestAnswer(g) && (
-                    <span className="question-head-answer">
-                      <strong>{g.submitter} answered:</strong> {latestAnswer(g)?.answer}
-                    </span>
+          <div className="question-board">
+            {columns.map((col) => (
+              <section className={`question-col col-${col.state}`} key={col.state}>
+                <header className="question-col-head">
+                  <strong>{col.title}</strong>
+                  <span className="badge-num">{col.items.length}</span>
+                  <span className="question-col-blurb text-muted">{col.blurb}</span>
+                </header>
+                <div className="question-col-body">
+                  {col.items.length === 0 ? (
+                    <p className="question-col-empty text-muted">Nothing here.</p>
+                  ) : (
+                    col.items.map((item) => (
+                      <QuestionCard
+                        key={item.id}
+                        item={item}
+                        viewerRole={viewerRole}
+                        onOpen={() => setOpenId(item.id)}
+                      />
+                    ))
                   )}
-                </button>
-                {isOpen && (
-                  <div className="question-list">
-                    {g.items.map((item) => (
-                      <div className={`question-row state-${item.state}`} key={item.id}>
-                        <div className="question-row-head">
-                          <StatePill state={item.state} />
-                          <strong>{item.category}</strong>
-                          <span className="text-dim">{item.dateLabel}</span>
-                          <span className="question-figures">
-                            {fmtK(item.current)}
-                            {item.prior !== null && (
-                              <>
-                                {' '}
-                                vs {fmtK(item.prior)}
-                                {item.pct !== null && (
-                                  <span className={`delta ${item.pct > 0 ? 'up' : 'down'}`}>
-                                    {item.pct > 0 ? '+' : ''}
-                                    {item.pct.toFixed(1)}%
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </span>
-                          <span className="question-row-actions">
-                            {onOpenSubmission && (
-                              <button
-                                className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
-                                title="Open the forecast on this cell"
-                                onClick={() => openForecast(item)}
-                              >
-                                Open Forecast
-                              </button>
-                            )}
-                            <button
-                              className="btn btn-ghost"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              title="Ask about this cell again"
-                              onClick={() => setAsking(item)}
-                            >
-                              Ask Again
-                            </button>
-                            {item.state === 'answered' && (
-                              <button
-                                className="btn btn-primary"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
-                                title="Close this question — the answer is enough"
-                                onClick={() => setClosed(item, true)}
-                              >
-                                Mark Reviewed
-                              </button>
-                            )}
-                            {item.state === 'closed' && (
-                              <button
-                                className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
-                                onClick={() => setClosed(item, false)}
-                              >
-                                Reopen
-                              </button>
-                            )}
-                          </span>
-                        </div>
-                        <div className="question-ask">
-                          <strong>
-                            {item.from} ({requesterLabel(item.role)}) asked
-                          </strong>
-                          <span className="text-muted"> · {waitedLabel(item.requestedAt)} ago</span>
-                          : {item.message}
-                        </div>
-                        {item.answer ? (
-                          <div className="question-answer">
-                            <strong>{g.submitter} answered:</strong> {item.answer}
-                          </div>
-                        ) : (
-                          <div className="question-answer pending">
-                            No reply yet — {g.submitter} has this on their checklist.
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-
-        {pageCount > 1 && (
-          <div className="pager">
-            <span className="text-muted" style={{ fontSize: 12 }}>
-              Page {safePage + 1} of {pageCount} · {filtered.length} forecasts
-            </span>
-            <button
-              className="btn btn-ghost"
-              disabled={safePage === 0}
-              onClick={() => setPage(safePage - 1)}
-            >
-              ← Prev
-            </button>
-            <button
-              className="btn btn-ghost"
-              disabled={safePage >= pageCount - 1}
-              onClick={() => setPage(safePage + 1)}
-            >
-              Next →
-            </button>
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>
 
-      {asking && (
-        <RequestCommentaryModal
-          target={{
-            entity: asking.entity,
-            week: asking.period,
-            templateId: asking.templateId,
-            cellKey: asking.cellKey,
-            label: asking.category,
-            periodLabel: asking.dateLabel,
-            current: asking.current,
-            prior: asking.prior,
-            comment: asking.answer,
-          }}
-          context={`${asking.entity} · ${weekLabelShort(asking.period)}`}
-          existing={asking.state === 'awaiting' ? { ...asking, fromRole: asking.role } : null}
-          flagged
-          onClose={() => setAsking(null)}
-        />
+      {openItem && (
+        <Modal
+          open
+          size="wide"
+          title={`${openItem.category} · ${openItem.dateLabel}`}
+          onClose={() => setOpenId(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setOpenId(null)}>
+                Close
+              </button>
+              {onOpenSubmission && (
+                <button
+                  className="btn btn-ghost"
+                  title="Open the forecast on this cell"
+                  onClick={() => {
+                    setOpenId(null);
+                    openForecast(openItem);
+                  }}
+                >
+                  Open Forecast
+                </button>
+              )}
+              {isAsker && openItem.state === 'answered' && (
+                <button
+                  className="btn btn-primary"
+                  title="Close this question — the answer is enough"
+                  onClick={() => setClosed(openItem, true)}
+                >
+                  Mark Reviewed
+                </button>
+              )}
+              {isAsker && openItem.state === 'closed' && (
+                <button className="btn btn-ghost" onClick={() => setClosed(openItem, false)}>
+                  Reopen
+                </button>
+              )}
+            </>
+          }
+        >
+          <div className="variance-panel" style={{ marginBottom: 16 }}>
+            <h4>
+              {openItem.entity} · {weekLabel(openItem.period)}
+            </h4>
+            <div className="row">
+              <span>
+                {openItem.templateName} · answered by {openItem.owner}
+              </span>
+              <span>
+                {openItem.pct === null
+                  ? 'no comparable prior'
+                  : `${openItem.pct > 0 ? '+' : ''}${openItem.pct.toFixed(1)}%`}
+              </span>
+            </div>
+            <div className="row">
+              <span>Prior: {openItem.prior === null ? '—' : fmtK(openItem.prior)}</span>
+              <span>Current: {fmtK(openItem.current)}</span>
+            </div>
+          </div>
+          <QuestionThread messages={openItem.thread} viewerRole={viewerRole} />
+          {viewerRole ? (
+            <ThreadComposer
+              role={viewerRole}
+              hint={
+                viewerRole === 'submitter' && isCycleOpen(openItem.period)
+                  ? 'Your reply is the commentary on this cell. If the figure itself is wrong, open the forecast and correct it — that sends it round for approval again.'
+                  : undefined
+              }
+              onSend={(text) => reply(openItem, text)}
+            />
+          ) : (
+            <p className="text-muted" style={{ fontSize: 12, marginTop: 12 }}>
+              You are reading this conversation — the submitter and whoever asked can reply to it.
+            </p>
+          )}
+        </Modal>
       )}
     </div>
   );

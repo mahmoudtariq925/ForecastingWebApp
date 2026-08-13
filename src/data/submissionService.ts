@@ -10,12 +10,14 @@
 import type {
   CommentRequest,
   Entity,
-  ForecastReopen,
+  ForecastQuestion,
   ForecastTemplate,
   RequesterRole,
   Settings,
   Submission,
   SubmissionStatus,
+  ThreadMessage,
+  ThreadRole,
 } from '../types';
 import {
   generateGridValues,
@@ -31,7 +33,6 @@ import {
   periodsOf,
   prevWeekKey,
   rollShift,
-  templateDayLabels,
 } from './periods';
 import {
   listSubmissions,
@@ -90,6 +91,24 @@ function roleOfAsker(name: string): RequesterRole {
   return user?.role === 'approver' ? 'approver' : 'treasury';
 }
 
+const isThreadRole = (v: unknown): v is ThreadRole =>
+  v === 'treasury' || v === 'approver' || v === 'submitter';
+
+/** Keep only well-formed thread replies — storage can hold anything. */
+function normalizeReplies(raw: unknown): ThreadMessage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((v): v is Partial<ThreadMessage> => typeof v === 'object' && v !== null)
+    .filter((m) => typeof m.text === 'string' && m.text.trim())
+    .map((m) => ({
+      from: typeof m.from === 'string' && m.from.trim() ? m.from : 'Unknown',
+      role: isThreadRole(m.role) ? m.role : 'submitter',
+      text: String(m.text),
+      at: typeof m.at === 'string' ? m.at : new Date().toISOString(),
+    }))
+    .sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /** Keep only well-formed comment requests — storage can hold anything. */
 function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
@@ -104,10 +123,71 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
       fromRole: isRequesterRole(r.fromRole) ? r.fromRole : roleOfAsker(from),
       message: r.message,
       requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
+      replies: normalizeReplies(r.replies),
       ...(typeof r.answeredAt === 'string' ? { answeredAt: r.answeredAt } : {}),
     };
   }
   return out;
+}
+
+/**
+ * The whole conversation about a cell, oldest first: the opening question and
+ * every reply.
+ *
+ * `answer` covers threads written before replies existed — a single answer
+ * stored as the cell's commentary, with only `answeredAt` to say it was one.
+ * Rendering it as the closing message keeps those conversations readable
+ * instead of showing a question nobody appears to have replied to.
+ */
+export function threadOf(
+  request: CommentRequest,
+  /** The cell's commentary, which is where a legacy single answer lives. */
+  answer: string,
+  /** Display name of whoever answers for the entity. */
+  submitter: string,
+): ThreadMessage[] {
+  const opening: ThreadMessage = {
+    from: request.from,
+    role: request.fromRole ?? 'treasury',
+    text: request.message,
+    at: request.requestedAt,
+  };
+  const replies = request.replies ?? [];
+  if (replies.length > 0) return [opening, ...replies];
+  // Legacy: one answer, kept as the cell's commentary.
+  if (request.answeredAt && answer.trim()) {
+    return [
+      opening,
+      { from: submitter, role: 'submitter', text: answer.trim(), at: request.answeredAt },
+    ];
+  }
+  return [opening];
+}
+
+/**
+ * The thread after `message` is added, as a new requests map.
+ *
+ * Who wrote it decides where the ball goes: a submitter's reply ANSWERS the
+ * question, an asker's follow-up puts it back to awaiting. Pure, so the
+ * forecast screen (which persists the whole submission itself) and the
+ * questions board can share one definition of what replying means.
+ */
+export function withThreadMessage(
+  requests: Record<string, CommentRequest> | undefined,
+  key: string,
+  message: ThreadMessage,
+): Record<string, CommentRequest> {
+  const next = { ...(requests ?? {}) };
+  const request = next[key];
+  if (!request) return next;
+  const replies = [...(request.replies ?? []), message];
+  next[key] =
+    message.role === 'submitter'
+      ? { ...request, replies, answeredAt: message.at }
+      : // The asker has come back: the question is open again, whatever was
+        // said before.
+        { ...request, replies, answeredAt: undefined };
+  return next;
 }
 
 /** A question still waiting on a reply. */
@@ -124,10 +204,10 @@ export function openQuestionEntries(
     .sort((a, b) => a[1].requestedAt.localeCompare(b[1].requestedAt));
 }
 
-/** Keep a stored reopening only when it is complete enough to describe. */
-function normalizeReopen(raw: unknown): ForecastReopen | undefined {
+/** Keep a stored question marker only when it is complete enough to describe. */
+function normalizeQuestioned(raw: unknown): ForecastQuestion | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
-  const r = raw as Partial<ForecastReopen>;
+  const r = raw as Partial<ForecastQuestion>;
   if (typeof r.by !== 'string' || !r.by.trim()) return undefined;
   return {
     by: r.by,
@@ -150,6 +230,11 @@ export function statusLabel(status: SubmissionStatus): string {
 /** What a question's asker is CALLED to the person answering it. */
 export function requesterLabel(role: RequesterRole | undefined): string {
   return role === 'approver' ? 'Approver' : 'Treasury';
+}
+
+/** What any participant in a thread is called, the answering side included. */
+export function threadRoleLabel(role: ThreadRole): string {
+  return role === 'submitter' ? 'Submitter' : requesterLabel(role);
 }
 
 /**
@@ -183,7 +268,13 @@ function normalizeSubmission(sub: Submission): Submission {
       : [],
     comments: record(sub.comments) ?? {},
     commentRequests: normalizeRequests(sub.commentRequests),
-    reopenedBy: normalizeReopen(sub.reopenedBy),
+    // `reopenedBy` is what this was called while a question RETURNED the
+    // forecast; the marker survived that change of meaning, so forecasts
+    // stored then still say who is waiting on an answer.
+    questionedBy: normalizeQuestioned(
+      sub.questionedBy ?? (sub as { reopenedBy?: unknown }).reopenedBy,
+    ),
+    ...(typeof sub.revisedFrom === 'string' ? { revisedFrom: sub.revisedFrom } : {}),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -358,7 +449,14 @@ export function submitStoredForecast(
 ): Submission | null {
   const sub = materializeSubmission(week, entity, templateId);
   if (!sub) return null;
-  const next: Submission = { ...sub, status: 'submitted', updatedAt: new Date().toISOString() };
+  const next: Submission = {
+    ...sub,
+    status: 'submitted',
+    // Whatever this forecast was before its figures were revised, it is a
+    // fresh submission now.
+    revisedFrom: undefined,
+    updatedAt: new Date().toISOString(),
+  };
   saveSubmission(next);
   clearApprovalDecision(entity);
   return next;
@@ -676,63 +774,23 @@ export function largestVariances(
 }
 
 // ---------------------------------------------------------------------------
-// Comment review (admin). A forecast is "blocked" while it has flagged cells
-// an admin has not yet marked as reviewed/resolved. All of this reads and
-// writes the same stored submissions the Submission screen edits.
+// The forecasts a review screen looks across.
+//
+// There is one review screen now — the questions board — and it reads this.
+// The comment-by-comment queue it replaced collected every flagged cell on
+// every forecast, which was hundreds of rows of the submitters' own
+// commentary: written to be read beside the numbers it explains, not in a
+// list of its own.
 // ---------------------------------------------------------------------------
 
-/** One flagged cell of a submission, prepared for the review screen. */
-export interface ReviewItem {
-  key: string;
-  catIdx: number;
-  dayIdx: number;
-  category: string;
-  /** "Mon 20/7" */
-  dateLabel: string;
-  current: number;
-  prior: number | null;
-  pct: number | null;
-  /** Submitter commentary; empty = still missing. */
-  comment: string;
-  resolved: boolean;
-  /** An open treasury question on this cell, if there is one. */
-  request: CommentRequest | null;
-}
-
-/** All review-relevant content of one stored submission. */
-export interface ReviewGroup {
-  /** Stable id: `period:entity:templateId`. */
-  id: string;
-  entity: string;
-  period: string;
-  templateId: string;
-  templateName: string;
-  submitter: string;
-  status: SubmissionStatus;
-  updatedAt: string;
-  items: ReviewItem[];
-  /** Free-text day comments (context, nothing to resolve). */
-  dayNotes: { dayIdx: number; dateLabel: string; text: string }[];
-  unresolved: number;
-  needsCommentary: number;
-}
-
-/**
- * Collect every forecast with flagged cells or day comments, grouped per
- * forecast and enriched with labels/prior values for display. Coverage
- * matches the rest of the app: the current week is included for EVERY
- * entity (stored submission or the same deterministic demo data the other
- * screens show), plus any stored submission from other weeks. Malformed
- * legacy storage entries are skipped rather than crashing the screen.
- */
 /**
  * Every submission a review screen should consider, without duplicates: the
  * current week for EVERY entity (stored, or the same deterministic demo data
  * the other screens show — `peek` writes nothing), plus every submission
  * actually stored, which is what covers historical weeks and other templates.
  *
- * Shared so the comments queue and the questions queue can never disagree
- * about which forecasts exist.
+ * Shared so the questions queue and any other cross-forecast screen can
+ * never disagree about which forecasts exist.
  */
 export function reviewCandidates(templates: ForecastTemplate[]): Submission[] {
   const week = currentWeekKey();
@@ -749,86 +807,6 @@ export function reviewCandidates(templates: ForecastTemplate[]): Submission[] {
     seen.add(id);
     return true;
   });
-}
-
-export function collectReviewGroups(templates: ForecastTemplate[]): ReviewGroup[] {
-  const groups: ReviewGroup[] = [];
-  const seen = new Set<string>();
-  const allEntities = listEntities();
-  const candidates = reviewCandidates(templates);
-
-  for (const raw of candidates) {
-    const id = `${raw.period}:${raw.entity}:${raw.templateId}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    try {
-      const sub = normalizeSubmission(raw);
-      if (sub.flags.length === 0 && Object.keys(sub.dayComments).length === 0) continue;
-
-      const template = templates.find((t) => t.id === sub.templateId);
-      // Labels follow the submission's own template, so a 30-period forecast
-      // still names every flagged column instead of falling back to "Day n".
-      const labels = templateDayLabels(template, sub.period);
-      const prior = template ? getPriorValues(sub.entity, sub.period, template) : {};
-      const resolved = new Set(sub.resolvedFlags);
-
-      const items: ReviewItem[] = sub.flags.map((key) => {
-        const [c, d] = key.split('-').map(Number);
-        const current = sub.values[key] || 0;
-        const prev = template ? priorValueFor(prior, c, d, template) : null;
-        return {
-          key,
-          catIdx: c,
-          dayIdx: d,
-          category: template?.categories[c]?.label ?? `Line ${c + 1}`,
-          dateLabel: labels[d] ? `${labels[d].dow} ${labels[d].dm}` : `Day ${d + 1}`,
-          current,
-          prior: prev,
-          pct: prev === null ? null : pctChange(current, prev),
-          comment: sub.comments[key]?.trim() ?? '',
-          resolved: resolved.has(key),
-          request: sub.commentRequests?.[key] ?? null,
-        };
-      });
-      // Biggest movers first — the size of the swing is what decides whether a
-      // comment is worth reading, so that is the only ordering that matters.
-      items.sort(
-        (a, b) =>
-          Math.abs(b.current - (b.prior ?? 0)) - Math.abs(a.current - (a.prior ?? 0)),
-      );
-
-      const dayNotes = Object.entries(sub.dayComments)
-        .filter(([, text]) => String(text).trim())
-        .map(([d, text]) => ({
-          dayIdx: Number(d),
-          dateLabel: labels[Number(d)]
-            ? `${labels[Number(d)].dow} ${labels[Number(d)].dm}`
-            : `Day ${Number(d) + 1}`,
-          text: String(text),
-        }))
-        .sort((a, b) => a.dayIdx - b.dayIdx);
-
-      groups.push({
-        id,
-        entity: sub.entity,
-        period: sub.period,
-        templateId: sub.templateId,
-        templateName: template?.name ?? sub.templateId,
-        submitter: allEntities.find((e) => e.name === sub.entity)?.submitter ?? '—',
-        status: sub.status,
-        updatedAt: sub.updatedAt,
-        items,
-        dayNotes,
-        unresolved: items.filter((i) => !i.resolved).length,
-        needsCommentary: items.filter((i) => !i.comment && !i.resolved).length,
-      });
-    } catch (err) {
-      console.warn(`[review] skipped malformed submission "${id}"`, err);
-    }
-  }
-  // Most blocked first, newest week first within equal counts.
-  groups.sort((a, b) => b.unresolved - a.unresolved || b.period.localeCompare(a.period));
-  return groups;
 }
 
 /**
@@ -883,38 +861,109 @@ export function requestComment(
   if (!sub) return;
   const flags = new Set(sub.flags);
   flags.add(key);
-  // A question reopens the forecast, not just the cell.
+  // A question does NOT send the forecast back.
   //
-  // Being asked about a number means the forecast is back with the person who
-  // produced it: they may need to correct it, not merely describe it. So a
-  // handed-over forecast returns to draft and its approval is cleared, which
-  // puts it in front of the submitter AND back in the approver's queue once
-  // it is resubmitted — including when treasury asks after an approval has
-  // already been given.
-  const reopened = isHandedOver(sub.status);
+  // It used to: being asked about a number returned the whole forecast to
+  // draft and cleared the approval, so one question undid an approver's
+  // decision and a submitter who only had a sentence to write was handed a
+  // forecast to submit all over again. What a question actually creates is a
+  // REPLY owed — the figures stand until somebody changes one, which is a
+  // separate act with its own consequence (see `revisedFrom`).
+  // Asking again about the same cell CONTINUES the conversation. Storing the
+  // new question on its own dropped everything said before it, so a follow-up
+  // erased the answer it was following up on.
+  const commentRequests = sub.commentRequests?.[key]
+    ? withThreadMessage(sub.commentRequests, key, {
+        from: request.from,
+        role: request.fromRole ?? 'treasury',
+        text: request.message,
+        at: request.requestedAt,
+      })
+    : { ...(sub.commentRequests ?? {}), [key]: request };
   saveSubmission({
     ...sub,
-    status: reopened ? 'draft' : sub.status,
     flags: [...flags],
     resolvedFlags: (sub.resolvedFlags ?? []).filter((k) => k !== key),
-    commentRequests: { ...(sub.commentRequests ?? {}), [key]: request },
-    // Remember that this draft is a REOPENED forecast, not a new one — a
-    // submitter coming back to it was otherwise told they were starting over.
-    reopenedBy: reopened
-      ? { by: request.from, role: request.fromRole ?? 'treasury', at: request.requestedAt }
-      : sub.reopenedBy,
+    commentRequests,
+    // Who is waiting, so every screen can say the forecast is in review
+    // rather than showing a handed-over forecast with nothing going on.
+    questionedBy: {
+      by: request.from,
+      role: request.fromRole ?? 'treasury',
+      at: request.requestedAt,
+    },
     updatedAt: new Date().toISOString(),
   });
-  if (reopened) clearApprovalDecision(entity);
 }
 
 /**
- * The reopening to TELL the submitter about: one that explains the state the
- * forecast is in right now. A resubmitted forecast has moved on, so its record
- * of having once been reopened is history rather than news.
+ * Add one message to the thread on a cell and persist it.
+ *
+ * Used by the questions board, where the conversation happens away from the
+ * grid. The forecast screen holds the whole submission in local state and
+ * saves it in one go, so it composes with `withThreadMessage` instead.
  */
-export function activeReopen(sub: Submission): ForecastReopen | null {
-  return sub.status === 'draft' ? (sub.reopenedBy ?? null) : null;
+export function postThreadMessage(
+  period: string,
+  entity: string,
+  templateId: string,
+  key: string,
+  message: ThreadMessage,
+): Submission | null {
+  const sub = materializeSubmission(period, entity, templateId);
+  if (!sub?.commentRequests?.[key]) return null;
+  const commentRequests = withThreadMessage(sub.commentRequests, key, message);
+  const next: Submission = {
+    ...sub,
+    commentRequests,
+    // The submitter's latest reply IS the cell's commentary — the variance on
+    // it is explained by whatever they last said about it.
+    comments:
+      message.role === 'submitter'
+        ? { ...sub.comments, [key]: message.text }
+        : sub.comments,
+    // Coming back with a follow-up puts the question back in play, so a cell
+    // closed off earlier stops counting as reviewed.
+    resolvedFlags:
+      message.role === 'submitter'
+        ? (sub.resolvedFlags ?? [])
+        : (sub.resolvedFlags ?? []).filter((k) => k !== key),
+    ...(message.role === 'submitter'
+      ? {}
+      : { questionedBy: { by: message.from, role: message.role, at: message.at } }),
+    updatedAt: new Date().toISOString(),
+  };
+  saveSubmission(next);
+  return next;
+}
+
+/** Questions on this forecast that are still waiting on a reply. */
+export function hasOpenQuestions(sub: Submission): boolean {
+  return openQuestionEntries(sub.commentRequests).length > 0;
+}
+
+/**
+ * The question to TELL people about: one somebody still owes a reply to. Once
+ * every thread has been answered the forecast is not "in review" any more, so
+ * the marker stops being news.
+ */
+export function activeQuestion(sub: Submission): ForecastQuestion | null {
+  return hasOpenQuestions(sub) ? (sub.questionedBy ?? null) : null;
+}
+
+/**
+ * May the numbers still be changed?
+ *
+ * Inside an open cycle they can: a question is often answered by correcting
+ * the figure, and a submitter who spots a mistake before treasury consolidates
+ * should fix it rather than wait to be asked. Doing so withdraws the forecast
+ * from approval (see `revisedFrom`) so the corrected numbers go round the
+ * cycle again. Once the cycle closes — or the forecast is consolidated into
+ * the group position — the figures are history and only the conversation
+ * about them carries on.
+ */
+export function figuresEditable(status: SubmissionStatus, cycleOpen: boolean): boolean {
+  return cycleOpen && status !== 'consolidated';
 }
 
 // ---------------------------------------------------------------------------
@@ -942,19 +991,29 @@ export function markRequestsSeen(sub: Submission): void {
 }
 
 /**
- * Close the question on a cell — the submitter has answered it.
+ * The submitter's answer to the question on a cell, as a new requests map.
  *
- * The request is STAMPED, not deleted: whoever asked comes back to a cell
- * carrying a paragraph of commentary, and deleting the question left nothing
- * to say what that paragraph was answering. It stops counting as open the
- * moment `answeredAt` is set.
+ * The question is STAMPED and kept, never deleted: whoever asked comes back to
+ * a cell carrying a paragraph of commentary, and deleting the question left
+ * nothing to say what that paragraph was answering. The answer joins the
+ * thread, so a conversation several exchanges long reads as one.
+ *
+ * Returns the map unchanged when the cell has no question — commentary written
+ * on a cell nobody asked about is just commentary.
  */
-export function answerCommentRequest(sub: Submission, key: string): Submission['commentRequests'] {
-  const requests = { ...(sub.commentRequests ?? {}) };
-  const request = requests[key];
-  if (!request) return requests;
-  requests[key] = { ...request, answeredAt: new Date().toISOString() };
-  return requests;
+export function answerCommentRequest(
+  requests: Record<string, CommentRequest> | undefined,
+  key: string,
+  answer: string,
+  submitter: string,
+): Record<string, CommentRequest> {
+  if (!requests?.[key] || !answer.trim()) return { ...(requests ?? {}) };
+  return withThreadMessage(requests, key, {
+    from: submitter,
+    role: 'submitter',
+    text: answer.trim(),
+    at: new Date().toISOString(),
+  });
 }
 
 /** The cycle decisions are recorded against — one definition, in cycleService. */

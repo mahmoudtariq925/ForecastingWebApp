@@ -9,8 +9,8 @@
 // removes that entity from their responsibilities everywhere.
 // ============================================================================
 import type { EntityResponsibility, LegalEntity, Role, User } from '../types';
-import { seedLegalEntities } from './appData';
-import { loadLegalEntities, saveLegalEntities } from '../storage/localStorage';
+import { seedLegalEntities, seedUsers } from './appData';
+import { loadLegalEntities, loadUsers, saveLegalEntities } from '../storage/localStorage';
 
 /** All configured legal entities (seeded on first use; empty when live). */
 export function listLegalEntities(): LegalEntity[] {
@@ -63,6 +63,79 @@ export function withAssignment(
   if (assigned) current.add(email);
   else current.delete(email);
   return { ...entity, [key]: [...current] };
+}
+
+// ---------------------------------------------------------------------------
+// Line-item ownership.
+//
+// One person rarely produces a whole country forecast: payroll comes from HR,
+// tax from the tax team, receivables from the shared service centre. Assigning
+// submitters per LINE ITEM is what lets a question about salaries reach the
+// person who forecast them instead of whoever happens to be first in the
+// entity's submitter list.
+//
+// Keyed by the line item's label rather than its index: a template edit that
+// inserts a row would otherwise silently reassign every line below it.
+// ---------------------------------------------------------------------------
+
+/** The storage key for a line item — labels are matched case-insensitively. */
+const lineKey = (label: string): string => label.trim().toLowerCase();
+
+/** Submitter emails explicitly assigned to one line item, if any. */
+export function lineItemAssignees(entity: LegalEntity, label: string): string[] {
+  return entity.lineItemSubmitters?.[lineKey(label)] ?? [];
+}
+
+/** Add/remove a submitter on one line item (returns a copy). */
+export function withLineItemAssignment(
+  entity: LegalEntity,
+  label: string,
+  email: string,
+  assigned: boolean,
+): LegalEntity {
+  const key = lineKey(label);
+  const current = new Set(lineItemAssignees(entity, label));
+  if (assigned) current.add(email);
+  else current.delete(email);
+  const next = { ...(entity.lineItemSubmitters ?? {}) };
+  // An empty list is not "nobody owns this line", it is "no override" — the
+  // entity's submitters own it again, and storing [] would read as the former.
+  if (current.size === 0) delete next[key];
+  else next[key] = [...current];
+  return { ...entity, lineItemSubmitters: next };
+}
+
+/** How many of a template's line items have an owner of their own. */
+export function lineItemAssignmentCount(entity: LegalEntity, labels: string[]): number {
+  return labels.filter((label) => lineItemAssignees(entity, label).length > 0).length;
+}
+
+/** A person a forecast (or one of its lines) can be addressed to. */
+export interface LineOwner {
+  name: string;
+  email: string;
+}
+
+/**
+ * Who owns a line item for an entity: whoever is assigned to that line, and
+ * failing that the entity's submitters — so a template line nobody has been
+ * assigned to still reaches the people responsible for the forecast.
+ */
+export function lineOwners(
+  entityName: string,
+  /** Line item label; omitted, the answer is the entity's submitters. */
+  label?: string,
+  legalEntities: LegalEntity[] = listLegalEntities(),
+): LineOwner[] {
+  const entity = legalEntities.find((e) => e.name === entityName);
+  if (!entity) return [];
+  const assigned = label ? lineItemAssignees(entity, label) : [];
+  const emails = assigned.length > 0 ? assigned : entity.submitters;
+  const users = loadUsers(seedUsers());
+  return emails.map((email) => ({
+    name: users.find((u) => u.email.toLowerCase() === email.toLowerCase())?.name ?? email,
+    email,
+  }));
 }
 
 /**
