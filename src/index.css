@@ -5250,3 +5250,37 @@ thead th,
 .chart-svg .chart-slot-value {
   font-size: 11.5px;
 }
+
+/* --------------------------------------------------------------------------
+   TWO FACES, ONE RULE
+
+   Poppins for anything made of words, JetBrains Mono for anything made of
+   figures. The chrome kept drifting back into the tabular face — a segmented
+   filter reading ALL / APPROVED / AWAITING APPROVAL in monospace beside a
+   Poppins label, breadcrumbs, country-code column headers, an icon glyph —
+   which is what makes one screen look like it is set in two typefaces.
+   -------------------------------------------------------------------------- */
+.seg-toggle button,
+.page-title-wrap .crumb,
+.crumb,
+.matrix-table thead th,
+.matrix-table thead th.num,
+.matrix-table th.matrix-total-h,
+.bubble-time,
+.filter-flag,
+.filter-flag-mark,
+.tour-replay-icon,
+.forecast-grid td.cell .cell-note-btn,
+.section-questions {
+  font-family: var(--sans);
+}
+/* …and the figures inside a dialog match the grid they were read off. The
+   class is opt-in per element, because a variance panel's rows carry a
+   sentence on one side and a number on the other. */
+.figure,
+.comment-dock-figures,
+.question-card-figures,
+.readback {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}

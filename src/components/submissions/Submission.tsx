@@ -2249,20 +2249,22 @@ function SubmissionEditor({
                   <span>
                     {varianceCell.label} · {periodLabelFor(varianceCell.key)}
                   </span>
-                  <span>
+                  <span className={varianceDelta === null ? undefined : 'figure'}>
                     {varianceDelta === null
                       ? 'new period'
                       : `${varianceDelta > 0 ? '+' : ''}${varianceDelta.toFixed(1)}%`}
                   </span>
                 </div>
                 <div className="row">
-                  <span>
+                  <span className="figure">
                     Prior:{' '}
                     {varianceCell.prior === null
                       ? '—'
                       : `€${varianceCell.prior.toLocaleString()}k`}
                   </span>
-                  <span>Current: €{varianceCell.current.toLocaleString()}k</span>
+                  <span className="figure">
+                    Current: €{varianceCell.current.toLocaleString()}k
+                  </span>
                 </div>
               </div>
               {/* The whole conversation about this cell, not just the last

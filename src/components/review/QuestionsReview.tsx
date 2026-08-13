@@ -564,15 +564,17 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 {openItem.templateName} · asked by {openItem.from} (
                 {requesterLabel(openItem.role)})
               </span>
-              <span>
+              <span className={openItem.pct === null ? undefined : 'figure'}>
                 {openItem.pct === null
                   ? 'no comparable prior'
                   : `${openItem.pct > 0 ? '+' : ''}${openItem.pct.toFixed(1)}%`}
               </span>
             </div>
             <div className="row">
-              <span>Prior: {openItem.prior === null ? '—' : fmtK(openItem.prior)}</span>
-              <span>Current: {fmtK(openItem.current)}</span>
+              <span className="figure">
+                Prior: {openItem.prior === null ? '—' : fmtK(openItem.prior)}
+              </span>
+              <span className="figure">Current: {fmtK(openItem.current)}</span>
             </div>
           </div>
           <QuestionThread messages={openItem.thread} viewerRole={viewerRole} />
