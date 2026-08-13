@@ -272,14 +272,23 @@ What a question creates is a reply owed: the forecast stays where it is, the
 page opens in an **answering mode** (a blue page edge, a mode ribbon, the open
 questions listed above the grid), and answering it is the whole job.
 
-Changing a **figure** is the act with consequences. Inside an open cycle the
-grid stays live even after the handover, because "that number was wrong" is one
-of the answers — but the moment a figure moves, the forecast is **withdrawn
-from approval**: its status returns to draft, the approver's decision is
-cleared, a banner says so, and the button reads **Resubmit for Approval**. The
-approver then sees the revised figures as a fresh decision. Once the cycle is
-consolidated the figures are history: the grid is read-only, the page carries a
-**Figures Locked** badge, and only the conversation carries on.
+Changing a **figure** is the act with consequences, so a submitted forecast
+opens **locked and saying so**: a *Figures Locked* badge, a banner reading
+*✓ Submitted — with your approver*, and one way in — **Edit Forecast**, which
+asks first, because the edit is what withdraws the forecast from approval and
+nobody should learn that from a banner appearing under their hands. The
+checklist matches: with everything in, the Submit step is ticked and greyed but
+its button stays **pressable**, reading *Edit & Resubmit* and opening the
+countries it covers; each already-submitted country greys out with an
+*Edit & Resubmit* of its own, which opens the forecast unlocked in one step.
+
+Once unlocked, the first figure that moves **withdraws the forecast from
+approval**: its status returns to draft, the approver's decision is cleared, a
+banner says so, and the button reads **Resubmit for Approval**. The approver
+then sees the revised figures as a fresh decision, and resubmitting locks the
+forecast again. Nothing is withdrawn until a number actually changes —
+unlocking and changing your mind costs nothing. Once the cycle is consolidated
+the figures are history: no Edit button, and only the conversation carries on.
 
 Review items sort by **absolute movement, largest first** — the size of the
 swing is what decides whether a comment is worth reading.

@@ -2371,6 +2371,24 @@ td.num {
   gap: 10px;
 }
 
+/* A forecast that is already in: the row recedes, because there is nothing
+   left to do on it — but its actions stay live, since a figure can still be
+   corrected while the cycle is open. */
+.entity-list-row.row-submitted {
+  background: var(--bg-sunken);
+}
+.entity-list-row.row-submitted .entity-list-info > strong {
+  color: var(--text-muted);
+}
+
+/* A submitted forecast that its submitter has unlocked: in play, not yet
+   resubmitted. */
+.tag.tag-editing {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-color: transparent;
+}
+
 /* Line item owners: one row per line, one column per submitter. */
 .line-owner-head {
   display: flex;

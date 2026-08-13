@@ -98,6 +98,12 @@ export interface SubmissionTarget {
    * spotlit, unexplained variances start the guided commentary flow.
    */
   autoSubmit?: boolean;
+  /**
+   * Open an already-submitted forecast unlocked for editing. The checklist's
+   * "Edit & Resubmit" is the decision to revise, so arriving from it should not
+   * ask for that decision a second time.
+   */
+  revise?: boolean;
 }
 
 interface SubmissionProps {
@@ -199,6 +205,7 @@ export function Submission({
         isTreasury={isTreasury}
         onNavigate={onNavigate}
         autoSubmit={initial?.autoSubmit === true}
+        revise={initial?.revise === true}
         selectors={
           <>
             <select
@@ -337,6 +344,8 @@ interface EditorProps {
   onNavigate?: (view: ViewId) => void;
   /** Kick off the submit flow once the grid is up (checklist deep link). */
   autoSubmit: boolean;
+  /** Arrive with a submitted forecast already unlocked for editing. */
+  revise: boolean;
   selectors: React.ReactNode;
 }
 
@@ -388,6 +397,7 @@ function SubmissionEditor({
   isTreasury,
   onNavigate,
   autoSubmit,
+  revise,
   selectors,
 }: EditorProps) {
   // Variance rules are per entity (Legal Entity Setup), falling back to the
@@ -476,10 +486,22 @@ function SubmissionEditor({
   /** Submitted once, changed since, and not yet sent back. */
   const revised = isSubmitterView && revisedFrom !== undefined && status === 'draft';
   /**
-   * Numbers can be typed into: never for a reader, and never once the cycle
-   * that collects them has closed.
+   * The submitter has asked to change a forecast they already sent.
+   *
+   * A submitted forecast opens LOCKED, saying so, with one way in: Edit
+   * Forecast. Leaving the grid live under a "submitted" pill meant a stray
+   * keystroke could withdraw an approved forecast from approval with nothing
+   * asked and nothing said — the consequence is real, so the decision to
+   * revise is made deliberately, once, and the page then shows it is in play.
    */
-  const canEditCells = !readOnly && figuresEditable(status, cycleOpen);
+  const [revising, setRevising] = useState(revise);
+  /**
+   * Numbers can be typed into: never for a reader, never once the cycle that
+   * collects them has closed, and — after the handover — only once the
+   * submitter has said they mean to revise.
+   */
+  const canEditCells =
+    !readOnly && figuresEditable(status, cycleOpen) && (!handedOver || revising);
   /** The submitter's own data-entry and workflow actions. */
   const editorActions = isSubmitterView && canEditCells;
   /**
@@ -1181,8 +1203,9 @@ function SubmissionEditor({
     setCommentFlow(null);
     setStatus('submitted');
     // Whatever this forecast was before its figures were revised, it is a
-    // fresh submission now.
+    // fresh submission now — and locked again, like any submitted forecast.
     setRevisedFrom(undefined);
+    setRevising(false);
     persist({ ...snap, status: 'submitted', revisedFrom: undefined });
     // A fresh submission reopens the decision: without this, a rejection
     // stuck in the cycle's approval map forever and the approver saw the
@@ -1262,6 +1285,23 @@ function SubmissionEditor({
       tone: 'success',
       message: 'Draft saved. Reset now returns to this point.',
     });
+  };
+
+  /**
+   * Unlock an already-submitted forecast so a figure can be corrected.
+   *
+   * Asked once, here, rather than discovered afterwards: the edit itself is
+   * what withdraws the forecast from approval, and nobody should learn that
+   * from a banner appearing under their hands.
+   */
+  const startRevising = async () => {
+    const confirmed = await confirm({
+      title: 'Edit a submitted forecast',
+      message: `This forecast has already been ${statusLabel(status)}. You can change the figures, but doing so withdraws it from approval — you resubmit afterwards and your approver decides again. Answering questions and writing commentary need none of this.`,
+      confirmLabel: 'Edit Forecast',
+    });
+    if (!confirmed) return;
+    setRevising(true);
   };
 
   /** Approver signs the forecast off without leaving the page. */
@@ -1515,6 +1555,15 @@ function SubmissionEditor({
                 hint="This cycle is closed — the figures are history now. You can still answer questions on any cell."
               />
             )}
+            {handedOver && cycleOpen && !revising && (
+              <ViewOnlyBadge
+                label="Figures Locked"
+                hint="Already submitted — press Edit Forecast to change a figure; that withdraws it from approval and you resubmit."
+              />
+            )}
+            {handedOver && revising && (
+              <span className="tag tag-editing">Editing · not yet resubmitted</span>
+            )}
             <CyclePill
               label="Active cycle"
               value={activeCycleId()}
@@ -1566,13 +1615,30 @@ function SubmissionEditor({
             approval, which is exactly what it should cost. */}
         {handedOver && (
           <div className="variance-panel handover-panel">
-            <h4>✓ Submitted — {status === 'approved' ? 'approved' : 'with your approver'}</h4>
+            <h4>
+              ✓ Submitted — {status === 'approved' ? 'approved' : 'with your approver'}
+              {revising ? ' · editing' : ''}
+            </h4>
             <div className="row">
               <span>
-                {cycleOpen
-                  ? 'Commentary and answers are still yours to write. You can also correct a figure while this cycle is open — that withdraws the forecast from approval, and you resubmit it for a fresh decision.'
-                  : 'This cycle is closed, so the figures stay as reported. Commentary and answers are still yours to write.'}
+                {!cycleOpen
+                  ? 'This cycle is closed, so the figures stay as reported. Commentary and answers are still yours to write.'
+                  : revising
+                    ? 'The grid is unlocked. Nothing has changed yet, so the forecast is still with your approver — the first figure you change withdraws it, and you resubmit for a fresh decision.'
+                    : 'The figures are locked because this forecast is already in. Commentary and answers are still yours to write; to change a number, press Edit Forecast.'}
               </span>
+              {cycleOpen && !revising && (
+                <span className="row-flex">
+                  <button
+                    className="btn btn-primary"
+                    data-tour="edit-forecast"
+                    title="Unlock the figures — changing one withdraws the forecast from approval"
+                    onClick={() => void startRevising()}
+                  >
+                    Edit Forecast
+                  </button>
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -1677,7 +1743,13 @@ function SubmissionEditor({
             <div className="row">
               <span>
                 Cells outlined in blue have a question waiting. Open one to reply — the forecast
-                stays where it is{cycleOpen ? ', and correcting the figure is a fair answer too' : ''}.
+                stays where it is
+                {cycleOpen && handedOver
+                  ? '. If the figure itself is wrong, press Edit Forecast first'
+                  : cycleOpen
+                    ? ', and correcting the figure is a fair answer too'
+                    : ''}
+                .
               </span>
             </div>
             {/* Every open question, each a door back to its cell. Closing the

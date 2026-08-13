@@ -148,7 +148,8 @@ function EntityListModal({
   rows: EntityProgress[];
   canEdit: boolean;
   onClose: () => void;
-  onOpenForecast: (row: EntityProgress) => void;
+  /** `revise` opens an already-submitted forecast unlocked for editing. */
+  onOpenForecast: (row: EntityProgress, revise?: boolean) => void;
   onReview?: (row: EntityProgress) => void;
 }) {
   return (
@@ -179,8 +180,16 @@ function EntityListModal({
         </div>
       ) : (
         <div className="entity-list">
-          {rows.map((w) => (
-            <div className="entity-list-row" key={w.entity}>
+          {rows.map((w) => {
+            // A forecast that is already in reads as done — greyed, ticked —
+            // but it is not out of reach: figures can still be corrected while
+            // the cycle is open, and the row is where that starts.
+            const submitted = isHandedOver(w.submission.status);
+            return (
+            <div
+              className={`entity-list-row${submitted ? ' row-submitted' : ''}`}
+              key={w.entity}
+            >
               <div className="entity-list-info">
                 <strong>{w.entity}</strong>
                 <span className="text-muted" style={{ fontSize: 12 }}>
@@ -216,10 +225,22 @@ function EntityListModal({
                   <span className="badge-num">{w.needCommentary} to explain</span>
                 )}
                 {onReview &&
-                  (isHandedOver(w.submission.status) ? (
-                    <span className="text-muted" style={{ fontSize: 11 }}>
-                      Submitted ✓
-                    </span>
+                  (submitted ? (
+                    <>
+                      <span className="text-muted" style={{ fontSize: 11 }}>
+                        Submitted ✓
+                      </span>
+                      {canEdit && (
+                        <button
+                          className="btn btn-ghost"
+                          style={{ padding: '5px 12px', fontSize: 12 }}
+                          title="Open this forecast unlocked — changing a figure sends it round for approval again"
+                          onClick={() => onOpenForecast(w, true)}
+                        >
+                          Edit &amp; Resubmit
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <button
                       className="btn btn-ghost"
@@ -239,7 +260,8 @@ function EntityListModal({
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Modal>
@@ -329,10 +351,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
   const canEditForecasts = permissions.canSubmitForecasts;
   const firstName = user.name.split(' ')[0];
   /**
-   * Once every forecast has been handed over, submitting is done. The step
-   * stays on the list as a completed one, but its action is greyed out and
-   * dead: an enabled Submit button after submission is an invitation to redo
-   * work that has already moved on to the approver.
+   * Once every forecast has been handed over, submitting is done: the step is
+   * shown as finished and its action recedes to a quiet "Edit & Resubmit"
+   * rather than a primary Submit button inviting work that has already moved
+   * on. It stays PRESSABLE, because a figure can still be corrected while the
+   * cycle is open and a dead button said the week was sealed.
    *
    * Read off the submissions themselves rather than the step's state, so it
    * agrees exactly with the forecast page: a returned forecast reopens this
@@ -399,9 +422,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
 
   /**
    * The action button that belongs to a checklist step. Like the row, it is
-   * offered only on the step the user is standing on — except the closed
-   * Submit button, which stays visible and greyed so the finished step still
-   * reads as a step rather than a bare line of text.
+   * offered only on the step the user is standing on — except the finished
+   * Submit step, which keeps its button so the step still reads as a step
+   * rather than a bare line of text.
    */
   const actionFor = (step: TodoStep, isCurrent: boolean): React.ReactNode => {
     if (step.key === 'submit' && work.length > 0 && (isCurrent || submitClosed)) {
@@ -409,15 +432,19 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
       // AGAIN; a button reading "Submit Forecast" made that look like
       // first-time work.
       const resubmitting = work.some((w) => w.revised);
+      // Everything is in. The step is done and looks done — but a figure can
+      // still be corrected while the cycle is open, and a DISABLED button said
+      // the opposite: that the week was sealed and nothing could be fixed. It
+      // stays pressable, quietly, and leads to the countries it covers.
+      const done = submitClosed;
       return (
         <button
-          className="btn btn-primary"
+          className={`btn ${done ? 'btn-ghost' : 'btn-primary'}`}
           style={{ padding: '6px 12px', fontSize: 12 }}
           data-tour="todo-submit"
-          disabled={submitClosed}
           title={
-            submitClosed
-              ? 'Already submitted — the forecast is with your approver'
+            done
+              ? 'Already submitted — open a forecast to correct a figure and send it again'
               : 'See the countries this step covers'
           }
           onClick={(e) => {
@@ -427,9 +454,11 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         >
           {!canEditForecasts
             ? 'View Forecasts'
-            : resubmitting
-              ? 'Resubmit Forecast'
-              : 'Submit Forecast'}
+            : done
+              ? 'Edit & Resubmit'
+              : resubmitting
+                ? 'Resubmit Forecast'
+                : 'Submit Forecast'}
         </button>
       );
     }
@@ -668,9 +697,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
         rows={work}
         canEdit={canEditForecasts}
         onClose={() => setEntityList(false)}
-        onOpenForecast={(w) => {
+        onOpenForecast={(w, revise) => {
           setEntityList(false);
-          onOpenSubmission({ entity: w.entity, week, templateId: w.templateId });
+          onOpenSubmission({ entity: w.entity, week, templateId: w.templateId, revise });
         }}
         onReview={
           canEditForecasts
