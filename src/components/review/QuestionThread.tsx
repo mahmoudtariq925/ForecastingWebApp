@@ -66,7 +66,12 @@ export function QuestionThread({ messages, viewerRole, compact = false }: Questi
             <div className="bubble-head">
               <strong>{m.from}</strong>
               <span className={`role-tag ${m.role}`}>{threadRoleLabel(m.role)}</span>
-              {!compact && <span className="bubble-time">{waitedLabel(m.at)} ago</span>}
+              {/* "just now" already reads as a time; "just now ago" does not. */}
+              {!compact && (
+                <span className="bubble-time">
+                  {waitedLabel(m.at) === 'just now' ? 'just now' : `${waitedLabel(m.at)} ago`}
+                </span>
+              )}
             </div>
             <p className="bubble-text">{m.text}</p>
           </div>

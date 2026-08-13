@@ -521,9 +521,21 @@ function SubmissionEditor({
    * left when the cell sits in the right half of the view, so the cell and
    * the box are never on top of each other.
    */
-  const [commentFlow, setCommentFlow] = useState<{ key: string; side: 'left' | 'right' } | null>(
-    null,
-  );
+  /**
+   * The commentary dock: which cell it is on, which side of the grid it sits
+   * on, and WHY it is open.
+   *
+   * `submitting` is the guided walk that ends by sending the forecast;
+   * `single` is one cell somebody clicked to explain, which ends when they
+   * save it. Without the distinction, explaining one cell out of curiosity
+   * submitted the whole forecast the moment it happened to be the last
+   * unexplained one.
+   */
+  const [commentFlow, setCommentFlow] = useState<{
+    key: string;
+    side: 'left' | 'right';
+    mode: 'submitting' | 'single';
+  } | null>(null);
   const [flowDraft, setFlowDraft] = useState('');
   /**
    * Cells still needing a number, spotlit after a submit attempt. null = not
@@ -901,14 +913,25 @@ function SubmissionEditor({
     );
   };
 
+  /**
+   * A click on a cell. WHICH surface opens is decided by what the cell is:
+   *
+   * - A cell somebody ASKED ABOUT opens the dialog, always. It is a
+   *   conversation — the question, the thread, the figure and the reply box —
+   *   and none of that fits in the dock beside the grid.
+   * - A cell that is merely flagged is EXPLAINED, so it belongs to the guided
+   *   flow: the dock, walking one variance at a time. Opening a dialog for it
+   *   was the same job in a second place, which is why one cell raised a box
+   *   and the next one raised the sidebar.
+   *
+   * Readers (treasury, approvers, viewers) always get the dialog: they are
+   * asking about the cell or reading it, and the flow is the submitter's.
+   */
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
-    // Mid-flow, a click on another cell that still needs explaining MOVES the
-    // flow rather than opening a second dialog over the dock. Working down the
-    // grid in the order that makes sense to the person writing is the whole
-    // point of the cells staying clickable.
-    if (commentFlow && flags.has(key) && !comments[key]?.trim()) {
-      focusFlowCell(key);
+    const asked = Boolean(commentRequests[key]);
+    if (!asked && isSubmitterView && canSubmit) {
+      focusFlowCell(key, commentFlow?.mode ?? 'single');
       return;
     }
     setCommentDraft(comments[key] ?? '');
@@ -1170,10 +1193,14 @@ function SubmissionEditor({
 
   /** Move the flow to a cell: expand, scroll it into view, then dock the
    * commentary box on whichever side keeps the cell visible. */
-  const focusFlowCell = (key: string) => {
+  const focusFlowCell = (key: string, mode?: 'submitting' | 'single') => {
     expandSectionOf(key);
     setFlowDraft(comments[key] ?? '');
-    setCommentFlow((prev) => ({ key, side: prev?.side ?? 'right' }));
+    setCommentFlow((prev) => ({
+      key,
+      side: prev?.side ?? 'right',
+      mode: mode ?? prev?.mode ?? 'single',
+    }));
     // Two frames: one for the section to expand, one for the dock to mount
     // (it narrows the grid before anything is measured).
     requestAnimationFrame(() =>
@@ -1191,7 +1218,7 @@ function SubmissionEditor({
           cellRect.left + cellRect.width / 2 > wrapRect.left + wrapRect.width / 2
             ? 'left'
             : 'right';
-        setCommentFlow({ key, side });
+        setCommentFlow((prev) => ({ key, side, mode: mode ?? prev?.mode ?? 'single' }));
       }),
     );
   };
@@ -1264,10 +1291,16 @@ function SubmissionEditor({
     );
     setCommentRequests(nextRequests);
     persist({ comments: nextComments, commentRequests: nextRequests });
+    // One cell, explained: that is the whole job. Only the guided walk goes on
+    // to the next variance and, when there are none left, submits.
+    if (commentFlow.mode === 'single') {
+      cancelFlow();
+      return;
+    }
     const remaining = orderedUncommented(nextComments);
     if (remaining.length === 0)
       void finishSubmit({ comments: nextComments, commentRequests: nextRequests });
-    else focusFlowCell(remaining[0]);
+    else focusFlowCell(remaining[0], 'submitting');
   };
 
   const submit = async () => {
@@ -1285,7 +1318,7 @@ function SubmissionEditor({
     const pending = orderedUncommented();
     if (pending.length > 0) {
       setNeedInput(null);
-      focusFlowCell(pending[0]);
+      focusFlowCell(pending[0], 'submitting');
       return;
     }
     await finishSubmit();
@@ -1504,6 +1537,8 @@ function SubmissionEditor({
       ? ((flowCell.current - flowCell.prior) / Math.max(Math.abs(flowCell.prior), 1)) * 100
       : null;
   const flowRemaining = commentFlow ? orderedUncommented().length : 0;
+  /** The guided walk through every variance, as opposed to one clicked cell. */
+  const flowSubmitting = commentFlow?.mode === 'submitting';
 
   const commentDock = commentFlow && flowCell && (
     <aside
@@ -1512,9 +1547,7 @@ function SubmissionEditor({
     >
       <div className="comment-dock-head">
         <h4>Explain variance</h4>
-        <span className="comment-dock-count">
-          {flowRemaining} left
-        </span>
+        {flowSubmitting && <span className="comment-dock-count">{flowRemaining} left</span>}
         <button className="close-btn" onClick={cancelFlow} aria-label="Stop and keep editing">
           ×
         </button>
@@ -1530,15 +1563,8 @@ function SubmissionEditor({
           {flowDelta === null ? 'new period' : `${flowDelta > 0 ? '+' : ''}${flowDelta.toFixed(1)}%`}
         </span>
       </div>
-      {commentRequests[flowCell.key] && (
-        <div className="comment-request-note">
-          <strong>
-            {commentRequests[flowCell.key].from} (
-            {requesterLabel(commentRequests[flowCell.key].fromRole)}) asked:
-          </strong>{' '}
-          {commentRequests[flowCell.key].message}
-        </div>
-      )}
+      {/* A cell that was asked about is answered in the dialog, where the whole
+          thread is — the dock only ever carries plain variance commentary. */}
       <textarea
         className="form-textarea"
         autoFocus
@@ -1553,31 +1579,37 @@ function SubmissionEditor({
           disabled={!flowDraft.trim()}
           onClick={saveFlowComment}
         >
-          {flowRemaining > 1 ? 'Save · Next' : 'Save · Submit'}
+          {!flowSubmitting ? 'Save' : flowRemaining > 1 ? 'Save · Next' : 'Save · Submit'}
         </button>
-        <button
-          className="btn btn-ghost"
-          disabled={flowRemaining < 2}
-          title={
-            flowRemaining < 2
-              ? 'This is the last one'
-              : 'Leave this cell for now and explain the next one'
-          }
-          onClick={skipFlowCell}
-        >
-          Skip
-        </button>
+        {flowSubmitting && (
+          <button
+            className="btn btn-ghost"
+            disabled={flowRemaining < 2}
+            title={
+              flowRemaining < 2
+                ? 'This is the last one'
+                : 'Leave this cell for now and explain the next one'
+            }
+            onClick={skipFlowCell}
+          >
+            Skip
+          </button>
+        )}
       </div>
       <div className="comment-dock-exits">
         <button className="btn btn-ghost" onClick={cancelFlow}>
-          Keep Editing
+          {flowSubmitting ? 'Keep Editing' : 'Close'}
         </button>
-        <button className="btn btn-ghost" onClick={() => void finishSubmit()}>
-          Submit Without Commentary
-        </button>
+        {flowSubmitting && (
+          <button className="btn btn-ghost" onClick={() => void finishSubmit()}>
+            Submit Without Commentary
+          </button>
+        )}
       </div>
       <div className="comment-dock-progress">
-        Click any flagged cell to explain that one instead
+        {flowSubmitting
+          ? 'Click any flagged cell to explain that one instead'
+          : 'Explaining one cell — the forecast is not being submitted'}
       </div>
     </aside>
   );
@@ -1628,7 +1660,11 @@ function SubmissionEditor({
       >
         {(commentFlow || answering) && (
           <div className="page-mode-ribbon" aria-hidden="true">
-            {commentFlow ? 'Submitting · explaining variances' : 'Answering questions'}
+            {commentFlow
+              ? flowSubmitting
+                ? 'Submitting · explaining variances'
+                : 'Explaining a variance'
+              : 'Answering questions'}
           </div>
         )}
         {needInput && (
@@ -1849,7 +1885,7 @@ function SubmissionEditor({
                     // The guided flow ends by SUBMITTING, so it is only ever
                     // offered on a forecast that is still the submitter's.
                     if (editorActions) {
-                      focusFlowCell(first);
+                      focusFlowCell(first, 'submitting');
                     } else {
                       const [c, d] = first.split('-').map(Number);
                       openVariance(c, d);
@@ -2048,7 +2084,7 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className={`panel chart-panel${commentFlow ? ' panel-hidden' : ''}`} data-tour="forecast-chart">
+        <div className="panel chart-panel" data-tour="forecast-chart">
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
