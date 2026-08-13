@@ -18,9 +18,20 @@ export interface HeatScale {
   min: number;
   /** Most positive visible value (>= 0). */
   max: number;
+  /**
+   * The visible value CLOSEST to zero on each side — the foot of the ramp.
+   *
+   * Running the ramp from zero shaded a band of similar numbers uniformly:
+   * eleven countries between 8.6k and 13k all sat at 70–100% of the scale, so
+   * every cell was green and the biggest one did not stand out from the
+   * smallest. Anchoring the foot at the band's own minimum means the ramp
+   * spends its whole range on the differences that are actually there.
+   */
+  posFloor: number;
+  negFloor: number;
 }
 
-export const NEUTRAL_SCALE: HeatScale = { min: 0, max: 0 };
+export const NEUTRAL_SCALE: HeatScale = { min: 0, max: 0, posFloor: 0, negFloor: 0 };
 
 /**
  * How hard the fill is allowed to push, from the floor that keeps a small
@@ -32,31 +43,55 @@ export const NEUTRAL_SCALE: HeatScale = { min: 0, max: 0 };
  * doing the reading for you, and at grid strength it washed out to nothing.
  */
 export interface HeatIntensity {
-  /** Floor so a non-zero value is never completely invisible. */
+  /** Opacity of the faintest cell that is shaded at all. */
   min: number;
   /** Peak background opacity at the extremes of the scale. */
   max: number;
+  /**
+   * Fraction of the band a value has to reach before it is shaded at all.
+   *
+   * Without it every non-zero cell carried a tint, so a grid of ordinary
+   * numbers was uniformly coloured and the week's actual peaks — the whole
+   * reason for the colour — were indistinguishable from the noise around
+   * them. Below the threshold a cell keeps the surface colour, exactly like
+   * zero does.
+   */
+  threshold: number;
 }
 
-/** Dense numeric grids: present, never competing with the numbers. */
-export const SUBTLE_HEAT: HeatIntensity = { min: 0.03, max: 0.18 };
+/** Dense numeric grids: only the peaks of a line are worth colouring. */
+export const SUBTLE_HEAT: HeatIntensity = { min: 0.05, max: 0.28, threshold: 0.25 };
 /** Summary tables: the colour is the point, so it has to be legible. */
-export const STRONG_HEAT: HeatIntensity = { min: 0.06, max: 0.42 };
+export const STRONG_HEAT: HeatIntensity = { min: 0.07, max: 0.5, threshold: 0.15 };
 
 // Matches --green / --red in the design system.
 const POSITIVE_RGB = '63, 98, 35';
 const NEGATIVE_RGB = '156, 47, 34';
 
-/** Build a scale from the values currently on screen. Zero is the midpoint. */
+/**
+ * Build a scale from the values currently on screen: the extremes of each
+ * sign, and the smallest non-zero value on each side. Zero stays the midpoint
+ * — the colour still says the SIGN at a glance — but the intensity now says
+ * where a value sits within its own band rather than how far it is from zero.
+ */
 export function heatScaleFrom(values: Iterable<number>): HeatScale {
   let min = 0;
   let max = 0;
+  let posFloor = Infinity;
+  let negFloor = -Infinity;
   for (const v of values) {
-    if (!Number.isFinite(v)) continue;
+    if (!Number.isFinite(v) || v === 0) continue;
     if (v < min) min = v;
     if (v > max) max = v;
+    if (v > 0 && v < posFloor) posFloor = v;
+    if (v < 0 && v > negFloor) negFloor = v;
   }
-  return { min, max };
+  return {
+    min,
+    max,
+    posFloor: Number.isFinite(posFloor) ? posFloor : 0,
+    negFloor: Number.isFinite(negFloor) ? negFloor : 0,
+  };
 }
 
 /**
@@ -71,15 +106,20 @@ export function heatColor(
   intensity: HeatIntensity = SUBTLE_HEAT,
 ): string | undefined {
   if (!Number.isFinite(value) || value === 0) return undefined;
-  const span = intensity.max - intensity.min;
-  if (value > 0) {
-    if (scale.max <= 0) return undefined;
-    const t = Math.min(value / scale.max, 1);
-    return `rgba(${POSITIVE_RGB}, ${(intensity.min + t * span).toFixed(3)})`;
-  }
-  if (scale.min >= 0) return undefined;
-  const t = Math.min(value / scale.min, 1);
-  return `rgba(${NEGATIVE_RGB}, ${(intensity.min + t * span).toFixed(3)})`;
+  const extreme = value > 0 ? scale.max : scale.min;
+  const floor = value > 0 ? scale.posFloor : scale.negFloor;
+  // Nothing to be a fraction of: the whole band is on the other side of zero.
+  if (value > 0 ? extreme <= 0 : extreme >= 0) return undefined;
+  // Where this value sits between the band's smallest and largest, rather than
+  // between zero and its largest.
+  const range = Math.abs(extreme) - Math.abs(floor);
+  const t = range <= 0 ? 0 : Math.min((Math.abs(value) - Math.abs(floor)) / range, 1);
+  if (t <= intensity.threshold) return undefined;
+  // Rescaled so the first shaded cell starts at `min` rather than jumping
+  // straight to a mid tint, and eased so the top of the band stands out.
+  const shaped = (t - intensity.threshold) / (1 - intensity.threshold);
+  const alpha = intensity.min + Math.pow(shaped, 1.3) * (intensity.max - intensity.min);
+  return `rgba(${value > 0 ? POSITIVE_RGB : NEGATIVE_RGB}, ${alpha.toFixed(3)})`;
 }
 
 /**

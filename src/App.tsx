@@ -13,15 +13,12 @@ import { DataImport } from './components/dataImport/DataImport';
 import { AppModals } from './components/common/AppModals';
 import { useDialog } from './components/common/dialogContext';
 import { useOnboardingTour } from './onboarding/useOnboardingTour';
-import { cycleIdFor, openCycleForWeek } from './data/cycleService';
-import { seedDemoWorkflow } from './data/demoSeed';
 import {
   assignedEntitiesFor,
   currentUser,
   permissionsFor,
   setCurrentUser,
 } from './data/session';
-import { weekLabel } from './data/periods';
 import { loadData, saveData, setSaveFailureHandler } from './storage/localStorage';
 import { allowedViews, landingViewFor } from './types/nav';
 import type { ModalId, ViewId } from './types/nav';
@@ -138,18 +135,6 @@ export default function App() {
     setMenuOpen(false);
   };
 
-  const createCycle = async (weekKey: string) => {
-    openCycleForWeek(weekKey);
-    seedDemoWorkflow(weekKey);
-    setModal(null);
-    setDataVersion((n) => n + 1);
-    await notify({
-      tone: 'success',
-      title: 'Cycle opened',
-      message: `Cycle ${cycleIdFor(weekKey)} opened for ${weekLabel(weekKey)}. Notifications sent to submitters and approvers via Azure AD.`,
-    });
-  };
-
   const screens: Record<ViewId, JSX.Element> = {
     dashboard: (
       <Dashboard onOpenModal={setModal} onOpenSubmission={openSubmission} onNavigate={navigate} />
@@ -157,7 +142,7 @@ export default function App() {
     analystHome: (
       <AnalystHome user={user} onOpenSubmission={openSubmission} onNavigate={navigate} />
     ),
-    cycles: <Cycles onOpenModal={setModal} />,
+    cycles: <Cycles />,
     submission: (
       <Submission
         key={submissionTarget ? JSON.stringify(submissionTarget) : 'default'}
@@ -237,7 +222,7 @@ export default function App() {
       <main className="main" key={`${dataVersion}:${user.email}`}>
         {screens[activeView]}
       </main>
-      <AppModals modal={modal} onClose={() => setModal(null)} onCreateCycle={createCycle} />
+      <AppModals modal={modal} onClose={() => setModal(null)} />
     </div>
   );
 }

@@ -15,7 +15,7 @@ export type ViewId =
   | 'settings'
   | 'dataImport';
 
-export type ModalId = 'newCycle' | 'export' | null;
+export type ModalId = 'export' | null;
 
 export interface NavEntry {
   view: ViewId;

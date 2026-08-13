@@ -15,8 +15,15 @@ import {
   requesterLabel,
   templateForEntity,
 } from '../../data/submissionService';
-import { templateDayLabels, weekLabel, weekLabelShort } from '../../data/periods';
+import { listCycles } from '../../data/cycleService';
+import { rollShift, templateDayLabels, weekLabel, weekLabelShort } from '../../data/periods';
 import { loadTemplates } from '../../storage/localStorage';
+
+/** How many prior cycles can be overlaid — beyond four there is no overlap. */
+const COMPARE_DEPTH = 4;
+
+/** Distinct from the live series so an overlay is never read as this cycle. */
+const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#23599c'];
 
 interface ForecastPreviewModalProps {
   open: boolean;
@@ -76,6 +83,20 @@ export function ForecastPreviewModal({
     () => (template ? getPriorValues(entity, week, template) : {}),
     [entity, week, template],
   );
+
+  /** Earlier cycles this forecast can be read against. */
+  const compareOptions = useMemo(() => {
+    void dataVersion;
+    return listCycles()
+      .filter((c) => c.weekKey < week)
+      .slice(0, COMPARE_DEPTH)
+      .map((c) => ({ week: c.weekKey, label: weekLabelShort(c.weekKey) }));
+  }, [week, dataVersion]);
+  const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
+  const toggleCompare = (key: string) =>
+    setCompareWeeks((prev) =>
+      prev.includes(key) ? prev.filter((w) => w !== key) : [...prev, key],
+    );
 
   const sections = useMemo(
     () =>
@@ -161,6 +182,32 @@ export function ForecastPreviewModal({
     };
   })();
 
+  /**
+   * The same entity's earlier forecasts, aligned on the calendar days they
+   * share with this one. Horizons roll forward a cycle at a time, so a
+   * forecast N cycles back covers this week's day d at its own day d + N·roll;
+   * past that its horizon ran out, which is a gap rather than a zero.
+   */
+  const overlaySeries: ChartSeries[] = useMemo(() => {
+    void dataVersion;
+    if (!template) return [];
+    const step = rollShift(template);
+    return compareWeeks.map((key, i) => {
+      const past = peekSubmission(entity, key, template);
+      const back = compareOptions.findIndex((o) => o.week === key) + 1;
+      return {
+        label: `${weekLabelShort(key)} · net`,
+        values: dayLabels.map((_dl, d) => {
+          const from = d + back * step;
+          return from >= dayLabels.length ? null : dayNet(numCats, past.values, from);
+        }),
+        color: OVERLAY_COLORS[i % OVERLAY_COLORS.length],
+        kind: 'line' as const,
+        dashed: true,
+      };
+    });
+  }, [compareWeeks, compareOptions, template, entity, dayLabels, numCats, dataVersion]);
+
   return (
     <>
       <Modal
@@ -236,8 +283,34 @@ export function ForecastPreviewModal({
                 showColumnTotals={template.columnTotals === true}
               />
             </div>
+            {/* The shape of the week, under the numbers that make it. Taller
+                and narrower than the grid above it: a trend is read off the
+                height of the line, and a chart the full width of an xl dialog
+                flattened four weeks into a straight one. */}
             <div className="preview-chart">
-              <Chart labels={dayLabels.map((dl) => dl.dm)} series={series} unit="k" height={170} />
+              <div className="chart-controls compare-controls">
+                <span className="grid-info">
+                  <strong>Compare with</strong>
+                </span>
+                {compareOptions.map((o) => (
+                  <label key={o.week} className="series-check">
+                    <input
+                      type="checkbox"
+                      checked={compareWeeks.includes(o.week)}
+                      onChange={() => toggleCompare(o.week)}
+                    />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
+              <Chart
+                labels={dayLabels.map((dl) => dl.dm)}
+                series={[...overlaySeries, ...series]}
+                unit="k"
+                height={280}
+                emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
+                slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
+              />
             </div>
           </>
         )}

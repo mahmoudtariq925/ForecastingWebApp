@@ -253,7 +253,7 @@ const APPROVER_JOURNEY: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="forecast-grid"]',
     title: '3 · Review the detail',
-    body: 'Sections open collapsed so you see the shape first; expand what you want to inspect. The ✎ on any cell asks the submitter to explain that number.',
+    body: 'Sections open collapsed so you see the shape first; expand what you want to inspect. The ? on any cell asks the submitter to explain that number.',
     side: 'top',
   },
   {

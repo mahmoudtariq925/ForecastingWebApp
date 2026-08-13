@@ -20,6 +20,16 @@ import { loadData, loadSubmission, saveData } from '../storage/localStorage';
 /** How many closed cycles the demo shows behind the open one. */
 const DEMO_HISTORY = 4;
 
+/**
+ * How many upcoming cycles are laid out ahead of the open one.
+ *
+ * A cycle is a WEEK, so the weeks ahead are already known — there was nothing
+ * for a "New Cycle" form to decide except which of them to open, and asking
+ * for that in a dialog hid the schedule it was choosing from. They are listed
+ * instead, greyed and unopened, with the open button on each.
+ */
+const UPCOMING = 3;
+
 type CycleStatus = Cycle['status'];
 
 function fromKey(key: string): Date {
@@ -37,7 +47,7 @@ const fmtDay = (d: Date) =>
   d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
 /** The cycle that collects `weekKey`, before any stored status override. */
-function buildCycle(weekKey: string, status: CycleStatus): Cycle {
+function buildCycle(weekKey: string, status: CycleStatus, entities?: string[]): Cycle {
   const monday = fromKey(weekKey);
   const friday = new Date(monday);
   friday.setDate(friday.getDate() + 4);
@@ -48,6 +58,7 @@ function buildCycle(weekKey: string, status: CycleStatus): Cycle {
     closes: `${fmtDay(friday)} · 18:00`,
     status,
     openedAt: monday.toISOString(),
+    ...(entities ? { entities } : {}),
   };
 }
 
@@ -69,6 +80,37 @@ export function setCycleStatus(id: string, status: CycleStatus): void {
 }
 
 // ---------------------------------------------------------------------------
+// Who a cycle collects from.
+//
+// A cycle used to mean "every active entity, always". Treasury opens one for a
+// subset often enough — a region ahead of the rest, one country re-run after a
+// correction — that the alternative was opening it for everyone and chasing
+// the ones who should not have been in it.
+// ---------------------------------------------------------------------------
+const ENTITIES_KEY = 'cycleEntities';
+
+function entityOverrides(): Record<string, string[]> {
+  const raw = loadData<unknown>(ENTITIES_KEY, null);
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, string[]>)
+    : {};
+}
+
+/** The entities a cycle collects from, or null for every active entity. */
+export function cycleEntities(cycleId: string): string[] | null {
+  const stored = entityOverrides()[cycleId];
+  return Array.isArray(stored) && stored.length > 0 ? stored : null;
+}
+
+/** Record which entities a cycle is open for; an empty list means all. */
+export function setCycleEntities(cycleId: string, entities: string[]): void {
+  const next = { ...entityOverrides() };
+  if (entities.length === 0) delete next[cycleId];
+  else next[cycleId] = entities;
+  saveData(ENTITIES_KEY, next);
+}
+
+// ---------------------------------------------------------------------------
 // Extra cycles opened from the New Cycle modal.
 // ---------------------------------------------------------------------------
 const EXTRA_KEY = 'extraCycleWeeks';
@@ -78,11 +120,16 @@ function extraWeeks(): string[] {
   return Array.isArray(raw) ? raw.filter((w): w is string => typeof w === 'string') : [];
 }
 
-/** Register a week as an explicitly opened cycle (New Cycle modal). */
-export function openCycleForWeek(weekKey: string): void {
+/**
+ * Open the cycle collecting a week, for every active entity or for the ones
+ * named. Registering the week keeps a cycle opened outside the rolling
+ * schedule (a re-run, a catch-up week) on the list.
+ */
+export function openCycleForWeek(weekKey: string, entities: string[] = []): void {
   if (!isValidWeekKey(weekKey)) return;
   const weeks = extraWeeks();
   if (!weeks.includes(weekKey)) saveData(EXTRA_KEY, [...weeks, weekKey]);
+  setCycleEntities(cycleIdFor(weekKey), entities);
   setCycleStatus(cycleIdFor(weekKey), 'submitted');
 }
 
@@ -96,20 +143,24 @@ export function openCycleForWeek(weekKey: string): void {
  */
 export function listCycles(): Cycle[] {
   const current = currentWeekKey();
+  const step = cadenceWeeks();
   const weeks = new Set<string>([current, ...extraWeeks()]);
+  // The weeks ahead are already known, so they are listed — unopened — rather
+  // than typed into a form when their turn comes.
+  for (let i = 1; i <= UPCOMING; i++) weeks.add(shiftWeeks(current, i * step));
   if (DEMO_DATA) {
     // Cycles sit a cadence apart, so the history reflects the Cycle Frequency
     // setting rather than always being consecutive weeks.
-    const step = cadenceWeeks();
     for (let i = 1; i <= DEMO_HISTORY; i++) weeks.add(shiftWeeks(current, -i * step));
   }
   const overrides = statusOverrides();
   return [...weeks]
     .sort((a, b) => b.localeCompare(a))
     .map((week) => {
-      const fallback: CycleStatus = week >= current ? 'submitted' : 'consolidated';
+      const fallback: CycleStatus =
+        week > current ? 'scheduled' : week === current ? 'submitted' : 'consolidated';
       const id = cycleIdFor(week);
-      return buildCycle(week, overrides[id] ?? fallback);
+      return buildCycle(week, overrides[id] ?? fallback, cycleEntities(id) ?? undefined);
     });
 }
 
@@ -147,9 +198,17 @@ export function cycleForWeek(weekKey: string): Cycle | null {
  * an unknown PAST week is closed, not editable by default.
  */
 export function isCycleOpen(weekKey: string): boolean {
+  return cycleForWeek(weekKey)?.status === 'submitted';
+}
+
+/**
+ * The same question for one entity: a cycle opened for a subset does not
+ * unlock everybody's grid.
+ */
+export function isCycleOpenForEntity(weekKey: string, entity: string): boolean {
   const cycle = cycleForWeek(weekKey);
-  if (cycle) return cycle.status === 'submitted';
-  return weekKey >= currentWeekKey();
+  if (cycle?.status !== 'submitted') return false;
+  return !cycle.entities || cycle.entities.includes(entity);
 }
 
 // ---------------------------------------------------------------------------

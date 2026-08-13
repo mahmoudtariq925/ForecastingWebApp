@@ -2,16 +2,8 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import { useDialog } from './dialogContext';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
-import { listEntities } from '../../data/appData';
-import { activeWeekKey, cycleIdFor, listCycles } from '../../data/cycleService';
-import {
-  cadenceWeeks,
-  dayLabelsForWeek,
-  horizonDates,
-  shiftWeeks,
-  weekLabel,
-  weekLabelShort,
-} from '../../data/periods';
+import { activeWeekKey, listCycles } from '../../data/cycleService';
+import { dayLabelsForWeek, horizonDates, weekLabelShort } from '../../data/periods';
 import { consolidatedValues } from '../../data/submissionService';
 import { cycleOverview } from '../../data/dashboardService';
 import { listSubmissions, loadTemplates } from '../../storage/localStorage';
@@ -26,54 +18,14 @@ import type { ModalId } from '../../types/nav';
 interface AppModalsProps {
   modal: ModalId;
   onClose: () => void;
-  /** Called with the forecast week to open a cycle for. */
-  onCreateCycle: (weekKey: string) => void;
 }
 
-/** Friday 18:00 of a forecast week — the submission deadline. */
-function deadlineLabel(weekKey: string): string {
-  const [y, m, d] = weekKey.split('-').map(Number);
-  const friday = new Date(y, m - 1, d + 4);
-  return `${friday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · 18:00`;
-}
-
-/**
- * Forecast weeks a cycle can still be opened for: the next eight weeks that do
- * not already have one.
- *
- * A cycle IS a week, so it is chosen rather than typed. The old form asked for
- * a free-text cycle id, which could be left blank (the dialog then silently
- * refused to close) or set to anything at all, which is how "CW-2026-21" came
- * to sit above data for a completely different week.
- */
-function openableWeeks(): string[] {
-  const taken = new Set(listCycles().map((c) => c.weekKey));
-  const from = activeWeekKey();
-  const step = cadenceWeeks();
-  const out: string[] = [];
-  for (let i = 1; out.length < 8 && i <= 24; i++) {
-    const week = shiftWeeks(from, i * step);
-    if (!taken.has(week)) out.push(week);
-  }
-  return out;
-}
-
-/** Shared dialogs: New Cycle (creates + persists) and Export (real downloads). */
-export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
-  const weeks = useState(openableWeeks)[0];
-  const [week, setWeek] = useState(weeks[0] ?? '');
+/** Shared dialogs — currently just Export, which produces real downloads. */
+export function AppModals({ modal, onClose }: AppModalsProps) {
   const [format, setFormat] = useState<'xlsx' | 'csv' | 'json'>('xlsx');
   const [scope, setScope] = useState('consolidated');
   const [busy, setBusy] = useState(false);
   const { notify } = useDialog();
-
-  const createCycle = async () => {
-    if (!week) {
-      await notify({ tone: 'error', message: 'Please choose a forecast week to open.' });
-      return;
-    }
-    onCreateCycle(week);
-  };
 
   const runExport = async () => {
     setBusy(true);
@@ -131,55 +83,6 @@ export function AppModals({ modal, onClose, onCreateCycle }: AppModalsProps) {
 
   return (
     <>
-      <Modal
-        open={modal === 'newCycle'}
-        title="Open New Forecast Cycle"
-        onClose={onClose}
-        footer={
-          <>
-            <button className="btn btn-ghost" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="btn btn-primary" onClick={createCycle}>
-              Open Cycle
-            </button>
-          </>
-        }
-      >
-        <div className="form-group">
-          <label className="form-label">Forecast Week</label>
-          <select
-            className="form-select"
-            value={week}
-            onChange={(e) => setWeek(e.target.value)}
-          >
-            {weeks.map((w) => (
-              <option key={w} value={w}>
-                {weekLabel(w)}
-              </option>
-            ))}
-          </select>
-          <p className="form-hint">
-            {week
-              ? `Opens as ${cycleIdFor(week)}, closing ${deadlineLabel(week)}, for ${listEntities().length} entities.`
-              : 'Every upcoming week already has a cycle.'}
-          </p>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Notify</label>
-          <select
-            className="form-select"
-            multiple
-            style={{ height: 80 }}
-            defaultValue={['All submitters', 'All approvers']}
-          >
-            <option>All submitters</option>
-            <option>All approvers</option>
-            <option>Treasury team only</option>
-          </select>
-        </div>
-      </Modal>
-
       <Modal
         open={modal === 'export'}
         title="Export Data"

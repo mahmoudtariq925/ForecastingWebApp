@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react';
 import { heatColor, heatScaleFrom, STRONG_HEAT } from '../submissions/heatmap';
+import { countryCode } from '../../data/countryCodes';
 import type { CategoryCountryMatrix, MatrixRow } from '../../data/dashboardService';
 
 interface CountryMatrixProps {
@@ -111,9 +112,11 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
         <thead>
           <tr>
             <th className="matrix-row-h">Line item</th>
+            {/* ISO codes: eleven full country names set the column width and
+                pushed the figures off the panel. The name is in the tooltip. */}
             {countries.map((c) => (
-              <th key={c} className="num">
-                {c}
+              <th key={c} className="num" title={c}>
+                {countryCode(c)}
               </th>
             ))}
             <th className="num matrix-total-h">Total</th>
@@ -138,8 +141,12 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
             const isOpen = open.has(section.group);
             return (
               <Fragment key={section.group}>
-                <tr className="matrix-section">
-                  <td colSpan={countries.length + 2}>
+                {/* ONE row per section, carrying its own totals — the shape the
+                    consolidated forecast uses. A band row above a "… total"
+                    row said the section's name twice and spent two lines of a
+                    short panel saying nothing new. */}
+                <tr className="matrix-section-total">
+                  <td className="matrix-row-label">
                     <button
                       type="button"
                       className="matrix-section-toggle"
@@ -153,25 +160,17 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
                       {section.group}
                     </button>
                   </td>
+                  {cells(section.byCountry, ' matrix-band-total')}
+                  <td className="num matrix-total">{fmt(section.total)}</td>
                 </tr>
-                {isOpen ? (
+                {isOpen &&
                   section.rows.map((row) => (
                     <tr key={row.label}>
                       <td className="matrix-row-label indent">{row.label}</td>
                       {cells(row.byCountry)}
                       <td className="num matrix-total">{fmt(row.total)}</td>
                     </tr>
-                  ))
-                ) : (
-                  <tr className="matrix-section-total">
-                    <td className="matrix-row-label">{section.group} total</td>
-                    {/* Bold, but no fill of its own: a grey background under
-                        the conditional formatting made every folded section
-                        the same colour as the band above it. */}
-                    {cells(section.byCountry, ' matrix-band-total')}
-                    <td className="num matrix-total">{fmt(section.total)}</td>
-                  </tr>
-                )}
+                  ))}
               </Fragment>
             );
           })}

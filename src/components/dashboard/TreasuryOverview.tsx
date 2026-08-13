@@ -7,6 +7,7 @@ import { AttentionModal } from './AttentionModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
 import { MultiSelect } from '../common/MultiSelect';
+import { countryCode } from '../../data/countryCodes';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities, seedUsers } from '../../data/appData';
 import { useDataVersion } from '../../data/useDataVersion';
@@ -26,7 +27,11 @@ import {
   cycleProgress,
   filterRegions,
 } from '../../data/dashboardService';
-import { consolidatedValues } from '../../data/submissionService';
+import {
+  consolidatedValues,
+  entityStatus,
+  templateForEntity,
+} from '../../data/submissionService';
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadApprovals, loadSettings, loadTemplates, loadUsers } from '../../storage/localStorage';
@@ -52,6 +57,22 @@ interface TreasuryOverviewProps {
 
 /** Which stat box (if any) has its modal open. */
 type StatModal = 'received' | 'awaiting' | 'attention' | null;
+
+/**
+ * Which forecasts the page is built from.
+ *
+ * The group position is what has been REPORTED, but "reported" covers two very
+ * different things: a forecast an approver has signed off, and one that has
+ * only been submitted and could still change. Treasury needs to see the total
+ * both ways — with and without the numbers still under review.
+ */
+type StatusFilter = 'all' | 'approved' | 'submitted';
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'submitted', label: 'Awaiting approval' },
+];
 
 /** A country's forecast opened in a dialog from one of the modals above. */
 interface PreviewTarget {
@@ -135,10 +156,42 @@ export function TreasuryOverview({
       return kept.length === prev.length ? prev : kept;
     });
   }, [scopedNames]);
-  const countries = useMemo(
-    () => (countryFilter.length > 0 ? countryFilter : scopedNames),
-    [countryFilter, scopedNames],
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  /** Where each country's forecast stands this cycle, for the filter and the flags. */
+  const statusByCountry = useMemo(() => {
+    void dataVersion;
+    const templates = loadTemplates();
+    const map = new Map<string, ReturnType<typeof entityStatus>>();
+    for (const name of scopedNames) {
+      const templateId = templateForEntity(templates, name)?.id ?? '';
+      map.set(name, entityStatus(name, week, templateId, overrides));
+    }
+    return map;
+    // overrides is a fresh object per render; its cycle id is the real input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedNames, week, cycleId, dataVersion]);
+
+  /**
+   * Countries whose forecast is in but NOT approved — the numbers in the totals
+   * that an approver could still send back. Flagged beside the filter rather
+   * than buried in a modal, because it qualifies everything else on the page.
+   */
+  const unapproved = useMemo(
+    () => scopedNames.filter((n) => statusByCountry.get(n) === 'submitted'),
+    [scopedNames, statusByCountry],
   );
+
+  const countries = useMemo(() => {
+    const picked = countryFilter.length > 0 ? countryFilter : scopedNames;
+    if (statusFilter === 'all') return picked;
+    return picked.filter((n) => {
+      const status = statusByCountry.get(n);
+      return statusFilter === 'approved'
+        ? status === 'approved' || status === 'consolidated'
+        : status === 'submitted';
+    });
+  }, [countryFilter, scopedNames, statusFilter, statusByCountry]);
 
   const [templateId, setTemplateId] = useState(
     () =>
@@ -431,6 +484,21 @@ export function TreasuryOverview({
               ))}
             </select>
           </div>
+          <div className="filter-field">
+            <span className="filter-field-label">Forecast Status</span>
+            <div className="seg-toggle" role="group" aria-label="Filter by forecast status">
+              {STATUS_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  className={statusFilter === o.value ? 'active' : ''}
+                  aria-pressed={statusFilter === o.value}
+                  onClick={() => setStatusFilter(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {/* Only present once the chart has been clicked, so it is a state
               to clear rather than a control to set. */}
           {sortedPeriods.length > 0 && (
@@ -446,6 +514,30 @@ export function TreasuryOverview({
                 {periodLabel} <span aria-hidden="true">×</span>
                 <span className="sr-only">Clear the period filter</span>
               </button>
+            </div>
+          )}
+          {/* Submitted but not approved: the figures are in the totals above
+              and could still be sent back. Each flag filters the page to that
+              country, which is the next thing you want after seeing it. */}
+          {unapproved.length > 0 && (
+            <div className="filter-flags" title="Submitted, not yet approved">
+              {unapproved.map((name) => (
+                <button
+                  key={name}
+                  className={`filter-flag${countryFilter.includes(name) ? ' on' : ''}`}
+                  title={`${name} — submitted, awaiting approval`}
+                  onClick={() =>
+                    setCountryFilter((prev) =>
+                      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+                    )
+                  }
+                >
+                  <span className="filter-flag-mark" aria-hidden="true">
+                    !
+                  </span>
+                  {countryCode(name)}
+                </button>
+              ))}
             </div>
           )}
         </div>

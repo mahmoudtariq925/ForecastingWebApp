@@ -3,15 +3,15 @@ import { TopBar } from '../layout/TopBar';
 import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
 import { QuestionThread, ThreadComposer } from './QuestionThread';
+import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { useDataVersion } from '../../data/useDataVersion';
-import { activeWeekKey, isCycleOpen } from '../../data/cycleService';
+import { activeWeekKey, isCycleOpenForEntity } from '../../data/cycleService';
 import { weekLabel, weekLabelShort } from '../../data/periods';
 import {
   collectQuestionGroups,
   flattenQuestions,
   questionTotals,
   sortForColumn,
-  waitedLabel,
   type QuestionItem,
   type QuestionState,
 } from '../../data/questionService';
@@ -131,12 +131,11 @@ function QuestionCard({
           {item.from}
           <span className={`role-tag ${item.role}`}>{requesterLabel(item.role)}</span>
         </span>
-        <span className="text-muted">
-          {replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'} · ` : ''}
-          {item.state === 'awaiting'
-            ? `waiting ${waitedLabel(item.requestedAt)}`
-            : `${waitedLabel(item.lastAt)} ago`}
-        </span>
+        {replies > 0 && (
+          <span className="text-muted">
+            {replies} repl{replies === 1 ? 'y' : 'ies'}
+          </span>
+        )}
       </footer>
     </article>
   );
@@ -177,6 +176,12 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
   const [periodFilter, setPeriodFilter] = useState(() => activeWeekKey());
   /** The conversation being read, if any. */
   const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * A forecast opened over the board rather than instead of it. Treasury and
+   * approvers come here to READ a number in context; navigating away threw out
+   * the board, its filters and their place in it for a look at one cell.
+   */
+  const [preview, setPreview] = useState<QuestionItem | null>(null);
 
   const options = useMemo(() => {
     const uniq = (v: string[]) => [...new Set(v)].sort();
@@ -286,39 +291,35 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
     });
   };
 
-  const openForecast = (item: QuestionItem) =>
+  /** Whoever is not the submitter is the one who can call a question done. */
+  const isAsker = viewerRole === 'treasury' || viewerRole === 'approver';
+
+  /**
+   * Reading a forecast opens it in a dialog for whoever is only looking; a
+   * submitter is going there to work, so they get the page itself.
+   */
+  const openForecast = (item: QuestionItem) => {
+    if (isAsker) {
+      setPreview(item);
+      return;
+    }
     onOpenSubmission?.({
       entity: item.entity,
       week: item.period,
       templateId: item.templateId,
       focusCell: item.cellKey,
     });
-
-  /** Whoever is not the submitter is the one who can call a question done. */
-  const isAsker = viewerRole === 'treasury' || viewerRole === 'approver';
+  };
 
   return (
     <div className="view active">
-      <TopBar
-        crumb="Workspace"
-        title="Questions"
-        actions={
-          <span className="tag" style={{ letterSpacing: '0.12em' }}>
-            {totals.awaiting} awaiting a reply
-            {totals.oldestAwaiting ? ` · longest ${waitedLabel(totals.oldestAwaiting)}` : ''}
-          </span>
-        }
-      />
+      <TopBar crumb="Workspace" title="Questions" />
       <div className="content content-compact">
         <div className="kpi-grid">
           <Stat
             label="Awaiting a reply"
             value={String(totals.awaiting)}
-            sub={
-              totals.oldestAwaiting
-                ? `Longest waiting ${waitedLabel(totals.oldestAwaiting)}`
-                : 'Nobody is waiting on an answer'
-            }
+            sub={totals.awaiting === 0 ? 'Nobody is waiting on an answer' : 'Somebody owes a reply'}
             tone={totals.awaiting === 0 ? 'ok' : 'warn'}
           />
           <Stat
@@ -397,10 +398,6 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                 ))}
               </select>
             </div>
-            <span className="grid-info">
-              <strong>{filtered.length}</strong> question{filtered.length === 1 ? '' : 's'} on this
-              board
-            </span>
           </div>
         </div>
 
@@ -463,11 +460,6 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
                                 </span>
                                 <strong>{region.name}</strong>
                                 <span className="badge-num">{region.items.length}</span>
-                                {!regionOpen && (
-                                  <span className="question-region-who text-muted">
-                                    {[...new Set(region.items.map((i) => i.entity))].join(', ')}
-                                  </span>
-                                )}
                               </button>
                               {regionOpen && (
                                 <div className="question-region-body">
@@ -488,6 +480,40 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
           </div>
         )}
       </div>
+
+      {preview && (
+        <ForecastPreviewModal
+          open
+          entity={preview.entity}
+          week={preview.period}
+          title={`${preview.entity} · ${weekLabelShort(preview.period)}`}
+          canRequestComments
+          // Deliberately no focus cell: the reader has just come from the
+          // thread about it and wants to SEE the forecast, not to be handed a
+          // blank "ask a question" box over the top of it. Any cell is one
+          // click away inside the dialog.
+          onClose={() => setPreview(null)}
+          actions={
+            onOpenSubmission && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  const item = preview;
+                  setPreview(null);
+                  onOpenSubmission({
+                    entity: item.entity,
+                    week: item.period,
+                    templateId: item.templateId,
+                    focusCell: item.cellKey,
+                  });
+                }}
+              >
+                Open Full Forecast
+              </button>
+            )
+          }
+        />
+      )}
 
       {openItem && (
         <Modal
@@ -554,7 +580,7 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
             <ThreadComposer
               role={viewerRole}
               hint={
-                viewerRole === 'submitter' && isCycleOpen(openItem.period)
+                viewerRole === 'submitter' && isCycleOpenForEntity(openItem.period, openItem.entity)
                   ? 'Your reply is the commentary on this cell. If the figure itself is wrong, open the forecast and correct it — that sends it round for approval again.'
                   : undefined
               }
