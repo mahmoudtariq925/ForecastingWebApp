@@ -18,6 +18,7 @@ import type {
   SubmissionStatus,
   ThreadMessage,
   ThreadRole,
+  User,
 } from '../types';
 import {
   generateGridValues,
@@ -76,23 +77,43 @@ export function pctChange(current: number, prior: number): number | null {
 const isRequesterRole = (v: unknown): v is RequesterRole =>
   v === 'treasury' || v === 'approver';
 
-/**
- * The role a question was asked in, for questions stored before the role was
- * recorded: look the asker up by name.
- *
- * Defaulting those to "treasury" labelled an approver's own question as
- * treasury's on the submitter's screen — the exact confusion recording the
- * role was meant to end.
- */
-function roleOfAsker(name: string): RequesterRole {
-  const user = loadUsers(seedUsers()).find(
-    (u) => u.name.trim().toLowerCase() === name.trim().toLowerCase(),
-  );
-  return user?.role === 'approver' ? 'approver' : 'treasury';
-}
-
 const isThreadRole = (v: unknown): v is ThreadRole =>
   v === 'treasury' || v === 'approver' || v === 'submitter';
+
+/** The user directory, for resolving who wrote a message by their name. */
+function userByName(name: string): User | undefined {
+  return loadUsers(seedUsers()).find(
+    (u) => u.name.trim().toLowerCase() === name.trim().toLowerCase(),
+  );
+}
+
+/**
+ * What capacity somebody wrote in — decided by WHO THEY ARE, not by whatever a
+ * stored message claims.
+ *
+ * A stored role can be missing (questions predate the field) or plain wrong:
+ * every question an older version recorded was stamped "treasury", so an
+ * approver's own question about their country's forecast came back to the
+ * submitter attributed to Treasury. Reading the role off the user directory
+ * fixes both, and keeps the label honest if somebody's role later changes.
+ * The stored value is used only for a name the directory does not know.
+ */
+function roleOfAuthor(name: string, stored: unknown): ThreadRole {
+  const role = userByName(name)?.role;
+  if (role === 'approver') return 'approver';
+  if (role === 'treasury') return 'treasury';
+  if (role === 'submitter') return 'submitter';
+  return isThreadRole(stored) ? stored : 'treasury';
+}
+
+/** The same, for the side of the conversation that ASKS. */
+function roleOfAsker(name: string, stored: unknown): RequesterRole {
+  const role = roleOfAuthor(name, stored);
+  // A submitter never opens a question; if the directory says one did, the
+  // stored role is the better answer.
+  if (role === 'submitter') return isRequesterRole(stored) ? stored : 'treasury';
+  return role;
+}
 
 /** Keep only well-formed thread replies — storage can hold anything. */
 function normalizeReplies(raw: unknown): ThreadMessage[] {
@@ -100,12 +121,15 @@ function normalizeReplies(raw: unknown): ThreadMessage[] {
   return raw
     .filter((v): v is Partial<ThreadMessage> => typeof v === 'object' && v !== null)
     .filter((m) => typeof m.text === 'string' && m.text.trim())
-    .map((m) => ({
-      from: typeof m.from === 'string' && m.from.trim() ? m.from : 'Unknown',
-      role: isThreadRole(m.role) ? m.role : 'submitter',
-      text: String(m.text),
-      at: typeof m.at === 'string' ? m.at : new Date().toISOString(),
-    }))
+    .map((m) => {
+      const from = typeof m.from === 'string' && m.from.trim() ? m.from : 'Unknown';
+      return {
+        from,
+        role: roleOfAuthor(from, m.role),
+        text: String(m.text),
+        at: typeof m.at === 'string' ? m.at : new Date().toISOString(),
+      };
+    })
     .sort((a, b) => a.at.localeCompare(b.at));
 }
 
@@ -120,7 +144,7 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
     const from = typeof r.from === 'string' ? r.from : 'Treasury';
     out[key] = {
       from,
-      fromRole: isRequesterRole(r.fromRole) ? r.fromRole : roleOfAsker(from),
+      fromRole: roleOfAsker(from, r.fromRole),
       message: r.message,
       requestedAt: typeof r.requestedAt === 'string' ? r.requestedAt : new Date().toISOString(),
       replies: normalizeReplies(r.replies),
