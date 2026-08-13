@@ -2314,9 +2314,16 @@ td.num {
   font-size: 11px;
   color: var(--text-muted);
 }
-.question-card-owner {
+.question-card-asker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-weight: 600;
   color: var(--text-dim);
+}
+.question-card-asker > :first-child,
+.question-card-asker {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -15,7 +15,11 @@ import {
   type QuestionItem,
   type QuestionState,
 } from '../../data/questionService';
-import { postThreadMessage, setFlagResolved } from '../../data/submissionService';
+import {
+  postThreadMessage,
+  requesterLabel,
+  setFlagResolved,
+} from '../../data/submissionService';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates } from '../../storage/localStorage';
 import type { ThreadRole } from '../../types';
@@ -119,8 +123,13 @@ function QuestionCard({
       </div>
       <QuestionThread messages={item.thread} viewerRole={viewerRole} compact />
       <footer className="question-card-foot">
-        <span className="question-card-owner" title="Who answers for this line item">
-          {item.owner}
+        {/* WHO ASKED, and in what capacity. The card used to name the person
+            who owes the answer, which read as the author of the question
+            sitting above it — and an approver's question and treasury's are
+            two different things to a reader deciding what to do next. */}
+        <span className="question-card-asker" title={`Asked by ${item.from}`}>
+          {item.from}
+          <span className={`role-tag ${item.role}`}>{requesterLabel(item.role)}</span>
         </span>
         <span className="text-muted">
           {replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'} · ` : ''}
@@ -526,7 +535,8 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
             </h4>
             <div className="row">
               <span>
-                {openItem.templateName} · answered by {openItem.owner}
+                {openItem.templateName} · asked by {openItem.from} (
+                {requesterLabel(openItem.role)})
               </span>
               <span>
                 {openItem.pct === null
