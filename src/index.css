@@ -682,7 +682,7 @@ textarea {
 }
 .page-title-wrap .crumb {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11.5px;
   letter-spacing: 0.16em;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -1438,11 +1438,15 @@ td.num {
   padding-top: 14px;
   padding-bottom: 5px;
 }
+/* A section band names the rows under it, so it is read as often as they are:
+   10px uppercase monospace with wide tracking made the one label on the row
+   the hardest thing on the grid to read. Same face and size as its line
+   items, carried by weight instead. */
 .forecast-grid tr.section-row td.row-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  text-transform: none;
   color: var(--text);
   font-weight: 700;
   padding-top: 14px;
@@ -4105,8 +4109,7 @@ thead th,
 .cycle-pill .label,
 .view-only-badge,
 thead th,
-.forecast-grid thead th,
-.forecast-grid tr.section-row td.row-label {
+.forecast-grid thead th {
   letter-spacing: 0.06em;
 }
 
@@ -4521,12 +4524,10 @@ tbody td {
   color: var(--text-muted);
 }
 .matrix-wrap {
-  /* Horizontal scroll for the country columns, but NO fixed height: opening a
-     section used to push the rows into a 420px box, so the band below it and
-     the pinned Net cash flow row collided. The panel now grows to fit whatever
-     is open. */
+  /* Scrolls in BOTH directions — see the legibility block at the end of the
+     file for the height, which is set so the panel matches the chart beside
+     it instead of growing the page every time a section is opened. */
   overflow-x: auto;
-  overflow-y: hidden;
 }
 .matrix-table {
   width: 100%;
@@ -5064,7 +5065,7 @@ tbody td {
   color: var(--accent);
 }
 .matrix-section-toggle .section-caret {
-  font-size: 9px;
+  font-size: 11px;
   opacity: 0.75;
 }
 .matrix-table td.matrix-row-label.indent {
@@ -5072,4 +5073,81 @@ tbody td {
 }
 .matrix-section-total td {
   font-weight: 600;
+}
+
+/* ==========================================================================
+   LEGIBILITY FLOOR
+
+   Chrome had drifted back under 11px in a dozen places — 9px carets, 10px
+   breadcrumbs, 10px segmented buttons, 9px weekday headers — which is decoration
+   you have to lean in to read rather than text. Nothing sets type smaller than
+   11px any more, and the things that carry meaning (weekday headers, role tags,
+   counts) sit at 11–12px. Last in the file so it wins over the older blocks.
+   ========================================================================== */
+.crumb {
+  font-size: 11.5px;
+}
+.user-role {
+  font-size: 11.5px;
+}
+.user-caret,
+.multi-select-caret {
+  font-size: 11px;
+}
+/* The fold/unfold arrow on a section band: at 9px it was a speck next to the
+   label it belongs to. */
+.section-caret,
+.review-caret {
+  font-size: 11px;
+}
+.seg-toggle button {
+  font-size: 11.5px;
+}
+.cycle-pill .label,
+.cycle-pill .value {
+  font-size: 11px;
+}
+.filter-flag,
+.filter-flag-mark {
+  font-size: 11.5px;
+}
+.badge-num,
+.role-tag,
+.question-card-foot,
+.thread-more,
+.bubble-time,
+.comment-dock-count {
+  font-size: 11px;
+}
+/* Column headers in the forecast grid: the date IS the header, so it cannot be
+   the smallest thing on the screen. */
+.forecast-grid thead th.day-h {
+  font-size: 11px;
+}
+.forecast-grid thead th.day-h .dow {
+  font-size: 10.5px;
+}
+
+/* --------------------------------------------------------------------------
+   Breakdown by Category: scrolls inside its panel.
+
+   Eleven countries by a dozen line items grew the panel — and with it the whole
+   page — every time a section was opened, pushing the consolidated forecast off
+   screen. The panel now keeps the height of the chart beside it and scrolls
+   internally, with the header row and the net-cash-flow row pinned so the thing
+   you are comparing against never scrolls away.
+   -------------------------------------------------------------------------- */
+.matrix-wrap {
+  max-height: 340px;
+  overflow: auto;
+}
+/* One size through the whole table: the footer was half a point smaller than
+   the rows above it, which reads as a different face rather than a total. */
+.matrix-table tbody td,
+.matrix-table tfoot td {
+  font-size: 13px;
+}
+.matrix-table tfoot td {
+  /* Pinned, so it has to sit above the rows scrolling under it. */
+  z-index: 2;
 }

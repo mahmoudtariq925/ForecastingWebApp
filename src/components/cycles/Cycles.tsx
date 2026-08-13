@@ -56,7 +56,14 @@ export function Cycles() {
   /** The cycle being opened, if any — the dialog decides who it covers. */
   const [opening, setOpening] = useState<Cycle | null>(null);
   const [forEntities, setForEntities] = useState<string[]>([]);
-  const { notify } = useDialog();
+  /**
+   * Who hears about it. A CHOICE, not two buttons that fired immediately:
+   * pressing "Notify Submitters" while still deciding which entities the cycle
+   * covered drafted a mail to the wrong list, and there was nothing to undo.
+   * The drafts open when the cycle does.
+   */
+  const [notify, setNotify] = useState({ submitters: true, approvers: true });
+  const dialog = useDialog();
 
   const entities = useMemo(() => listEntities(), []);
   const rows = useMemo(() => {
@@ -74,20 +81,8 @@ export function Cycles() {
 
   const startOpening = (cycle: Cycle) => {
     setForEntities(cycle.entities ?? []);
+    setNotify({ submitters: true, approvers: true });
     setOpening(cycle);
-  };
-
-  const confirmOpen = async () => {
-    if (!opening) return;
-    openCycleForWeek(opening.weekKey, forEntities);
-    const covered = forEntities.length === 0 ? entities.length : forEntities.length;
-    setOpening(null);
-    setVersion((n) => n + 1);
-    await notify({
-      tone: 'success',
-      title: 'Cycle opened',
-      message: `${opening.id} is open for ${covered} ${covered === 1 ? 'entity' : 'entities'} · ${weekLabel(opening.weekKey)}.`,
-    });
   };
 
   /** The entities a cycle covers, resolved for the notification drafts. */
@@ -97,36 +92,54 @@ export function Cycles() {
     [entities, forEntities],
   );
 
-  /**
-   * Tell one side of the cycle it is open. Two buttons rather than a
-   * multi-select of "who to notify": the choice is which group, the action is
-   * sending, and a list that only looked like it sent anything was worse than
-   * no list at all.
-   */
-  const notifyGroup = (group: 'submitter' | 'approver') => {
-    if (!opening) return;
+  /** The people the chosen groups resolve to, for the draft and the hint. */
+  const recipients = useMemo(() => {
     const users = loadUsers(seedUsers());
     const domain = mailDomain(loadSettings(DEFAULT_SETTINGS));
-    const to = [
+    const names = covered.flatMap((e) => [
+      ...(notify.submitters ? [e.submitter] : []),
+      ...(notify.approvers ? [e.approver] : []),
+    ]);
+    return [
       ...new Set(
-        covered
-          .map((e) => (group === 'submitter' ? e.submitter : e.approver))
-          .filter((name) => name && name !== '—')
-          .map((name) => emailForName(name, users, domain)),
+        names.filter((n) => n && n !== '—').map((n) => emailForName(n, users, domain)),
       ),
     ];
-    openEmail({
-      to,
-      subject: `${opening.id} is open — ${weekLabel(opening.weekKey)} cash flow forecast`,
-      body:
-        `Hi all,\n\n` +
-        `Forecast cycle ${opening.id} for ${weekLabel(opening.weekKey)} is now open` +
-        `${forEntities.length > 0 ? ` for ${covered.map((e) => e.name).join(', ')}` : ''}.\n` +
-        `It closes ${opening.closes}.\n\n` +
-        (group === 'submitter'
-          ? 'Please enter and submit your forecast in Liquid.\n\n'
-          : 'Please approve the forecasts as they arrive in Liquid.\n\n') +
-        `${window.location.origin + window.location.pathname}\n\nBest regards,\nTreasury`,
+  }, [covered, notify]);
+
+  /**
+   * Open the cycle, then draft the announcement to whoever was chosen — one
+   * mail to both groups rather than two drafts, because it is one message and
+   * a browser blocks the second `mailto` anyway.
+   */
+  const confirmOpen = async () => {
+    if (!opening) return;
+    openCycleForWeek(opening.weekKey, forEntities);
+    const count = covered.length;
+    const sent = recipients.length;
+    const cycle = opening;
+    setOpening(null);
+    setVersion((n) => n + 1);
+    if (sent > 0) {
+      openEmail({
+        to: recipients,
+        subject: `${cycle.id} is open — ${weekLabel(cycle.weekKey)} cash flow forecast`,
+        body:
+          `Hi all,\n\n` +
+          `Forecast cycle ${cycle.id} for ${weekLabel(cycle.weekKey)} is now open` +
+          `${forEntities.length > 0 ? ` for ${covered.map((e) => e.name).join(', ')}` : ''}.\n` +
+          `It closes ${cycle.closes}.\n\n` +
+          (notify.submitters ? 'Submitters: please enter and submit your forecast in Liquid.\n' : '') +
+          (notify.approvers ? 'Approvers: please approve the forecasts as they arrive.\n' : '') +
+          `\n${window.location.origin + window.location.pathname}\n\nBest regards,\nTreasury`,
+      });
+    }
+    await dialog.notify({
+      tone: 'success',
+      title: 'Cycle opened',
+      message:
+        `${cycle.id} is open for ${count} ${count === 1 ? 'entity' : 'entities'} · ${weekLabel(cycle.weekKey)}.` +
+        (sent > 0 ? ` A draft to ${sent} recipient${sent === 1 ? '' : 's'} is ready to send.` : ''),
     });
   };
 
@@ -248,16 +261,29 @@ export function Cycles() {
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">Notify</label>
               <div className="row-flex">
-                <button className="btn btn-ghost" onClick={() => notifyGroup('submitter')}>
-                  Notify Submitters
-                </button>
-                <button className="btn btn-ghost" onClick={() => notifyGroup('approver')}>
-                  Notify Approvers
-                </button>
+                <label className="series-check">
+                  <input
+                    type="checkbox"
+                    checked={notify.submitters}
+                    onChange={() => setNotify((n) => ({ ...n, submitters: !n.submitters }))}
+                  />
+                  Submitters
+                </label>
+                <label className="series-check">
+                  <input
+                    type="checkbox"
+                    checked={notify.approvers}
+                    onChange={() => setNotify((n) => ({ ...n, approvers: !n.approvers }))}
+                  />
+                  Approvers
+                </label>
               </div>
               <p className="form-hint">
-                Opens a mail draft to the {covered.length}{' '}
-                {covered.length === 1 ? 'entity' : 'entities'} above.
+                {recipients.length === 0
+                  ? 'Nobody will be notified.'
+                  : `Opening the cycle drafts one mail to ${recipients.length} ${
+                      recipients.length === 1 ? 'person' : 'people'
+                    } across ${covered.length} ${covered.length === 1 ? 'entity' : 'entities'}.`}
               </p>
             </div>
           </>
