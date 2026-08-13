@@ -2489,9 +2489,9 @@ td.num {
   gap: 12px;
   margin-bottom: 12px;
 }
-.line-owner-col {
-  font-size: 11px;
-  white-space: nowrap;
+/* The owner picker sits in a table cell, so it must not stretch the row. */
+.line-owner-head + .panel-body .multi-select {
+  min-width: 220px;
 }
 
 @media (max-width: 1100px) {
