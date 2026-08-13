@@ -790,7 +790,9 @@ export async function exportTemplateXlsx(
     dayLabels,
     values: {},
     startingBalance: 0,
-    filename: `${template.name.replace(/[^\w-]+/g, '-')}.xlsx`,
+    // Trailing separators trimmed: "CF Forecast (Standard)" was landing on
+    // disk as "CF-Forecast-Standard-.xlsx".
+    filename: `${template.name.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')}.xlsx`,
   });
 }
 

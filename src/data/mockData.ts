@@ -259,40 +259,99 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** Demo value for one cell (payday on the 15th/28th, tax day on the 22nd). */
-function genValue(config: LineItemConfig, date: Date, rand: () => number): number {
+/** Deterministic 0..1 drawn from any string — stable across reloads. */
+function rand01(key: string): number {
+  return mulberry32(seedFor(key))();
+}
+
+const dateKey = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+
+/**
+ * The expectation for one cell: what this entity thinks that line item does on
+ * that CALENDAR DATE, independent of which cycle is looking at it.
+ *
+ * Keyed by the date rather than by the cycle because a rolling forecast is a
+ * view of the same future from a week closer to it. Drawing every cell afresh
+ * per week made consecutive forecasts unrelated, so a 15% threshold flagged
+ * three quarters of the grid and none of it meant anything.
+ */
+function baseValue(config: LineItemConfig, date: Date, entity: string): number {
   if (config.payday && date.getDate() !== 28 && date.getDate() !== 15) return 0;
   if (config.taxday && date.getDate() !== 22) return 0;
   const range = config.baseMax - config.baseMin;
-  return Math.round(config.baseMin + rand() * range);
+  return config.baseMin + rand01(`${entity}:${config.label}:${dateKey(date)}`) * range;
+}
+
+/** How much a cycle's view of a date wanders from the base, either way. */
+const DRIFT = 0.06;
+/** Deliberate revisions per forecast — the cells actually worth asking about. */
+const REVISIONS = 3;
+
+/** The cells this cycle revised, as `${catIdx}-${dayIdx}` keys. */
+function revisedCells(
+  categories: TemplateCategory[],
+  entity: string,
+  weekKey: string,
+  days: number,
+): Map<string, number> {
+  const rand = mulberry32(seedFor(`${entity}:${weekKey}:revisions`));
+  // Only line items the demo actually fills, so a revision always lands on a
+  // number somebody can see.
+  const fillable = categories
+    .map((c, i) => (lineItemConfigs.some((cfg) => cfg.label === c.label) ? i : -1))
+    .filter((i) => i >= 0);
+  const out = new Map<string, number>();
+  if (fillable.length === 0 || days === 0) return out;
+  for (let n = 0; n < REVISIONS; n++) {
+    const catIdx = fillable[Math.floor(rand() * fillable.length)];
+    const dayIdx = Math.floor(rand() * days);
+    // Half again to two and a half times: unmistakably past any sane
+    // threshold, which is what makes it worth a question.
+    out.set(`${catIdx}-${dayIdx}`, 1.5 + rand());
+  }
+  return out;
 }
 
 /**
  * Generate demo cell values for a template + forecast week. Categories whose
  * label has a generation config get seeded values; unknown labels stay 0
- * (blank). Returns a map keyed `${catIdx}-${dayIdx}` plus flagged keys.
+ * (blank). Returns a map keyed `${catIdx}-${dayIdx}`.
+ *
+ * Values only, and values that behave like a rolling forecast: the same date
+ * carries the same expectation from one cycle to the next, give or take a few
+ * percent, apart from a handful of genuine revisions. Flags are then derived
+ * from the numbers by the rule the live grid uses (see `buildSubmission`) —
+ * they used to be sprinkled in here at random, four percent of cells whatever
+ * the numbers did, so the guided flow spotlit a −7.9% move against a 15%
+ * threshold and called it a variance.
  */
 export function generateGridValues(
   categories: TemplateCategory[],
   weekKey: string,
-  seed: number,
-  flagSome: boolean,
-): { values: Record<string, number>; flags: string[] } {
-  const rand = mulberry32(seed);
+  entity: string,
+): { values: Record<string, number> } {
   const dates = horizonDates(weekKey);
+  const revised = revisedCells(categories, entity, weekKey, dates.length);
   const values: Record<string, number> = {};
-  const flags: string[] = [];
 
   categories.forEach((cat, catIdx) => {
     const config = lineItemConfigs.find((c) => c.label === cat.label);
     dates.forEach((date, i) => {
-      const val = config ? genValue(config, date, rand) : 0;
-      values[`${catIdx}-${i}`] = val;
-      if (flagSome && config && rand() < 0.04) flags.push(`${catIdx}-${i}`);
+      if (!config) {
+        values[`${catIdx}-${i}`] = 0;
+        return;
+      }
+      const base = baseValue(config, date, entity);
+      // This cycle's read on that date: a few percent either side of the
+      // expectation, and occasionally a real revision.
+      const drift =
+        1 + (rand01(`${entity}:${weekKey}:${cat.label}:${dateKey(date)}`) - 0.5) * 2 * DRIFT;
+      const revision = revised.get(`${catIdx}-${i}`) ?? 1;
+      values[`${catIdx}-${i}`] = Math.round(base * drift * revision);
     });
   });
 
-  return { values, flags };
+  return { values };
 }
 
 /** Deterministic demo opening balance for an entity, EUR thousands. */

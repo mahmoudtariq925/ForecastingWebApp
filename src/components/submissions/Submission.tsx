@@ -50,6 +50,7 @@ import {
   requesterLabel,
   requesterSummary,
   saveDraftCheckpoint,
+  statusLabel,
   unseenRequestKeys,
   settingsForEntity,
   templatesForEntity,
@@ -997,6 +998,25 @@ function SubmissionEditor({
     () => new Set(openRequests.map((r) => r.key)),
     [openRequests],
   );
+  /**
+   * Questions that have come back with a reply. An answered question is
+   * history to the submitter — but not to whoever asked it: the reply is the
+   * thing they were waiting for, and dropping it off this screen left the
+   * asker with a forecast that showed no sign a conversation ever happened.
+   * The preview dialog has always listed them; the full page now does too.
+   */
+  const answeredRequests = useMemo(
+    () =>
+      Object.entries(commentRequests)
+        .filter(([, r]) => r.answeredAt)
+        .sort((a, b) => (a[1].answeredAt ?? '').localeCompare(b[1].answeredAt ?? ''))
+        .map(([key, r]) => ({ key, ...r })),
+    [commentRequests],
+  );
+  const answeredCells = useMemo(
+    () => new Set(answeredRequests.map((r) => r.key)),
+    [answeredRequests],
+  );
 
   /**
    * Editable cells with no number in them yet. Subtotals are computed, so
@@ -1424,7 +1444,7 @@ function SubmissionEditor({
         title="Forecast Entry"
         actions={
           <>
-            <StatusPill status={status === 'draft' ? 'submitted' : status} label={status} />
+            <StatusPill status={status === 'draft' ? 'submitted' : status} label={statusLabel(status)} />
             {readOnly && <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />}
             {handedOver && (
               <ViewOnlyBadge
@@ -1515,33 +1535,81 @@ function SubmissionEditor({
             </div>
           </div>
         )}
+        {/* Returned for update. The checklist says so; this screen used to say
+            only "REJECTED" in the status pill and leave the submitter to work
+            out that the numbers were theirs to change again. */}
+        {isSubmitterView && status === 'rejected' && (
+          <div className="variance-panel reopened-panel">
+            <h4>↩ Returned for update — your approver sent this one back</h4>
+            <div className="row">
+              <span>
+                The figures are yours to change again. Update the numbers, explain what moved,
+                and submit the forecast for approval when it is ready.
+              </span>
+            </div>
+          </div>
+        )}
         {/* Reviewers get a line, not a banner. The panel below is addressed to
             whoever has to ANSWER: telling treasury to "open one to answer it"
             put them in the submitter's shoes on someone else's forecast. */}
-        {openRequests.length > 0 && !isSubmitterView && (
-          <div className="review-question-strip">
+        {(openRequests.length > 0 || answeredRequests.length > 0) && !isSubmitterView && (
+          <div
+            className={`review-question-strip${openRequests.length === 0 ? ' strip-settled' : ''}`}
+          >
             <span className="strip-mark" aria-hidden="true">
-              ✎
+              {openRequests.length > 0 ? '✎' : '✓'}
             </span>
-            <strong>
-              {openRequests.length} question{openRequests.length === 1 ? '' : 's'} outstanding
-            </strong>
-            <span className="text-dim">
-              awaiting {listEntities().find((e) => e.name === entity)?.submitter ?? 'the submitter'}
-              ’s reply · asked by {requesterSummary(openRequests.map((r) => r.fromRole))}
-            </span>
-            <span className="strip-cells">
-              {openRequests.map((r) => (
-                <button
-                  key={r.key}
-                  className="strip-cell"
-                  title={`${r.from} (${requesterLabel(r.fromRole)}): ${r.message}`}
-                  onClick={() => openQuestionCell(r.key)}
-                >
-                  {cellLabelFor(r.key)}
-                </button>
-              ))}
-            </span>
+            {openRequests.length > 0 ? (
+              <>
+                <strong>
+                  {openRequests.length} question{openRequests.length === 1 ? '' : 's'} outstanding
+                </strong>
+                <span className="text-dim">
+                  awaiting{' '}
+                  {listEntities().find((e) => e.name === entity)?.submitter ?? 'the submitter'}
+                  ’s reply · asked by {requesterSummary(openRequests.map((r) => r.fromRole))}
+                </span>
+                <span className="strip-cells">
+                  {openRequests.map((r) => (
+                    <button
+                      key={r.key}
+                      className="strip-cell"
+                      title={`${r.from} (${requesterLabel(r.fromRole)}): ${r.message}`}
+                      onClick={() => openQuestionCell(r.key)}
+                    >
+                      {cellLabelFor(r.key)}
+                    </button>
+                  ))}
+                </span>
+              </>
+            ) : (
+              <strong>
+                {answeredRequests.length} question{answeredRequests.length === 1 ? '' : 's'} answered
+              </strong>
+            )}
+            {/* The replies. Opening one shows the question and the answer over
+                the number they are about. */}
+            {answeredRequests.length > 0 && (
+              <span className="strip-answered">
+                <span className="text-dim">
+                  {openRequests.length > 0 ? `${answeredRequests.length} answered` : 'open one to read the reply'}
+                </span>
+                <span className="strip-cells">
+                  {answeredRequests.map((r) => (
+                    <button
+                      key={r.key}
+                      className="strip-cell answered"
+                      title={`${r.from} (${requesterLabel(r.fromRole)}) asked: ${r.message}${
+                        comments[r.key]?.trim() ? ` — answered: ${comments[r.key]}` : ''
+                      }`}
+                      onClick={() => openQuestionCell(r.key)}
+                    >
+                      {cellLabelFor(r.key)}
+                    </button>
+                  ))}
+                </span>
+              </span>
+            )}
           </div>
         )}
         {openRequests.length > 0 && isSubmitterView && (
@@ -1705,7 +1773,13 @@ function SubmissionEditor({
                   </button>
                 </>
               )}
-              {canApprove && status !== 'approved' && (
+              {/* A decision belongs on a forecast that has been handed over.
+                  Offering it on a draft let an approver sign off numbers the
+                  submitter had never sent — and on a forecast reopened by a
+                  question, it approved the forecast with the question still
+                  unanswered. The checklist has always gated on `submitted`;
+                  this screen now agrees with it. */}
+              {canApprove && status === 'submitted' && (
                 <>
                   <span className="toolbar-divider" aria-hidden="true" />
                   <button
@@ -1914,6 +1988,10 @@ function SubmissionEditor({
                 values={values}
                 flags={flags}
                 requested={requestedCells}
+                // Only the asker needs the answered cells marked: to the
+                // submitter that conversation is closed, and outlining cells
+                // they have already dealt with reads as more work waiting.
+                answered={isSubmitterView ? undefined : answeredCells}
                 highlight={commentFlow ? new Set([commentFlow.key]) : needInput}
                 highlightTone={commentFlow ? 'comment' : 'input'}
                 collapsedGroups={collapsedGroups}

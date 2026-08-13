@@ -271,22 +271,25 @@ export function analystTodo(
   } else if (isSubmitter) {
     // Treasury's questions land here, not on step 1: they are answered with
     // commentary, which stays open to the submitter after the handover.
+    // A QUESTION outranks the order of the steps: somebody is waiting on an
+    // answer whether or not the forecast has been sent yet, so this step is
+    // blocked by it rather than "opening once your forecasts are in".
     review = {
       key: 'review',
       label: 'Complete any review',
       state:
-        submit.state === 'active'
-          ? 'waiting'
-          : openQuestions > 0
-            ? 'blocked'
+        openQuestions > 0
+          ? 'blocked'
+          : submit.state === 'active'
+            ? 'waiting'
             : needCommentary > 0
               ? 'active'
               : 'done',
       detail:
-        submit.state === 'active'
-          ? 'Opens once your forecasts are in'
-          : openQuestions > 0
-            ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from ${askedBy}`
+        openQuestions > 0
+          ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from ${askedBy}`
+          : submit.state === 'active'
+            ? 'Opens once your forecasts are in'
             : needCommentary === 0
               ? 'Nothing waiting on you'
               : `${needCommentary} variance${needCommentary === 1 ? '' : 's'} to explain`,

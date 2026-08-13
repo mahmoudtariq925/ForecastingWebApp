@@ -297,6 +297,17 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
    */
   const questions = useMemo(() => openQuestionsFor(todo.entities), [todo]);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  /**
+   * Which step the questions belong under.
+   *
+   * While a forecast is REOPENED they block step 1 — it cannot be sent again
+   * until they are answered. Once it has gone (or has yet to go) they are
+   * review work, and listing them under a finished "Submit forecast" left
+   * them attached to a step nobody was on any more.
+   */
+  const questionsStep: TodoStep['key'] = todo.entities.some((e) => e.reopenedByQuestion)
+    ? 'submit'
+    : 'review';
 
   // The approver's decision list: every country they cover, with Review /
   // Approve in place — this replaces the separate Approvals screen.
@@ -527,7 +538,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                 {/* The questions themselves, under the step that is blocked on
                     them: what came back, who asked it, and one click to the
                     cell it is about. */}
-                {step.key === 'submit' && canEditForecasts && questions.length > 0 && (
+                {step.key === questionsStep && canEditForecasts && questions.length > 0 && (
                   <div className="todo-countries" data-tour="todo-questions">
                     <button
                       className="todo-countries-head"
