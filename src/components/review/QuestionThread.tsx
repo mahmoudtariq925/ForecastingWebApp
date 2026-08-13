@@ -116,7 +116,7 @@ export function ThreadComposer({ role, hint, onSend }: ThreadComposerProps) {
         aria-label={role === 'submitter' ? 'Your answer' : 'Your follow-up question'}
       />
       <div className="thread-composer-actions">
-        <span className="text-muted" style={{ fontSize: 11 }}>
+        <span className="text-muted" style={{ fontSize: 12 }}>
           {hint ?? 'Enter sends · Shift+Enter for a new line'}
         </span>
         <button className="btn btn-primary" disabled={!draft.trim()} onClick={send}>

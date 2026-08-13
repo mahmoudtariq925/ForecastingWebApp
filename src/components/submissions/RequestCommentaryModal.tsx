@@ -138,7 +138,7 @@ export function RequestCommentaryModal({
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Request message"
         />
-        <span className="text-muted" style={{ fontSize: 11 }}>
+        <span className="text-muted" style={{ fontSize: 12 }}>
           {submitter
             ? `Sending marks the cell for ${submitter.name} and opens an Outlook draft to them. The forecast stays where it is — what changes is that they owe a reply.`
             : `${target.entity} has nobody assigned to submit its forecast — assign a submitter under Legal Entity Setup before asking, or the question reaches no one.`}

@@ -156,7 +156,7 @@ export function Cycles() {
                 {rows.filter((r) => r.cycle.status === 'consolidated').length} closed
               </span>
             </div>
-            <span className="text-muted" style={{ fontSize: 11 }}>
+            <span className="text-muted" style={{ fontSize: 12 }}>
               Upcoming weeks are already scheduled — open the one you want, for whichever entities
               it covers.
             </span>
@@ -202,7 +202,7 @@ export function Cycles() {
                       <td>
                         <button
                           className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          style={{ padding: '4px 10px', fontSize: 12 }}
                           onClick={() =>
                             isOpen ? setClosing(cycle) : startOpening(cycle)
                           }

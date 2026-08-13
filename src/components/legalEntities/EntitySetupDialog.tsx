@@ -130,7 +130,7 @@ export function EntitySetupDialog({
       footer={
         <>
           {canManage && (
-            <span className="text-muted" style={{ fontSize: 11, marginRight: 'auto' }}>
+            <span className="text-muted" style={{ fontSize: 12, marginRight: 'auto' }}>
               Changes are saved automatically as you edit.
             </span>
           )}
@@ -202,7 +202,7 @@ export function EntitySetupDialog({
                 <option value="active">active</option>
                 <option value="inactive">inactive</option>
               </select>
-              <span className="text-muted" style={{ fontSize: 11 }}>
+              <span className="text-muted" style={{ fontSize: 12 }}>
                 Inactive entities stay configured but drop out of forecast selection.
               </span>
             </div>
@@ -261,7 +261,7 @@ export function EntitySetupDialog({
                 <div className="setup-block-head">
                   <div>
                     <strong>{title}</strong>
-                    <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
                       {blurb} Only users with the global <strong>{key}</strong> role can be
                       assigned.
                     </div>
@@ -269,7 +269,7 @@ export function EntitySetupDialog({
                   {canManage && (
                     <button
                       className="btn btn-ghost"
-                      style={{ padding: '4px 10px', fontSize: 11 }}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
                       aria-expanded={open}
                       onClick={() => setPicking(open ? null : key)}
                     >
@@ -389,7 +389,7 @@ export function EntitySetupDialog({
               <div className="setup-block-head">
                 <div>
                   <strong>Line item owners</strong>
-                  <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
                     {ownedLines === 0
                       ? `All ${templateLines.length} line items are owned by this entity's submitters. Split them up if different people forecast different lines.`
                       : `${ownedLines} of ${templateLines.length} line items have an owner of their own; the rest stay with this entity's submitters.`}
@@ -397,7 +397,7 @@ export function EntitySetupDialog({
                 </div>
                 <button
                   className="btn btn-ghost"
-                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  style={{ padding: '4px 10px', fontSize: 12 }}
                   onClick={() => setOwningLines(true)}
                 >
                   {canManage ? 'Assign Line Items' : 'View Line Items'}

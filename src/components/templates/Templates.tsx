@@ -254,7 +254,6 @@ export function Templates() {
                 <thead>
                   <tr>
                     <th>Template</th>
-                    <th>Layout</th>
                     <th>Source File</th>
                     <th>Line Items</th>
                     <th>Used By (from Legal Entity Setup)</th>
@@ -272,9 +271,6 @@ export function Templates() {
                             built-in
                           </span>
                         )}
-                      </td>
-                      <td>
-                        <span className="role-tag submitter">{LAYOUT_LABELS[t.layout]}</span>
                       </td>
                       <td className="text-dim">
                         {t.fileName ?? (
@@ -294,7 +290,7 @@ export function Templates() {
                             <>
                               <button
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                style={{ padding: '4px 10px', fontSize: 12 }}
                                 onClick={() => setEditorTarget({ template: t })}
                                 title="Open the spreadsheet editor"
                               >
@@ -302,14 +298,14 @@ export function Templates() {
                               </button>
                               <button
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                style={{ padding: '4px 10px', fontSize: 12 }}
                                 onClick={() => openEdit(t)}
                               >
                                 Rename
                               </button>
                               <button
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                style={{ padding: '4px 10px', fontSize: 12 }}
                                 onClick={() => {
                                   replaceTarget.current = t.id;
                                   replaceInput.current?.click();
@@ -321,7 +317,7 @@ export function Templates() {
                           )}
                           <button
                             className="btn btn-ghost"
-                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
                             onClick={() => download(t)}
                           >
                             Download
@@ -329,7 +325,7 @@ export function Templates() {
                           {canManage && (
                             <button
                               className="btn btn-danger"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              style={{ padding: '4px 10px', fontSize: 12 }}
                               onClick={() => remove(t)}
                             >
                               Remove
@@ -420,13 +416,13 @@ export function Templates() {
             onChange={(e) => setEditName(e.target.value)}
           />
           {editing && (
-            <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
               Source layout: {LAYOUT_LABELS[editing.layout]} (detected from the workbook — the
               on-screen orientation is switched on the Submission screen).
             </div>
           )}
         </div>
-        <div className="text-muted" style={{ fontSize: 11 }}>
+        <div className="text-muted" style={{ fontSize: 12 }}>
           Which entities use this template is configured per entity in{' '}
           <strong>Legal Entity Setup</strong>, so it is set in exactly one place.
         </div>

@@ -2295,7 +2295,7 @@ function SubmissionEditor({
                     value={valueDraft}
                     onChange={(e) => setValueDraft(e.target.value)}
                   />
-                  <span className="text-muted" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                  <span className="text-muted" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
                     Inflows positive, outflows negative. Saving keeps this and the commentary
                     together, and one undo reverses both.
                     {handedOver
@@ -2324,7 +2324,7 @@ function SubmissionEditor({
                   onChange={(e) => setCommentDraft(e.target.value)}
                 />
                 {handedOver && (
-                  <span className="text-muted" style={{ fontSize: 11 }}>
+                  <span className="text-muted" style={{ fontSize: 12 }}>
                     This forecast is with your approver; replying to a question does not take it
                     off their desk.
                   </span>
