@@ -15,7 +15,11 @@ import {
   type QuestionItem,
   type QuestionState,
 } from '../../data/questionService';
-import { postThreadMessage, setFlagResolved } from '../../data/submissionService';
+import {
+  postThreadMessage,
+  requesterLabel,
+  setFlagResolved,
+} from '../../data/submissionService';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadTemplates } from '../../storage/localStorage';
 import type { ThreadRole } from '../../types';
@@ -119,8 +123,13 @@ function QuestionCard({
       </div>
       <QuestionThread messages={item.thread} viewerRole={viewerRole} compact />
       <footer className="question-card-foot">
-        <span className="question-card-owner" title="Who answers for this line item">
-          {item.owner}
+        {/* WHO ASKED, and in what capacity. The card used to name the person
+            who owes the answer, which read as the author of the question
+            sitting above it — and an approver's question and treasury's are
+            two different things to a reader deciding what to do next. */}
+        <span className="question-card-asker" title={`Asked by ${item.from}`}>
+          {item.from}
+          <span className={`role-tag ${item.role}`}>{requesterLabel(item.role)}</span>
         </span>
         <span className="text-muted">
           {replies > 0 ? `${replies} repl${replies === 1 ? 'y' : 'ies'} · ` : ''}
@@ -204,17 +213,62 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
     });
   }, [items, search, askedBy, regionFilter, periodFilter]);
 
+  /**
+   * Each column's cards, and — for a reader who covers the whole group —
+   * those cards grouped by region.
+   *
+   * Treasury opens this board on eleven countries at once, which is a column
+   * of forty cards to scroll before knowing whether DACH is clear. Regions
+   * turn that into a handful of closed bands with counts on them. An approver
+   * or submitter has a country or two, so their cards stay where they are.
+   */
   const columns = useMemo(
     () =>
-      COLUMNS.map((c) => ({
-        ...c,
-        items: sortForColumn(
+      COLUMNS.map((c) => {
+        const cards = sortForColumn(
           filtered.filter((i) => i.state === c.state),
           c.state,
-        ),
-      })),
+        );
+        const byRegion = new Map<string, QuestionItem[]>();
+        for (const item of cards) {
+          const list = byRegion.get(item.region);
+          if (list) list.push(item);
+          else byRegion.set(item.region, [item]);
+        }
+        return {
+          ...c,
+          items: cards,
+          regions: [...byRegion.entries()]
+            .map(([name, list]) => ({ name, items: list }))
+            // Busiest region first: it is the one with work in it.
+            .sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name)),
+        };
+      }),
     [filtered],
   );
+
+  /** A reader who covers the whole group gets the region bands. */
+  const byRegion = scopeEntities === undefined;
+  /** Columns fold away; they open with the board. */
+  const [closedCols, setClosedCols] = useState<Set<QuestionState>>(new Set());
+  /** Region bands are the opposite: closed until asked for. */
+  const [openRegions, setOpenRegions] = useState<Set<string>>(new Set());
+  const toggleCol = (state: QuestionState) =>
+    setClosedCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(state)) next.delete(state);
+      else next.add(state);
+      return next;
+    });
+  const toggleRegion = (key: string) =>
+    setOpenRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  /** A search is a request to SEE the matches, not to go hunting for them. */
+  const searching = search.trim() !== '';
 
   const openItem = openId ? (items.find((i) => i.id === openId) ?? null) : null;
 
@@ -362,29 +416,75 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
           </div>
         ) : (
           <div className="question-board">
-            {columns.map((col) => (
-              <section className={`question-col col-${col.state}`} key={col.state}>
-                <header className="question-col-head">
-                  <strong>{col.title}</strong>
-                  <span className="badge-num">{col.items.length}</span>
-                  <span className="question-col-blurb text-muted">{col.blurb}</span>
-                </header>
-                <div className="question-col-body">
-                  {col.items.length === 0 ? (
-                    <p className="question-col-empty text-muted">Nothing here.</p>
-                  ) : (
-                    col.items.map((item) => (
-                      <QuestionCard
-                        key={item.id}
-                        item={item}
-                        viewerRole={viewerRole}
-                        onOpen={() => setOpenId(item.id)}
-                      />
-                    ))
+            {columns.map((col) => {
+              const open = !closedCols.has(col.state);
+              const card = (item: QuestionItem) => (
+                <QuestionCard
+                  key={item.id}
+                  item={item}
+                  viewerRole={viewerRole}
+                  onOpen={() => setOpenId(item.id)}
+                />
+              );
+              return (
+                <section
+                  className={`question-col col-${col.state}${open ? '' : ' col-closed'}`}
+                  key={col.state}
+                >
+                  <button
+                    className="question-col-head"
+                    aria-expanded={open}
+                    onClick={() => toggleCol(col.state)}
+                  >
+                    <span className="section-caret" aria-hidden="true">
+                      {open ? '▾' : '▸'}
+                    </span>
+                    <strong>{col.title}</strong>
+                    <span className="badge-num">{col.items.length}</span>
+                    <span className="question-col-blurb text-muted">{col.blurb}</span>
+                  </button>
+                  {open && (
+                    <div className="question-col-body">
+                      {col.items.length === 0 ? (
+                        <p className="question-col-empty text-muted">Nothing here.</p>
+                      ) : byRegion ? (
+                        col.regions.map((region) => {
+                          const key = `${col.state}:${region.name}`;
+                          const regionOpen = searching || openRegions.has(key);
+                          return (
+                            <div className="question-region" key={key}>
+                              <button
+                                className="question-region-head"
+                                aria-expanded={regionOpen}
+                                onClick={() => toggleRegion(key)}
+                              >
+                                <span className="section-caret" aria-hidden="true">
+                                  {regionOpen ? '▾' : '▸'}
+                                </span>
+                                <strong>{region.name}</strong>
+                                <span className="badge-num">{region.items.length}</span>
+                                {!regionOpen && (
+                                  <span className="question-region-who text-muted">
+                                    {[...new Set(region.items.map((i) => i.entity))].join(', ')}
+                                  </span>
+                                )}
+                              </button>
+                              {regionOpen && (
+                                <div className="question-region-body">
+                                  {region.items.map(card)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        col.items.map(card)
+                      )}
+                    </div>
                   )}
-                </div>
-              </section>
-            ))}
+                </section>
+              );
+            })}
           </div>
         )}
       </div>
@@ -435,7 +535,8 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
             </h4>
             <div className="row">
               <span>
-                {openItem.templateName} · answered by {openItem.owner}
+                {openItem.templateName} · asked by {openItem.from} (
+                {requesterLabel(openItem.role)})
               </span>
               <span>
                 {openItem.pct === null

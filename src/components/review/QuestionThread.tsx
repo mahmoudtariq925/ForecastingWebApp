@@ -16,6 +16,27 @@ interface QuestionThreadProps {
 }
 
 /**
+ * The last exchange in a thread: the most recent QUESTION and the answer that
+ * came back to it, if one has.
+ *
+ * A card showing simply "the last two messages" could show two answers in a
+ * row and no question at all, which is the one thing that makes an answer
+ * readable. This always leads with what was asked.
+ */
+function lastExchange(messages: ThreadMessage[]): ThreadMessage[] {
+  let askIdx = -1;
+  messages.forEach((m, i) => {
+    if (m.role !== 'submitter') askIdx = i;
+  });
+  if (askIdx < 0) return messages.slice(-1);
+  const ask = messages[askIdx];
+  // The latest answer to THAT question — earlier answers belong to earlier
+  // questions and are read by opening the thread.
+  const answer = [...messages.slice(askIdx + 1)].reverse().find((m) => m.role === 'submitter');
+  return answer ? [ask, answer] : [ask];
+}
+
+/**
  * A question and everything said after it, as a conversation.
  *
  * A question about a forecast cell is rarely settled in one exchange — the
@@ -25,13 +46,13 @@ interface QuestionThreadProps {
  * gone.
  */
 export function QuestionThread({ messages, viewerRole, compact = false }: QuestionThreadProps) {
-  const shown = compact ? messages.slice(-2) : messages;
+  const shown = compact ? lastExchange(messages) : messages;
+  const hidden = messages.length - shown.length;
   return (
     <div className={`thread${compact ? ' thread-compact' : ''}`}>
-      {compact && messages.length > shown.length && (
+      {compact && hidden > 0 && (
         <div className="thread-more">
-          + {messages.length - shown.length} earlier message
-          {messages.length - shown.length === 1 ? '' : 's'}
+          + {hidden} earlier message{hidden === 1 ? '' : 's'} — open to read the whole thread
         </div>
       )}
       {shown.map((m, i) => (
