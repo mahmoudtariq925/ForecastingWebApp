@@ -120,7 +120,6 @@ export default function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
     // Runs once: the listener reads the view out of the history entry itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const switchUser = (email: string) => {

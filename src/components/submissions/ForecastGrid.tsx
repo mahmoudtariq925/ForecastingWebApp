@@ -15,8 +15,10 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
+  groupIsEmpty,
   groupTotal,
   groupValue,
+  hasAnyValue,
   isPartialNumber,
   parseCellNumber,
   runningBalance,
@@ -600,12 +602,15 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
       <thead>
         <tr className="label-row">
           <th className="row-label-h">Cash Flow Category</th>
+          {/* The date IS the column's name. A "D1…Dn" index above it added a
+              line of text to every header for something no one refers to — a
+              forecast is discussed as "Friday the 14th", never as "D5". */}
           {dayLabels.map((dl, i) => (
             <th key={i} className="day-h">
-              D{i + 1}
-              <span className="dow">
-                {dl.dow} {dl.dm}
-              </span>
+              {dl.dm}
+              {/* On a monthly template the weekday line reads "July" under
+                  "Jul 26" — the same word twice, in two sizes. */}
+              {!dl.dm.startsWith(dl.dow.slice(0, 3)) && <span className="dow">{dl.dow}</span>}
             </th>
           ))}
           <th className="day-h" style={{ background: 'var(--n-200)' }}>
@@ -704,6 +709,14 @@ function GroupRows({
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
   const collapsed = collapsible && (collapsedGroups?.has(groupIndex) ?? false);
   const questions = questionsInGroup(group.idxs, requested);
+  // A section with nothing in it says so on its own row. Collapsed, a row of
+  // "—" across every column is indistinguishable from a section of zeros
+  // somebody actually forecast, and it is worth knowing which you are looking
+  // at before opening it. On a forecast where NOTHING is filled in yet the
+  // mark goes on every section and so tells you nothing — it is held back
+  // until there is something for an empty section to be empty next to.
+  const empty =
+    hasAnyValue(values) && groupIsEmpty(categories, values, group.idxs, numDays);
   // Alternating tint so one section is visibly a different block from the
   // next, rather than twelve identical rows running together.
   const band = groupIndex % 2 === 0 ? ' band-a' : ' band-b';
@@ -714,7 +727,7 @@ function GroupRows({
         <tr
           className={`section-row${band}${collapsed ? ' section-collapsed' : ''}${
             questions > 0 ? ' section-questioned' : ''
-          }`}
+          }${empty ? ' section-empty' : ''}`}
         >
           {/* The whole label cell toggles the section — the caret button is
               signage, not the only target. */}
@@ -750,11 +763,13 @@ function GroupRows({
                   {collapsed ? '▸' : '▾'}
                 </span>
                 {group.label}
+                {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
               </button>
             ) : (
               <>
                 {group.label}
+                {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
               </>
             )}
@@ -926,11 +941,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                       {isCollapsed(gi) ? '▸' : '▾'}
                     </span>
                     {g.label}
+                    {hasAnyValue(values) && groupIsEmpty(categories, values, g.idxs, numDays) && (
+                      <span className="section-no-activity">no activity</span>
+                    )}
                     <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
                   </span>
                 ) : (
                   <>
                     {g.label}
+                    {hasAnyValue(values) && groupIsEmpty(categories, values, g.idxs, numDays) && (
+                      <span className="section-no-activity">no activity</span>
+                    )}
                     <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
                   </>
                 )}

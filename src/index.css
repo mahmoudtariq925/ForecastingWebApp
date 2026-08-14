@@ -5284,3 +5284,74 @@ thead th,
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================
+   A FORECAST PAGE THAT OPENS ON ITS NUMBERS
+
+   The entry screen had grown four stacked bands above the grid — a
+   mode ribbon, a panel of prose about questions, and two rows of
+   controls — so the first figure sat 268px down the page. Everything
+   below trims one of those bands without removing a single action.
+   ============================================================ */
+
+/* Undo and redo as the two arrows alone. Square, so a row of them reads
+   as a control cluster rather than as two more worded buttons. */
+.btn.btn-icon {
+  min-width: 34px;
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Save Draft is one of the two actions that move a forecast on, so it
+   carries more weight than the ghosts it used to sit among. */
+.btn.btn-save-draft {
+  border-color: var(--border-strong);
+  background: var(--n-25);
+  color: var(--text);
+  font-weight: 600;
+}
+.btn.btn-save-draft:hover:not(:disabled) {
+  border-color: var(--text-dim);
+  background: var(--n-50);
+}
+
+/* The submitter's way into the questions waiting on them. Blue, because
+   unlike the chips beside it this is the thing to press. */
+.strip-answer {
+  padding: 3px 12px;
+  border: 1px solid var(--blue);
+  border-radius: 100px;
+  background: var(--blue);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.strip-answer:hover,
+.strip-answer:focus-visible {
+  filter: brightness(0.92);
+}
+/* Questions addressed to the reader sit on a tinted line — the same
+   line everyone else gets, saying that this one is theirs to clear. */
+.review-question-strip.strip-mine {
+  background: var(--blue-soft);
+  border-color: var(--blue-soft);
+  border-left-color: var(--blue);
+}
+
+/* A section with nothing forecast in it, said once on its own row
+   instead of as twelve rows of "—". */
+.section-no-activity {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 100px;
+  background: var(--n-100);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}

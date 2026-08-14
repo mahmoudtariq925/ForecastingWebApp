@@ -15,6 +15,9 @@ interface ActionMenuProps {
   items: ActionMenuItem[];
   /** Accessible name when the label is an icon. */
   ariaLabel?: string;
+  /** Tour anchor. The steps that pointed at these actions when each was its
+   *  own button now point at the menu holding them. */
+  dataTour?: string;
 }
 
 /**
@@ -24,7 +27,7 @@ interface ActionMenuProps {
  * pushes the data off the screen; one "Edit" that opens the same four is the
  * same functionality at a quarter of the width.
  */
-export function ActionMenu({ label = 'Edit', items, ariaLabel }: ActionMenuProps) {
+export function ActionMenu({ label = 'Edit', items, ariaLabel, dataTour }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -54,6 +57,7 @@ export function ActionMenu({ label = 'Edit', items, ariaLabel }: ActionMenuProps
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={ariaLabel}
+        data-tour={dataTour}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
