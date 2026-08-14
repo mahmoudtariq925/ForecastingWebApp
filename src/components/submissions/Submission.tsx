@@ -4,6 +4,8 @@ import { StatusPill } from '../common/StatusPill';
 import { Modal } from '../common/Modal';
 import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
+import { ActionMenu } from '../common/ActionMenu';
+import { QuestionStrip } from './QuestionStrip';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
@@ -13,6 +15,8 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
+  groupIsEmpty,
+  hasAnyValue,
   parseCellNumber,
   runningBalance,
   type GridValues,
@@ -49,8 +53,6 @@ import {
   openQuestionEntries,
   peekSubmission,
   priorValueFor,
-  requesterLabel,
-  requesterSummary,
   saveDraftCheckpoint,
   withThreadMessage,
   statusLabel,
@@ -574,8 +576,36 @@ function SubmissionEditor({
         .filter((gi) => gi >= 0),
     [template],
   );
+  /**
+   * Sections that hold no figures at all, and have nothing waiting on anyone.
+   *
+   * A section of empty rows still costs its full height on the screen, and on
+   * a template with a dozen of them the numbers that DO exist end up spread
+   * over two screens of nothing. These start folded to a single line so the
+   * forecast opens on its actual contents — one click reopens any of them,
+   * and a section holding a question or a flagged cell is never folded away,
+   * because that is the one thing worth scrolling to.
+   */
+  const emptySections = useMemo(() => {
+    const groups = categoryGroups(template.categories);
+    if (!hasAnyValue(initial.values)) return [];
+    const marked = new Set([...initial.flags, ...Object.keys(initial.commentRequests ?? {})]);
+    return sections.filter((gi) => {
+      const g = groups[gi];
+      if (!groupIsEmpty(template.categories, initial.values, g.idxs, numPeriods)) return false;
+      return !g.idxs.some((c) => {
+        for (let d = 0; d < numPeriods; d++) if (marked.has(cellKey(c, d))) return true;
+        return false;
+      });
+    });
+    // Computed from the forecast as it was OPENED: a section the submitter is
+    // in the middle of typing into must not fold itself back up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, sections, numPeriods]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() =>
-    readOnly || canRequestComments || handedOver ? new Set(sections) : new Set(),
+    readOnly || canRequestComments || handedOver
+      ? new Set(sections)
+      : new Set(emptySections),
   );
   const toggleGroup = (gi: number) =>
     setCollapsedGroups((prev) => {
@@ -1751,111 +1781,19 @@ function SubmissionEditor({
             </div>
           </div>
         )}
-        {/* Reviewers get a line, not a banner. The panel below is addressed to
-            whoever has to ANSWER: telling treasury to "open one to answer it"
-            put them in the submitter's shoes on someone else's forecast. */}
-        {(openRequests.length > 0 || answeredRequests.length > 0) && !isSubmitterView && (
-          <div
-            className={`review-question-strip${openRequests.length === 0 ? ' strip-settled' : ''}`}
-          >
-            <span className="strip-mark" aria-hidden="true">
-              {openRequests.length > 0 ? '?' : '✓'}
-            </span>
-            {openRequests.length > 0 ? (
-              <>
-                <strong>
-                  {openRequests.length} question{openRequests.length === 1 ? '' : 's'} outstanding
-                </strong>
-                <span className="text-dim">
-                  awaiting{' '}
-                  {listEntities().find((e) => e.name === entity)?.submitter ?? 'the submitter'}
-                  ’s reply · asked by {requesterSummary(openRequests.map((r) => r.fromRole))}
-                </span>
-                <span className="strip-cells">
-                  {openRequests.map((r) => (
-                    <button
-                      key={r.key}
-                      className="strip-cell"
-                      title={`${r.from} (${requesterLabel(r.fromRole)}): ${r.message}`}
-                      onClick={() => openQuestionCell(r.key)}
-                    >
-                      {cellLabelFor(r.key)}
-                    </button>
-                  ))}
-                </span>
-              </>
-            ) : (
-              <strong>
-                {answeredRequests.length} question{answeredRequests.length === 1 ? '' : 's'} answered
-              </strong>
-            )}
-            {/* The replies. Opening one shows the question and the answer over
-                the number they are about. */}
-            {answeredRequests.length > 0 && (
-              <span className="strip-answered">
-                <span className="text-dim">
-                  {openRequests.length > 0 ? `${answeredRequests.length} answered` : 'open one to read the reply'}
-                </span>
-                <span className="strip-cells">
-                  {answeredRequests.map((r) => (
-                    <button
-                      key={r.key}
-                      className="strip-cell answered"
-                      title={`${r.from} (${requesterLabel(r.fromRole)}) asked: ${r.message}${
-                        comments[r.key]?.trim() ? ` — answered: ${comments[r.key]}` : ''
-                      }`}
-                      onClick={() => openQuestionCell(r.key)}
-                    >
-                      {cellLabelFor(r.key)}
-                    </button>
-                  ))}
-                </span>
-              </span>
-            )}
-          </div>
-        )}
-        {openRequests.length > 0 && isSubmitterView && (
-          <div className="variance-panel comment-request-panel">
-            <h4>
-              ? {openRequests.length} question{openRequests.length === 1 ? '' : 's'} from{' '}
-              {requesterSummary(openRequests.map((r) => r.fromRole))}
-            </h4>
-            <div className="row">
-              <span>
-                Cells outlined in blue have a question waiting. Open one to reply — the forecast
-                stays where it is
-                {cycleOpen && handedOver
-                  ? '. If the figure itself is wrong, press Edit Forecast first'
-                  : cycleOpen
-                    ? ', and correcting the figure is a fair answer too'
-                    : ''}
-                .
-              </span>
-            </div>
-            {/* Every open question, each a door back to its cell. Closing the
-                dialog without answering used to leave the question unreachable:
-                the cell stayed highlighted with no way back into what was
-                asked. */}
-            <div className="comment-request-list">
-              {openRequests.map((r) => (
-                <button
-                  key={r.key}
-                  className="comment-request-item"
-                  title={`Open ${cellLabelFor(r.key)}`}
-                  onClick={() => openQuestionCell(r.key)}
-                >
-                  <strong>{cellLabelFor(r.key)}</strong>
-                  <span className="text-dim">
-                    {r.from} ({requesterLabel(r.fromRole)}): {r.message}
-                  </span>
-                  <span className="comment-request-open" aria-hidden="true">
-                    {isSubmitterView ? 'Answer →' : 'Open →'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* One line for the questions, whichever side of them you are on. The
+            submitter used to get a panel of prose here and the reviewer a
+            line; the same facts serve both, and on the submitter's screen the
+            panel cost a third of the view above the numbers it was about. */}
+        <QuestionStrip
+          open={openRequests}
+          answered={answeredRequests}
+          viewer={isSubmitterView ? 'submitter' : 'reviewer'}
+          awaiting={listEntities().find((e) => e.name === entity)?.submitter}
+          answers={comments}
+          cellLabel={cellLabelFor}
+          onOpen={openQuestionCell}
+        />
         {/* The variance banner is now the small ⚠ badge in the toolbar below —
             a whole panel of prose for a number the grid already colours in
             cost more space than it earned. */}
@@ -1900,57 +1838,59 @@ function SubmissionEditor({
                 </button>
               )}
               {/* Treasury reads and fixes forecasts but never submits one, so
-                  the entry actions are the submitter's alone. */}
+                  the entry actions are the submitter's alone.
+
+                  Undo and redo are the two arrows on the keyboard shortcut
+                  everyone already uses — a word beside each earned nothing and
+                  took the width of a real action. */}
               {editorActions && (
                 <>
                   <button
-                    className="btn btn-ghost"
+                    className="btn btn-ghost btn-icon"
                     data-tour="undo"
                     title="Undo (Ctrl+Z)"
+                    aria-label="Undo"
                     disabled={!canUndo}
                     onClick={undo}
                   >
-                    ↶ Undo
+                    ↶
                   </button>
                   <button
-                    className="btn btn-ghost"
+                    className="btn btn-ghost btn-icon"
                     data-tour="redo"
                     title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+                    aria-label="Redo"
                     disabled={!canRedo}
                     onClick={redo}
                   >
-                    ↷ Redo
+                    ↷
                   </button>
                 </>
               )}
-              <button
-                className="btn btn-ghost"
-                data-tour="export-template"
-                title="Download this template as a blank workbook to fill in offline"
-                onClick={exportBlankTemplate}
-              >
-                Export Template
-              </button>
-              <button className="btn btn-ghost" data-tour="export-excel" onClick={exportGrid}>
-                Export Excel
-              </button>
-              {/* Only treasury chases an approver — the approver IS the
-                  recipient, and a submitter's approver is emailed on submit. */}
-              {isTreasury && (
-                <button className="btn btn-ghost" data-tour="email-approver" onClick={emailApprover}>
-                  Email Approver
-                </button>
-              )}
+              {/* Everything you reach for occasionally, behind one button.
+                  Thirteen buttons of equal weight made the one that finishes
+                  the job — Submit — look like the one beside Reset. */}
+              <ActionMenu
+                label="More"
+                dataTour="more-actions"
+                ariaLabel="More forecast actions"
+                items={[
+                  {
+                    label: 'Export Template',
+                    onSelect: exportBlankTemplate,
+                  },
+                  { label: 'Export Excel', onSelect: exportGrid },
+                  // Only treasury chases an approver — the approver IS the
+                  // recipient, and a submitter's approver is emailed on submit.
+                  { label: 'Email Approver', onSelect: emailApprover, hidden: !isTreasury },
+                  { label: 'Copy Prior Forecast', onSelect: copyPrior, hidden: !editorActions },
+                  { label: 'Reset', onSelect: reset, danger: true, hidden: !editorActions },
+                ]}
+              />
               {editorActions && (
                 <>
-                  <button className="btn btn-ghost" onClick={copyPrior}>
-                    Copy Prior Forecast
-                  </button>
-                  <button className="btn btn-ghost" onClick={reset}>
-                    Reset
-                  </button>
-                  {/* Saving and submitting sit with the other actions, set
-                      apart so they read as the two that matter. */}
+                  {/* Saving and submitting sit apart from the rest: they are
+                      the two that move the forecast on. */}
                   <span className="toolbar-divider" aria-hidden="true" />
                   <button
                     className="btn btn-ghost btn-save-draft"

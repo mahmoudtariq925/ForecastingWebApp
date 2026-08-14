@@ -186,6 +186,46 @@ export function groupTotal(
 }
 
 /**
+ * Whether anything at all has been forecast yet.
+ *
+ * The difference between "this section is empty" and "nothing is filled in
+ * yet" matters: on a blank forecast every section is empty, so marking them
+ * all as having no activity says nothing, and folding them all away would
+ * hide the form the submitter came to fill in.
+ */
+export function hasAnyValue(values: GridValues): boolean {
+  for (const key in values) {
+    if (values[key] !== 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a section has no figures at all across the whole horizon.
+ *
+ * Tested cell by cell rather than on the section total: a section holding
+ * +100 and −100 nets to zero and is very much not empty, and hiding it would
+ * hide the two figures that cancelled.
+ *
+ * A stored 0 counts as empty because that is exactly how the grid draws it —
+ * as "—", the same as a cell nobody has touched.
+ */
+export function groupIsEmpty(
+  categories: TemplateCategory[],
+  values: GridValues,
+  idxs: number[],
+  numDays: number,
+): boolean {
+  for (const i of idxs) {
+    if (categories[i]?.subtotal) continue;
+    for (let d = 0; d < numDays; d++) {
+      if (catValue(values, i, d) !== 0) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Value of a computed subtotal row: the sum of the input line items above it
  * that share its group (or, for ungrouped subtotals, everything above it
  * since the previous subtotal). Subtotal rows never hold stored values, so

@@ -93,9 +93,9 @@ const SUBMITTER_STEPS: TourStep[] = [
   },
   {
     view: 'submission',
-    selector: '[data-tour="export-template"]',
+    selector: '[data-tour="more-actions"]',
     title: 'Working offline',
-    body: 'Download this template as a blank workbook, fill it in outside Liquid, and keep it for your own records.',
+    body: 'More holds the actions you reach for now and then: Export Template downloads this template as a blank workbook to fill in outside Liquid, and Copy Prior Forecast brings last cycle’s numbers in to edit.',
     side: 'bottom',
   },
   {
@@ -296,9 +296,9 @@ const VIEWER_STEPS: TourStep[] = [
   },
   {
     view: 'submission',
-    selector: '[data-tour="export-excel"]',
+    selector: '[data-tour="more-actions"]',
     title: 'Take it with you',
-    body: 'Export any view to Excel. You can’t edit or submit forecasts, but you can always download them.',
+    body: 'More holds Export Excel — any view you can read, you can download. You can’t edit or submit forecasts, but the numbers are always yours to take away.',
     side: 'bottom',
   },
   COMMENTS_STEP,

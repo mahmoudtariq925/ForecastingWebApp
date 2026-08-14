@@ -115,6 +115,13 @@ days starting on the selected week's Monday (weekends are skipped, like the
 standard workbook's `WORKDAY()` sequence). Variance flags compare each cell
 against the same calendar date in the prior week's stored submission.
 
+A forecast column is headed by **its date**, with the weekday under it — no
+`D1…Dn` index above that, since a forecast is discussed as "Friday the 14th"
+and never as "D5". On a monthly template the weekday line would repeat the
+month already in the date, so it is dropped. The **template builder** is a
+different matter and keeps its `P1…Pn`: there you are defining the periods
+themselves, and the number *is* the column's identity.
+
 ### Excel import/export
 
 - **Export** produces a real Excel *table* matching the UI layout, with live
@@ -132,7 +139,12 @@ template) combination is stored separately, so previous weeks stay editable
 without affecting current ones.
 
 The forecast screen also offers **Export Template**, which downloads the
-current template as a blank workbook to fill in offline.
+current template as a blank workbook to fill in offline. It lives under
+**More ▾** with the rest of the occasional actions — Export Excel, Copy Prior
+Forecast, Reset and (for treasury) Email Approver. What stays on the bar is
+what the screen is for: the variance badge, undo/redo as their two arrows,
+**Save Draft** and **Submit for Approval**. Thirteen buttons of equal weight
+made the one that finishes the job look like the one beside Reset.
 
 ### Entering numbers
 
@@ -172,6 +184,17 @@ Who gets what by default follows what they came to do: **Treasury, approvers
 and viewers open a forecast collapsed**, because the shape is the point and
 every line item is noise; **the submitter entering the numbers opens
 expanded**. Either can toggle any section.
+
+**A section with nothing forecast in it opens folded**, marked *no activity*
+on its own row, so a forecast opens on its actual contents rather than
+spreading the figures that exist over screens of empty rows. Two rules keep
+that from hiding anything: a section holding a **question or a flagged cell**
+is never folded, and on a forecast where **nothing is filled in yet** — the
+first time somebody sits down to it — no section folds and nothing is marked,
+because "empty" only means something next to something that isn't.
+Emptiness is tested cell by cell rather than on the section total, so a
+section holding +100 and −100 counts as full: it nets to zero and is very
+much not empty.
 
 The collapsed number is computed from the section's line items rather than
 read off a subtotal row, so it is correct whether or not the template happens
@@ -255,14 +278,19 @@ person, so it can land on any cell:
   thread** rather than replacing what was asked before.
 - **For the submitter** — cells with an open question are outlined in blue and
   are **answered by clicking the cell**, which opens the question with the
-  reply box. The banner above the grid **lists every open question and opens
-  the one you click**, so a dialog dismissed without an answer is never lost;
-  a collapsed section carrying a question says so on its band; and the
-  checklist lists the same questions in a dropdown under the step they block.
-- **For treasury and approvers on the forecast page** — one compact line
-  saying how many questions are outstanding and who is being waited on, with
-  a chip per cell. The submitter's "open one to answer it" panel is addressed
-  to whoever has to reply, which on someone else's forecast is nobody.
+  reply box. A collapsed section carrying a question says so on its band, and
+  the checklist lists the same questions in a dropdown under the step they
+  block.
+- **Above the grid, one line for both sides.** The strip says how many
+  questions there are and from whom, carries **a chip per cell** that opens
+  that question, and — for the submitter, whose questions they are — ends in
+  **Answer →**. It replaced a panel that gave the submitter a heading, a
+  paragraph about blue cells and a full-width row per question: on the one
+  screen whose job is the numbers, three questions came to a third of the
+  view before a figure was visible. Naming the cells is what the paragraph
+  never did — *"Payroll · Wed 12"* is the question, far more than its prose
+  is. Reviewers get the same line worded for them (who is being waited on,
+  who asked), because the facts serve both sides.
 
 A question is a **thread**, not a single exchange: every reply is kept in
 order, and the answer never replaces the question that produced it. The board
