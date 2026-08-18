@@ -16,6 +16,16 @@ export interface EditorRow {
   id: string;
   kind: EditorRowKind;
   label: string;
+  /**
+   * Marks the line — or, on a section row, everything inside it — as an
+   * intercompany item: a figure owed to or by another legal entity.
+   *
+   * This flag is the WHOLE of the template's involvement. There is no
+   * counterparty column and no picker here, because who the money moves
+   * between belongs to the amount, not to the structure: it is chosen per
+   * cell on the forecast and mirrored from there.
+   */
+  intercompany?: boolean;
 }
 
 let seq = 0;
@@ -28,6 +38,9 @@ export function makeRow(kind: EditorRowKind, label = ''): EditorRow {
   return { id: newRowId(), kind, label };
 }
 
+/** Subtotals are computed, so they are never an intercompany line themselves. */
+const canBeIntercompany = (kind: EditorRowKind): boolean => kind !== 'subtotal';
+
 /** Expand stored categories into editor rows, re-creating section rows. */
 export function rowsFromCategories(categories: TemplateCategory[]): EditorRow[] {
   const rows: EditorRow[] = [];
@@ -39,8 +52,20 @@ export function rowsFromCategories(categories: TemplateCategory[]): EditorRow[] 
     } else if (!cat.group) {
       currentGroup = undefined;
     }
-    rows.push(makeRow(cat.subtotal ? 'subtotal' : 'item', cat.label));
+    const row = makeRow(cat.subtotal ? 'subtotal' : 'item', cat.label);
+    if (cat.intercompany && !cat.subtotal) row.intercompany = true;
+    rows.push(row);
   }
+  // A section reads as intercompany when everything it collects is — which is
+  // how it was marked in the first place, and what puts the tick back on the
+  // section rather than only on each of its lines.
+  rows.forEach((row, i) => {
+    if (row.kind !== 'section') return;
+    const members = sectionSpan(rows, i)
+      .map((j) => rows[j])
+      .filter((r) => r.kind === 'item');
+    if (members.length > 0 && members.every((r) => r.intercompany)) row.intercompany = true;
+  });
   return rows;
 }
 
@@ -48,17 +73,22 @@ export function rowsFromCategories(categories: TemplateCategory[]): EditorRow[] 
 export function categoriesFromRows(rows: EditorRow[]): TemplateCategory[] {
   const out: TemplateCategory[] = [];
   let currentGroup: string | undefined;
+  /** Set by a section marked intercompany, and inherited by its line items. */
+  let groupIntercompany = false;
   for (const row of rows) {
     if (row.kind === 'section') {
       currentGroup = row.label.trim() || undefined;
+      groupIntercompany = row.intercompany === true;
       continue;
     }
     const label = row.label.trim();
     if (!label) continue; // blank rows are dropped on save
+    const intercompany = canBeIntercompany(row.kind) && (row.intercompany === true || groupIntercompany);
     out.push({
       label,
       ...(currentGroup ? { group: currentGroup } : {}),
       ...(row.kind === 'subtotal' ? { subtotal: true as const } : {}),
+      ...(intercompany ? { intercompany: true as const } : {}),
     });
   }
   return out;

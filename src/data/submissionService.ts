@@ -12,6 +12,8 @@ import type {
   Entity,
   ForecastQuestion,
   ForecastTemplate,
+  IntercompanyLeg,
+  IntercompanyMismatch,
   RequesterRole,
   Settings,
   Submission,
@@ -279,6 +281,86 @@ export function requesterSummary(roles: Iterable<RequesterRole | undefined>): st
 
 /** Fill in fields missing (or of the wrong type) in submissions stored by
  * older app versions, so downstream code can rely on the full shape. */
+/**
+ * Intercompany legs as stored. A leg with no counterparty or no usable amount
+ * describes no movement at all, so it is dropped rather than kept as a row
+ * that can never be mirrored — and a cell left with no legs is dropped with it.
+ */
+function normalizeLegs(raw: unknown): Record<string, IntercompanyLeg[]> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, IntercompanyLeg[]> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    const legs: IntercompanyLeg[] = [];
+    for (const item of value) {
+      if (typeof item !== 'object' || item === null) continue;
+      const leg = item as Partial<IntercompanyLeg>;
+      if (typeof leg.id !== 'string' || typeof leg.counterparty !== 'string') continue;
+      if (!leg.counterparty.trim() || typeof leg.amount !== 'number' || !Number.isFinite(leg.amount)) {
+        continue;
+      }
+      const mirror = leg.mirrorOf;
+      legs.push({
+        id: leg.id,
+        counterparty: leg.counterparty,
+        amount: leg.amount,
+        ...(mirror &&
+        typeof mirror.entity === 'string' &&
+        typeof mirror.legId === 'string' &&
+        typeof mirror.sourceCellKey === 'string' &&
+        typeof mirror.originalAmount === 'number'
+          ? {
+              mirrorOf: {
+                entity: mirror.entity,
+                legId: mirror.legId,
+                sourceCellKey: mirror.sourceCellKey,
+                originalAmount: mirror.originalAmount,
+                at: typeof mirror.at === 'string' ? mirror.at : new Date().toISOString(),
+                ...(mirror.afterSubmission === true ? { afterSubmission: true as const } : {}),
+              },
+            }
+          : {}),
+      });
+    }
+    if (legs.length > 0) out[key] = legs;
+  }
+  return out;
+}
+
+/** Stored disagreements, dropping any that no longer describe two figures. */
+function normalizeMismatches(raw: unknown): Record<string, IntercompanyMismatch> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, IntercompanyMismatch> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const m = value as Partial<IntercompanyMismatch>;
+    if (
+      typeof m.cellKey !== 'string' ||
+      typeof m.legId !== 'string' ||
+      typeof m.counterparty !== 'string' ||
+      typeof m.originalAmount !== 'number' ||
+      typeof m.changedAmount !== 'number' ||
+      typeof m.message !== 'string'
+    ) {
+      continue;
+    }
+    out[key] = {
+      cellKey: m.cellKey,
+      legId: m.legId,
+      counterparty: m.counterparty,
+      originalAmount: m.originalAmount,
+      changedAmount: m.changedAmount,
+      from: typeof m.from === 'string' ? m.from : 'Submitter',
+      fromRole: isThreadRole(m.fromRole) ? m.fromRole : 'submitter',
+      message: m.message,
+      raisedAt: typeof m.raisedAt === 'string' ? m.raisedAt : new Date().toISOString(),
+      replies: normalizeReplies(m.replies),
+      ...(typeof m.settledAt === 'string' ? { settledAt: m.settledAt } : {}),
+    };
+  }
+  return out;
+}
+
 function normalizeSubmission(sub: Submission): Submission {
   const record = (v: unknown): Record<string, never> | null =>
     typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, never>) : null;
@@ -299,6 +381,8 @@ function normalizeSubmission(sub: Submission): Submission {
       sub.questionedBy ?? (sub as { reopenedBy?: unknown }).reopenedBy,
     ),
     ...(typeof sub.revisedFrom === 'string' ? { revisedFrom: sub.revisedFrom } : {}),
+    intercompany: normalizeLegs(sub.intercompany),
+    mismatches: normalizeMismatches(sub.mismatches),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -355,6 +439,8 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
     resolvedFlags: [],
     comments: {},
     commentRequests: {},
+    intercompany: {},
+    mismatches: {},
     dayComments: {},
     // Demo forecasts open with a balance; a real one starts blank until the
     // submitter enters theirs, and the running total appears with it.

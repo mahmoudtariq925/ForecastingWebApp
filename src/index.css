@@ -1516,6 +1516,172 @@ td.num {
   box-shadow: inset 0 0 0 1px var(--accent) !important;
 }
 
+/* === INTERCOMPANY ===
+
+   An intercompany cell is not typed into: its figure is a list of
+   counterparty legs. It reads as openable rather than editable, and carries
+   its marks on the right edge so the comment button on the left keeps the
+   position it has everywhere else. */
+.forecast-grid td.cell.cell-intercompany {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.forecast-grid td.cell.cell-intercompany[role='button'] {
+  cursor: pointer;
+  font-weight: 600;
+}
+.forecast-grid td.cell.cell-intercompany[role='button']:hover {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 0 0 2px var(--accent);
+}
+.forecast-grid td.cell.cell-intercompany[role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* A figure this side has changed away from what the counterparty sent. Red,
+   because two entities are carrying different numbers for one movement —
+   but nothing about it blocks a submission. */
+.forecast-grid td.cell.cell-mismatched {
+  box-shadow: inset 0 0 0 1px var(--red);
+}
+.forecast-grid td.cell.cell-intercompany.cell-mismatched {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 0 0 1px var(--red);
+}
+
+/* The right-edge marks. A row rather than one more absolutely-positioned
+   button each, so a cell that carries both never has them overlap. */
+.cell-marks {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.cell-interco-btn,
+.cell-mismatch-btn {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+/* The way into the breakdown for whoever does not get it on the cell —
+   always visible, because it is the only way in. */
+.cell-interco-btn {
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 0.75;
+}
+.cell-interco-btn:hover,
+.cell-mismatch-btn:hover {
+  opacity: 1;
+}
+.cell-mismatch-btn {
+  color: var(--red);
+  border-color: var(--red);
+  font-weight: 700;
+}
+
+/* The breakdown dialog: one row per counterparty, amount then entity. */
+.interco-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.interco-head,
+.interco-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 32px;
+  gap: 10px;
+  align-items: start;
+}
+.interco-head {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.interco-row {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* A row the app produced, so it is visibly not one the submitter typed. */
+.interco-row.interco-mirrored {
+  border-left: 3px solid var(--accent);
+  background: var(--bg-subtle, transparent);
+}
+.interco-cellfield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.interco-rowaction {
+  align-items: flex-end;
+  justify-content: center;
+}
+.interco-origin {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.interco-locked {
+  font-weight: 600;
+}
+/* The reason box, which only appears once the two figures disagree. */
+.interco-reason {
+  grid-column: 1 / -1;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.interco-delta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.interco-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.interco-mismatch + .interco-mismatch {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* The template builder's flag. One toggle, nothing else. */
+.sheet-ic {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.sheet-ic.on {
+  border-color: var(--accent);
+  background: var(--blue-soft);
+  color: var(--accent);
+}
+
 /* A section holding an open question says so on its band, because collapsing
    it hides every blue cell inside — and with them the only sign that someone
    is waiting on an answer. */
@@ -1531,6 +1697,26 @@ td.num {
   border-radius: 100px;
   background: var(--blue-soft);
   color: var(--blue);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* The same marker for a disputed intercompany figure, for the same reason:
+   collapsing a section hides the flagged cells inside it. Styled off the
+   question badge so the two read as one family of "look in here". */
+.forecast-grid tr.section-row.section-mismatched > td.row-label,
+.forecast-grid th.day-h.section-mismatched {
+  box-shadow: inset 3px 0 0 var(--red);
+}
+.section-mismatches {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 100px;
+  background: var(--red-soft);
+  color: var(--red);
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.06em;

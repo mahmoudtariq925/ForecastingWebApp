@@ -22,6 +22,22 @@ import {
   type GridValues,
 } from './gridMath';
 import { QuestionThread } from '../review/QuestionThread';
+import {
+  IntercompanyModal,
+  MismatchModal,
+  type IntercompanySaveResult,
+} from './IntercompanyModal';
+import {
+  intercompanyCells,
+  legsOf,
+  legsTotal,
+  mismatchKey,
+  mismatchedCells,
+  mismatchesOnCell,
+  propagateMirrors,
+  withMismatchMessage,
+  withMismatchSettled,
+} from '../../data/intercompanyService';
 import { listEntities, seedUsers } from '../../data/appData';
 import { activeWeekKey, isCycleOpenForEntity } from '../../data/cycleService';
 import {
@@ -79,6 +95,8 @@ import type {
   CommentRequest,
   ForecastQuestion,
   ForecastTemplate,
+  IntercompanyLeg,
+  IntercompanyMismatch,
   SubmissionStatus,
   TemplateLayout,
 } from '../../types';
@@ -463,6 +481,18 @@ function SubmissionEditor({
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
+  /**
+   * Counterparty legs behind the intercompany cells. `values` still holds the
+   * number every other part of this screen reads — these are what it is the
+   * sum of, and the only thing the breakdown dialog writes.
+   */
+  const [intercompany, setIntercompany] = useState<Record<string, IntercompanyLeg[]>>(
+    initial.intercompany ?? {},
+  );
+  /** Disagreements with figures mirrored in from other entities. */
+  const [mismatches, setMismatches] = useState<Record<string, IntercompanyMismatch>>(
+    initial.mismatches ?? {},
+  );
   /** Who asked the most recent question on this forecast, if anyone has. */
   const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
     initial.questionedBy,
@@ -696,6 +726,8 @@ function SubmissionEditor({
     flags?: Set<string>;
     comments?: Record<string, string>;
     commentRequests?: Record<string, CommentRequest>;
+    intercompany?: Record<string, IntercompanyLeg[]>;
+    mismatches?: Record<string, IntercompanyMismatch>;
     questionedBy?: ForecastQuestion;
     revisedFrom?: SubmissionStatus;
     dayComments?: Record<string, string>;
@@ -713,6 +745,8 @@ function SubmissionEditor({
       resolvedFlags,
       comments: snap.comments ?? comments,
       commentRequests: snap.commentRequests ?? commentRequests,
+      intercompany: snap.intercompany ?? intercompany,
+      mismatches: snap.mismatches ?? mismatches,
       // Autosave must not forget who is waiting on an answer, nor that this
       // forecast has been submitted once already — the checklist reads both.
       questionedBy: 'questionedBy' in snap ? snap.questionedBy : questionedBy,
@@ -1157,6 +1191,171 @@ function SubmissionEditor({
   );
   /** Questions are waiting on THIS user — the page takes on that job. */
   const answering = isSubmitterView && openRequests.length > 0;
+
+  // -------------------------------------------------------------------------
+  // Intercompany
+  // -------------------------------------------------------------------------
+  /** Cells the template says are entered by counterparty rather than typed. */
+  const intercompanyCellSet = useMemo(() => intercompanyCells(template), [template]);
+  /** Cells carrying an unsettled disagreement — the exclamation marker. */
+  const mismatchedCellSet = useMemo(() => mismatchedCells(mismatches), [mismatches]);
+  /** The cell whose counterparty breakdown is open, and the key that opened it. */
+  const [intercoCell, setIntercoCell] = useState<{
+    key: string;
+    catIdx: number;
+    dayIdx: number;
+    digit?: string;
+  } | null>(null);
+  /** The cell whose mismatch thread is open. */
+  const [mismatchCell, setMismatchCell] = useState<string | null>(null);
+
+  const openIntercompany = (catIdx: number, dayIdx: number, digit?: string) =>
+    setIntercoCell({ key: cellKey(catIdx, dayIdx), catIdx, dayIdx, digit });
+
+  const openMismatch = (catIdx: number, dayIdx: number) =>
+    setMismatchCell(cellKey(catIdx, dayIdx));
+
+  /**
+   * Save one cell's counterparty breakdown.
+   *
+   * Four things move together, and they have to land in one write or the
+   * forecast is briefly inconsistent with itself: the legs, the cell value
+   * they sum to, the flags that value re-derives, and any disagreement the
+   * edit raised or withdrew. Only once that is stored does the mirroring run —
+   * it reads this entity's saved legs to decide what every counterparty
+   * should now hold.
+   */
+  const saveBreakdown = (result: IntercompanySaveResult) => {
+    if (!intercoCell) return;
+    const { key, catIdx, dayIdx } = intercoCell;
+    pushUndo();
+    lastEditedCell.current = null;
+
+    const nextLegs = { ...intercompany };
+    if (result.legs.length === 0) delete nextLegs[key];
+    else nextLegs[key] = result.legs;
+
+    // The cell IS the sum of its legs. An emptied breakdown empties the cell
+    // rather than zeroing it — "no intercompany agreed" and "we forecast nil"
+    // are different answers, and pre-submit validation reports the difference.
+    const nextValues = { ...values };
+    if (result.legs.length === 0) delete nextValues[key];
+    else nextValues[key] = legsTotal(result.legs);
+    const nextFlags = reflag(nextValues, [key], flags);
+
+    // A disagreement is recorded beside the figures, never applied to one.
+    const now = new Date().toISOString();
+    const me = currentUser().name;
+    let nextMismatches = { ...mismatches };
+    for (const dispute of result.disputes) {
+      const mk = mismatchKey(key, dispute.legId);
+      const existing = nextMismatches[mk];
+      nextMismatches[mk] = existing
+        ? // Changing your figure again restates the same disagreement rather
+          // than starting a second one on the same leg.
+          {
+            ...existing,
+            originalAmount: dispute.originalAmount,
+            changedAmount: dispute.changedAmount,
+            replies: [
+              ...(existing.replies ?? []),
+              { from: me, role: 'submitter' as const, text: dispute.reason, at: now },
+            ],
+            settledAt: undefined,
+          }
+        : {
+            cellKey: key,
+            legId: dispute.legId,
+            counterparty: dispute.counterparty,
+            originalAmount: dispute.originalAmount,
+            changedAmount: dispute.changedAmount,
+            from: me,
+            fromRole: 'submitter' as const,
+            message: dispute.reason,
+            raisedAt: now,
+          };
+    }
+    // A figure put back as it arrived is agreement: the flag goes, the
+    // conversation that produced it stays readable.
+    for (const legId of result.agreed) {
+      const mk = mismatchKey(key, legId);
+      if (nextMismatches[mk] && !nextMismatches[mk].settledAt) {
+        nextMismatches = withMismatchSettled(nextMismatches, mk, now);
+      }
+    }
+
+    setIntercompany(nextLegs);
+    setValues(nextValues);
+    setFlags(nextFlags);
+    setMismatches(nextMismatches);
+    // The grid cells hold their own in-progress text; remount so the changed
+    // cell shows the total this breakdown adds up to.
+    setRestoreVersion((n) => n + 1);
+    const withdrawn = withdrawFromApproval();
+    persist({
+      ...withdrawn,
+      values: nextValues,
+      flags: nextFlags,
+      intercompany: nextLegs,
+      mismatches: nextMismatches,
+    });
+    setIntercoCell(null);
+
+    // Each leg this entity entered becomes one entry in one other entity's
+    // forecast — three rows, three forecasts.
+    const outcome = propagateMirrors({
+      sourceEntity: entity,
+      period: week,
+      template,
+      catIdx,
+      dayIdx,
+      legs: result.legs,
+      by: me,
+    });
+    const parts: string[] = [];
+    if (outcome.mirrored.length > 0) {
+      parts.push(`Mirrored into ${outcome.mirrored.join(', ')} for ${periodLabelFor(key)}.`);
+    }
+    if (outcome.removed.length > 0) {
+      parts.push(`Withdrawn from ${outcome.removed.join(', ')}.`);
+    }
+    if (outcome.afterSubmission.length > 0) {
+      parts.push(
+        `${outcome.afterSubmission.join(', ')} had already submitted — the figure is on their forecast and flagged as arriving late.`,
+      );
+    }
+    if (outcome.unreachable.length > 0) {
+      parts.push(
+        `${outcome.unreachable.join(', ')} has no intercompany line on its template, so nothing could be mirrored there.`,
+      );
+    }
+    if (parts.length > 0) {
+      void notify({
+        tone: outcome.unreachable.length > 0 ? 'error' : 'success',
+        title: 'Intercompany saved',
+        message: parts.join(' '),
+      });
+    }
+  };
+
+  /** Reply into one mismatch thread — either side, until it is settled. */
+  const replyToMismatch = (key: string, text: string) => {
+    const next = withMismatchMessage(mismatches, key, {
+      from: currentUser().name,
+      role: isSubmitterView ? 'submitter' : canRequestComments && isTreasury ? 'treasury' : 'approver',
+      text,
+      at: new Date().toISOString(),
+    });
+    setMismatches(next);
+    persist({ mismatches: next });
+  };
+
+  const settleMismatch = (key: string) => {
+    const next = withMismatchSettled(mismatches, key, new Date().toISOString());
+    setMismatches(next);
+    persist({ mismatches: next });
+  };
+
 
   /**
    * Editable cells with no number in them yet. Subtotals are computed, so
@@ -2175,6 +2374,10 @@ function SubmissionEditor({
                 onPaste={handlePaste}
                 onCellClick={openVariance}
                 clickableCells={canRequestComments ? 'all' : 'flagged'}
+                intercompany={intercompanyCellSet}
+                onOpenIntercompany={openIntercompany}
+                mismatched={mismatchedCellSet}
+                onOpenMismatch={openMismatch}
                 heatmapScope={heatScope}
                 showColumnTotals={template.columnTotals === true}
               />
@@ -2311,6 +2514,36 @@ function SubmissionEditor({
             </>
           )}
         </Modal>
+      )}
+
+      {/* The counterparty breakdown behind an intercompany cell. Read-only
+          wherever the figures are: the same dialog, with nothing to type. */}
+      {intercoCell && (
+        <IntercompanyModal
+          entity={entity}
+          label={template.categories[intercoCell.catIdx]?.label ?? 'Intercompany'}
+          periodLabel={periodLabelFor(intercoCell.key)}
+          legs={legsOf({ intercompany }, intercoCell.key)}
+          readOnly={!canEditCells}
+          initialDigit={intercoCell.digit}
+          onClose={() => setIntercoCell(null)}
+          onSave={saveBreakdown}
+        />
+      )}
+
+      {/* The disagreement about a mirrored figure — a thread, not a
+          correction. Readers follow it; the two entities settle it. */}
+      {mismatchCell && (
+        <MismatchModal
+          label={template.categories[Number(mismatchCell.split('-')[0])]?.label ?? 'Intercompany'}
+          periodLabel={periodLabelFor(mismatchCell)}
+          mismatches={mismatchesOnCell(mismatches, mismatchCell)}
+          viewerRole={isSubmitterView ? 'submitter' : canRequestComments ? (isTreasury ? 'treasury' : 'approver') : null}
+          canReply={!readOnly || canRequestComments}
+          onReply={replyToMismatch}
+          onSettle={settleMismatch}
+          onClose={() => setMismatchCell(null)}
+        />
       )}
     </>
   );

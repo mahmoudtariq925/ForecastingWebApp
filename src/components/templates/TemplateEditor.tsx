@@ -146,6 +146,35 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   /**
+   * Mark a line — or a whole section — as intercompany.
+   *
+   * The flag is the only thing the template says about it: no counterparty
+   * column and no picker here, because who the money moves between is a
+   * property of the amount, chosen per cell on the forecast. Marking a
+   * section marks everything it collects.
+   */
+  const IntercompanyToggle = ({ row }: { row: EditorRow }) => {
+    if (row.kind === 'subtotal') return null;
+    const on = row.intercompany === true;
+    const what = row.kind === 'section' ? 'section' : 'line';
+    return (
+      <button
+        type="button"
+        className={`sheet-ic${on ? ' on' : ''}`}
+        aria-pressed={on}
+        title={
+          on
+            ? `Intercompany ${what} — entered by counterparty and mirrored into their forecast. Click to clear.`
+            : `Mark this ${what} as intercompany: its figures are owed to or by another legal entity`
+        }
+        onClick={() => updateRow(row.id, { intercompany: !on })}
+      >
+        IC
+      </button>
+    );
+  };
+
+  /**
    * Insert at `index`. A new section arrives with a line item; its subtotal is
    * added by `withSectionSubtotals` on the way into state, like every other
    * section's.
@@ -573,6 +602,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                     </option>
                                   ))}
                                 </select>
+                                <IntercompanyToggle row={row} />
                                 <RowControls index={index} vertical={false} />
                               </div>
                               <input
@@ -726,6 +756,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                   onChange={(e) => updateRow(row.id, { label: e.target.value })}
                                   onKeyDown={(e) => onLabelKeyDown(e, index)}
                                 />
+                                <IntercompanyToggle row={row} />
                               </div>
                             </td>
                             {Array.from({ length: periodCount }, (_v, p) => {

@@ -178,6 +178,17 @@ export interface TemplateCategory {
    * the grand totals so nothing is double counted.
    */
   subtotal?: boolean;
+  /**
+   * An intercompany line: every figure on it is owed to, or owed by, another
+   * legal entity in the group.
+   *
+   * The flag is the ONLY thing the template carries — no counterparty column,
+   * no picker. Who the money moves between is a property of the amount, not of
+   * the template, so it is entered per cell on the forecast (see
+   * `Submission.intercompany`) and mirrored into the counterparty's forecast
+   * from there.
+   */
+  intercompany?: boolean;
 }
 
 /** How many forecast columns a template has, and how far apart they are. */
@@ -313,6 +324,99 @@ export interface ForecastQuestion {
   at: string;
 }
 
+/**
+ * Where a mirrored intercompany leg came from.
+ *
+ * An intercompany amount is one movement seen from two sides, so it is entered
+ * ONCE — by whoever owns the relationship — and appears on the counterparty's
+ * forecast automatically with the sign flipped. This marker is what makes the
+ * copy honest: it says the figure is system-generated, which entity produced
+ * it, and what it arrived as, so a receiving side that disagrees can be shown
+ * both numbers rather than silently overwriting the only one on record.
+ */
+export interface MirrorSource {
+  /** Entity whose forecast this leg was entered on. */
+  entity: string;
+  /** The originating leg's id, so an edit or deletion there finds this copy. */
+  legId: string;
+  /**
+   * The amount as mirrored — already sign-flipped, and kept apart from the
+   * leg's own `amount` so a dispute has an original to show. Updated if the
+   * originator changes their figure.
+   */
+  originalAmount: number;
+  /**
+   * The cell this leg was entered on, on the ORIGINATOR's forecast. Two
+   * entities rarely run the same template, so the mirror can land on a
+   * different cell key than it left — this is what lets a later edit find
+   * every copy it produced, whichever cell it ended up on.
+   */
+  sourceCellKey: string;
+  /** ISO timestamp of the last time the originator wrote this figure. */
+  at: string;
+  /**
+   * The mirror landed on a forecast that had already been handed over. The
+   * figure still arrives — it is a fact from the other side — but the
+   * receiving submitter is told it turned up after they submitted.
+   */
+  afterSubmission?: boolean;
+}
+
+/**
+ * One counterparty's share of an intercompany cell.
+ *
+ * A cell is the SUM of its legs: one leg is the ordinary case, and a cell only
+ * grows more when the amount splits across several counterparties. Legs the
+ * app mirrored in carry `mirrorOf`; legs this entity entered itself do not,
+ * which is also what stops a mirror from bouncing back and forth forever.
+ */
+export interface IntercompanyLeg {
+  /** Stable id — the handle a mirror keeps on the leg that produced it. */
+  id: string;
+  /** Legal entity on the other side. Always a configured entity, never text. */
+  counterparty: string;
+  /** EUR thousands, in this entity's own sign convention. */
+  amount: number;
+  /** Present only on a leg mirrored in from the counterparty's forecast. */
+  mirrorOf?: MirrorSource;
+}
+
+/**
+ * A receiving side disagreeing with a mirrored figure.
+ *
+ * Deliberately NOT stored on the cell value: the two entities keep their own
+ * numbers, and the disagreement is a conversation beside them rather than a
+ * correction applied to one. It is raised only on the side that changed the
+ * figure, never on the originator's forecast, and it gates nothing — a
+ * forecast submits and a cycle closes with mismatches outstanding.
+ *
+ * Shaped like `CommentRequest` on purpose: opening message plus `replies`, so
+ * the same thread rendering and the same append rules serve both.
+ */
+export interface IntercompanyMismatch {
+  /** Cell the disputed leg sits on, keyed like `Submission.values`. */
+  cellKey: string;
+  /** The mirrored leg being disputed. */
+  legId: string;
+  /** The entity whose figure this is — the other side of the conversation. */
+  counterparty: string;
+  /** What the counterparty sent (sign already flipped). */
+  originalAmount: number;
+  /** What this side changed it to. */
+  changedAmount: number;
+  /** Display name of whoever changed it. */
+  from: string;
+  /** Which side of the conversation opened it. Always a submitter today. */
+  fromRole: ThreadRole;
+  /** The reason, required before the change is accepted. */
+  message: string;
+  raisedAt: string;
+  /** Everything said after the reason, oldest first. */
+  replies?: ThreadMessage[];
+  /** Set when either side marks the disagreement settled. */
+  settledAt?: string;
+}
+
 export interface Submission {
   /** Forecast week key: ISO date of the Monday, e.g. "2026-07-13". */
   period: string;
@@ -345,6 +449,21 @@ export interface Submission {
    * approval cycle again. Cleared on resubmission.
    */
   revisedFrom?: SubmissionStatus;
+  /**
+   * Counterparty breakdown for intercompany cells, keyed like `values`.
+   *
+   * `values[key]` stays the single number every other screen reads — it is the
+   * sum of these legs and is rewritten whenever they change, so the chart, the
+   * totals, the consolidation and the export need to know nothing about
+   * intercompany at all.
+   */
+  intercompany?: Record<string, IntercompanyLeg[]>;
+  /**
+   * Unsettled disagreements with mirrored figures, keyed
+   * `${catIdx}-${dayIdx}::${legId}` — one cell can dispute more than one
+   * counterparty. Present only on the side that changed a figure.
+   */
+  mismatches?: Record<string, IntercompanyMismatch>;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**
