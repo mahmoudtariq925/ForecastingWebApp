@@ -16,6 +16,13 @@ export interface EditorRow {
   id: string;
   kind: EditorRowKind;
   label: string;
+  /**
+   * This line is settled between group companies. The only intercompany
+   * decision made at template level: no extra column, no counterparty picker
+   * here — who the money moves to is a property of the amount a submitter
+   * enters, not of the line.
+   */
+  intercompany?: boolean;
 }
 
 let seq = 0;
@@ -39,9 +46,35 @@ export function rowsFromCategories(categories: TemplateCategory[]): EditorRow[] 
     } else if (!cat.group) {
       currentGroup = undefined;
     }
-    rows.push(makeRow(cat.subtotal ? 'subtotal' : 'item', cat.label));
+    const row = makeRow(cat.subtotal ? 'subtotal' : 'item', cat.label);
+    rows.push(cat.intercompany ? { ...row, intercompany: true } : row);
   }
   return rows;
+}
+
+/**
+ * Whether a section is intercompany: true when every line item inside it is.
+ *
+ * A section carries no flag of its own — marking one is shorthand for marking
+ * its line items, which is what the submitter's grid actually reads. Deriving
+ * the section's state instead of storing it means a template can never say a
+ * section is intercompany while a line inside it disagrees.
+ */
+export function sectionIsIntercompany(rows: EditorRow[], sectionIdx: number): boolean {
+  const items = sectionSpan(rows, sectionIdx).filter((i) => rows[i].kind === 'item');
+  return items.length > 0 && items.every((i) => rows[i].intercompany === true);
+}
+
+/** Mark (or unmark) every line item in a section as intercompany. */
+export function withSectionIntercompany(
+  rows: EditorRow[],
+  sectionIdx: number,
+  intercompany: boolean,
+): EditorRow[] {
+  const span = new Set(sectionSpan(rows, sectionIdx));
+  return rows.map((row, i) =>
+    span.has(i) && row.kind === 'item' ? { ...row, intercompany } : row,
+  );
 }
 
 /** Flatten editor rows back into the stored category contract. */
@@ -59,6 +92,9 @@ export function categoriesFromRows(rows: EditorRow[]): TemplateCategory[] {
       label,
       ...(currentGroup ? { group: currentGroup } : {}),
       ...(row.kind === 'subtotal' ? { subtotal: true as const } : {}),
+      // A computed subtotal is never intercompany itself — it totals lines
+      // that may be.
+      ...(row.intercompany && row.kind === 'item' ? { intercompany: true as const } : {}),
     });
   }
   return out;

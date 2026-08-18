@@ -86,11 +86,24 @@ interface ThreadComposerProps {
   role: ThreadRole;
   /** Extra hint under the box, e.g. that a figure can be corrected too. */
   hint?: string;
+  /**
+   * Wording for a conversation that is not a question about a cell. An
+   * intercompany mismatch is between two entities on the same side of the
+   * workflow, so "answer the question" describes neither of them.
+   */
+  placeholder?: string;
+  sendLabel?: string;
   onSend: (text: string) => void;
 }
 
 /** The reply box under a thread. Empty replies are simply not sendable. */
-export function ThreadComposer({ role, hint, onSend }: ThreadComposerProps) {
+export function ThreadComposer({
+  role,
+  hint,
+  placeholder,
+  sendLabel,
+  onSend,
+}: ThreadComposerProps) {
   const [draft, setDraft] = useState('');
   const send = () => {
     const text = draft.trim();
@@ -104,9 +117,10 @@ export function ThreadComposer({ role, hint, onSend }: ThreadComposerProps) {
         className="form-textarea"
         rows={3}
         placeholder={
-          role === 'submitter'
+          placeholder ??
+          (role === 'submitter'
             ? 'Answer the question — what drives this number?'
-            : 'Ask a follow-up…'
+            : 'Ask a follow-up…')
         }
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -118,14 +132,16 @@ export function ThreadComposer({ role, hint, onSend }: ThreadComposerProps) {
             send();
           }
         }}
-        aria-label={role === 'submitter' ? 'Your answer' : 'Your follow-up question'}
+        aria-label={
+          sendLabel ?? (role === 'submitter' ? 'Your answer' : 'Your follow-up question')
+        }
       />
       <div className="thread-composer-actions">
         <span className="text-muted" style={{ fontSize: 12 }}>
           {hint ?? 'Enter sends · Shift+Enter for a new line'}
         </span>
         <button className="btn btn-primary" disabled={!draft.trim()} onClick={send}>
-          {role === 'submitter' ? 'Send Answer' : 'Send Question'}
+          {sendLabel ?? (role === 'submitter' ? 'Send Answer' : 'Send Question')}
         </button>
       </div>
     </div>

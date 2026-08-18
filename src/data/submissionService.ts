@@ -27,6 +27,11 @@ import {
 } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle } from './cycleService';
+import {
+  intercompanyCells,
+  normalizeIntercompany,
+  normalizeIntercompanyFlags,
+} from './intercompanyService';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
@@ -164,7 +169,20 @@ function normalizeRequests(raw: unknown): Record<string, CommentRequest> {
  * instead of showing a question nobody appears to have replied to.
  */
 export function threadOf(
-  request: CommentRequest,
+  /**
+   * Anything shaped like an opening message plus its replies. A
+   * `CommentRequest` is the usual one; an intercompany mismatch
+   * (`IntercompanyFlag`) has the same shape and reads the same way, and both
+   * sides of that conversation are submitters — hence the wider role.
+   */
+  request: {
+    from: string;
+    fromRole?: ThreadRole;
+    message: string;
+    requestedAt: string;
+    replies?: ThreadMessage[];
+    answeredAt?: string;
+  },
   /** The cell's commentary, which is where a legacy single answer lives. */
   answer: string,
   /** Display name of whoever answers for the entity. */
@@ -196,11 +214,14 @@ export function threadOf(
  * forecast screen (which persists the whole submission itself) and the
  * questions board can share one definition of what replying means.
  */
-export function withThreadMessage(
-  requests: Record<string, CommentRequest> | undefined,
+export function withThreadMessage<
+  T extends { replies?: ThreadMessage[]; answeredAt?: string },
+>(
+  /** Question threads keyed by cell — or intercompany mismatches, keyed by row. */
+  requests: Record<string, T> | undefined,
   key: string,
   message: ThreadMessage,
-): Record<string, CommentRequest> {
+): Record<string, T> {
   const next = { ...(requests ?? {}) };
   const request = next[key];
   if (!request) return next;
@@ -299,6 +320,8 @@ function normalizeSubmission(sub: Submission): Submission {
       sub.questionedBy ?? (sub as { reopenedBy?: unknown }).reopenedBy,
     ),
     ...(typeof sub.revisedFrom === 'string' ? { revisedFrom: sub.revisedFrom } : {}),
+    intercompany: normalizeIntercompany(sub.intercompany),
+    intercompanyFlags: normalizeIntercompanyFlags(sub.intercompanyFlags),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -343,6 +366,11 @@ function buildSubmission(entity: string, week: string, template: ForecastTemplat
     ? generateGridValues(template.categories, week, entity).values
     // Templates authored in the editor can carry starting values.
     : { ...(template.defaultValues ?? {}) };
+  // An intercompany cell's value is the SUM OF ITS ROWS and nothing else, so
+  // it can never open with a figure that has no counterparty behind it —
+  // neither a generated demo number nor a template's starting value. The
+  // breakdown is where those cells get filled in.
+  for (const key of intercompanyCells(template)) delete values[key];
   const flags = seeded ? varianceFlags(entity, week, template, values) : [];
 
   return {
@@ -619,7 +647,12 @@ export function getPriorValues(
   const stored = loadSubmission(prevKey, entity, template.id);
   if (stored) return stored.values;
   if (DEMO_DATA && template.id === STANDARD_TEMPLATE_ID) {
-    return generateGridValues(template.categories, prevKey, entity).values;
+    const generated = generateGridValues(template.categories, prevKey, entity).values;
+    // Same rule as a fresh forecast: a generated number on an intercompany
+    // cell has no counterparty behind it, so it is not a prior worth flagging
+    // this week's breakdown against.
+    for (const key of intercompanyCells(template)) delete generated[key];
+    return generated;
   }
   return {};
 }

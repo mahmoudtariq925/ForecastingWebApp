@@ -57,6 +57,29 @@ export interface ForecastGridProps {
    */
   answered?: Set<string>;
   /**
+   * Cells carrying an unsettled intercompany mismatch — the receiving side
+   * changed an amount another entity stated. Rendered as an exclamation, and
+   * propagated to a collapsed section's band exactly as questions are.
+   */
+  intercompanyFlags?: Set<string>;
+  /**
+   * Open the counterparty breakdown behind an intercompany cell. `prefill` is
+   * the digit the user typed to open it, which starts the first row's amount.
+   */
+  onOpenIntercompany?: (catIdx: number, dayIdx: number, prefill?: string) => void;
+  /**
+   * How an intercompany cell is opened.
+   *
+   * `cell` — the whole cell is the button (submitters and viewers: there is
+   * nothing else a click on it could mean).
+   * `icon` — a small sibling button opens the breakdown read-only, and the
+   * cell's own click keeps asking the submitter a question. Treasury and
+   * approvers get this: their click already means something, and a
+   * double-click handler would fire the single-click one twice and clobber
+   * whatever draft it had just opened.
+   */
+  intercompanyMode?: 'cell' | 'icon';
+  /**
    * Focus mode: when set, these cells are spotlit and every other cell is
    * dimmed. Used to point at the cells still needing input before submission.
    */
@@ -205,16 +228,18 @@ const bandScale = (scales: HeatScale[], index: number): HeatScale =>
   scales[index] ?? NEUTRAL_SCALE;
 
 /**
- * How many open questions are hidden inside a section.
+ * How many of a section's cells are in a marked set.
  *
- * Collapsing a section hides the blue cells in it, and with them the only
+ * Collapsing a section hides the marked cells in it, and with them the only
  * sign that someone is waiting on an answer — so the section band says it.
+ * The same counting serves intercompany mismatches, which disappear behind a
+ * collapsed section for exactly the same reason.
  */
-function questionsInGroup(idxs: number[], requested: Set<string> | undefined): number {
-  if (!requested || requested.size === 0) return 0;
+function cellsInGroup(idxs: number[], marked: Set<string> | undefined): number {
+  if (!marked || marked.size === 0) return 0;
   const inGroup = new Set(idxs);
   let count = 0;
-  for (const key of requested) {
+  for (const key of marked) {
     if (inGroup.has(Number(key.split('-')[0]))) count += 1;
   }
   return count;
@@ -229,6 +254,19 @@ function SectionQuestions({ count }: { count: number }) {
       title={`${count} open question${count === 1 ? '' : 's'} inside this section`}
     >
       ? {count}
+    </span>
+  );
+}
+
+/** The same marker for intercompany mismatches, in the flag's colour. */
+function SectionIntercompanyFlags({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span
+      className="section-questions section-ic-flags"
+      title={`${count} intercompany mismatch${count === 1 ? '' : 'es'} inside this section`}
+    >
+      ! {count}
     </span>
   );
 }
@@ -281,6 +319,9 @@ function EditableCell({
     onPaste,
     onCellClick,
     clickableCells = 'flagged',
+    intercompanyFlags,
+    onOpenIntercompany,
+    intercompanyMode = 'cell',
   } = props;
   const key = cellKey(catIdx, dayIdx);
   const flagged = flags.has(key);
@@ -327,53 +368,136 @@ function EditableCell({
    * thing being asked for were a 16px pencil and the banner above the grid.
    */
   const toAnswer = asked && clickable;
+  /**
+   * An intercompany cell holds a set of (amount, counterparty) rows rather
+   * than a number, so it is opened, not typed into — the same treatment a
+   * cell with a question gets, for the same reason.
+   */
+  const isIntercompany = categories[catIdx]?.intercompany === true;
+  const icFlagged = isIntercompany && (intercompanyFlags?.has(key) ?? false);
+  // Grids that only DISPLAY a forecast — the template preview, the
+  // consolidated position — still mark their intercompany lines; what they
+  // have no handler for is opening one.
+  const icOpenable = isIntercompany && Boolean(onOpenIntercompany);
+  /**
+   * The question outranks the breakdown. A cell can be both, and the one
+   * somebody is waiting on an answer to is the one a click should open — so
+   * the existing auto-open and deep-link paths land where they always did,
+   * and the breakdown moves to its icon.
+   */
+  const icOnCell = icOpenable && intercompanyMode === 'cell' && !toAnswer;
+  const icOnIcon = icOpenable && !icOnCell;
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     replied ? 'comment-answered' : ''
-  } ${
-    clickable ? 'cell-askable' : ''
-  } ${editable && !toAnswer ? 'cell-input' : ''} ${extraClass}${focus}`
+  } ${isIntercompany ? 'cell-intercompany' : ''} ${icFlagged ? 'cell-ic-flagged' : ''} ${
+    clickable || icOnCell ? 'cell-askable' : ''
+  } ${editable && !toAnswer && !icOnCell ? 'cell-input' : ''} ${extraClass}${focus}`
     .replace(/\s+/g, ' ')
     .trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
   const open = () => onCellClick?.(catIdx, dayIdx);
+  const openIntercompany = (prefill?: string) =>
+    onOpenIntercompany?.(catIdx, dayIdx, prefill);
+
+  /**
+   * The breakdown's own way in, for cells whose click already means something
+   * else: treasury's and an approver's question, or a question waiting on an
+   * answer. Deliberately a sibling of the note button rather than a
+   * double-click — on a read-only cell the single-click handler fires twice
+   * for a double, which would re-run the drafts it had just populated.
+   */
+  const intercompanyButton = icOnIcon ? (
+    <button
+      type="button"
+      className={`cell-ic-btn${icFlagged ? ' flagged' : ''}`}
+      tabIndex={-1}
+      title={
+        icFlagged
+          ? 'A mismatch has been raised on this cell — open the counterparty breakdown'
+          : 'Open the counterparty breakdown for this cell'
+      }
+      aria-label={`Intercompany breakdown for ${
+        categories[catIdx]?.label ?? 'this cell'
+      }, period ${dayIdx + 1}`}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.stopPropagation();
+        openIntercompany();
+      }}
+    >
+      {icFlagged ? '!' : '⇄'}
+    </button>
+  ) : icFlagged ? (
+    // The cell itself opens the breakdown here, so this is signage: a second
+    // button inside a cell that is already one is a target for the same job.
+    <span className="cell-ic-btn flagged" aria-hidden="true">
+      !
+    </span>
+  ) : null;
 
   // A read-only grid has nothing else a click could mean, so the whole cell
   // opens the dialog — and so does a cell waiting on an answer, where the
   // dialog is the whole job. Both carry the cell coordinates an editable one
   // does, so a deep link ("explain THIS cell") still finds and scrolls to it,
   // and Enter opens the one the keyboard has landed on.
-  if (!editable || toAnswer) {
+  if (!editable || toAnswer || icOnCell) {
+    // Which surface this cell opens, when it opens one at all.
+    const asButton = toAnswer || icOnCell;
+    const openHere = icOnCell ? () => openIntercompany() : open;
     return (
       <td
         className={cls}
         style={style}
         data-cat={catIdx}
         data-day={dayIdx}
-        onClick={clickable ? open : undefined}
-        role={toAnswer ? 'button' : undefined}
-        tabIndex={toAnswer ? 0 : undefined}
+        onClick={asButton ? openHere : clickable ? open : undefined}
+        role={asButton ? 'button' : undefined}
+        tabIndex={asButton ? 0 : undefined}
         title={
           toAnswer
             ? editable
               ? 'Open the question on this cell and answer it'
               : 'Open the question on this cell'
-            : undefined
+            : icOnCell
+              ? editable
+                ? 'Intercompany — open the counterparty breakdown, or type a figure to start one'
+                : 'Intercompany — open the counterparty breakdown'
+              : undefined
         }
         onKeyDown={
-          toAnswer
+          asButton
             ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  open();
-                } else moveWithKeyboard(e);
+                  openHere();
+                  return;
+                }
+                // Typing a figure at an intercompany cell opens the breakdown
+                // with that digit already in the first row's amount — the
+                // cell behaves like the input it replaced. Arrows are
+                // untouched, so arrowing ACROSS one never opens anything.
+                if (
+                  icOnCell &&
+                  editable &&
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.altKey &&
+                  /^[0-9-]$/.test(e.key)
+                ) {
+                  e.preventDefault();
+                  openIntercompany(e.key);
+                  return;
+                }
+                moveWithKeyboard(e);
               }
             : undefined
         }
       >
         {fmt(val)}
+        {intercompanyButton}
       </td>
     );
   }
@@ -405,6 +529,7 @@ function EditableCell({
           ?
         </button>
       )}
+      {intercompanyButton}
     </td>
   );
 }
@@ -701,14 +826,23 @@ function GroupRows({
   props: ForecastGridProps;
   scales: GridScales;
 }) {
-  const { categories, dayLabels, values, collapsedGroups, onToggleGroup, requested } = props;
+  const {
+    categories,
+    dayLabels,
+    values,
+    collapsedGroups,
+    onToggleGroup,
+    requested,
+    intercompanyFlags,
+  } = props;
   const numDays = dayLabels.length;
   const totalScale = scales.totals;
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
   const collapsed = collapsible && (collapsedGroups?.has(groupIndex) ?? false);
-  const questions = questionsInGroup(group.idxs, requested);
+  const questions = cellsInGroup(group.idxs, requested);
+  const mismatches = cellsInGroup(group.idxs, intercompanyFlags);
   // A section with nothing in it says so on its own row. Collapsed, a row of
   // "—" across every column is indistinguishable from a section of zeros
   // somebody actually forecast, and it is worth knowing which you are looking
@@ -727,7 +861,7 @@ function GroupRows({
         <tr
           className={`section-row${band}${collapsed ? ' section-collapsed' : ''}${
             questions > 0 ? ' section-questioned' : ''
-          }${empty ? ' section-empty' : ''}`}
+          }${mismatches > 0 ? ' section-ic-flagged' : ''}${empty ? ' section-empty' : ''}`}
         >
           {/* The whole label cell toggles the section — the caret button is
               signage, not the only target. */}
@@ -765,12 +899,14 @@ function GroupRows({
                 {group.label}
                 {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
+                <SectionIntercompanyFlags count={mismatches} />
               </button>
             ) : (
               <>
                 {group.label}
                 {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
+                <SectionIntercompanyFlags count={mismatches} />
               </>
             )}
           </td>
@@ -859,6 +995,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     collapsedGroups,
     onToggleGroup,
     requested,
+    intercompanyFlags,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -912,7 +1049,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 colSpan={isCollapsed(gi) ? 1 : g.idxs.length}
                 className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}${
                   onToggleGroup ? ' band-toggle' : ''
-                }${questionsInGroup(g.idxs, requested) > 0 ? ' section-questioned' : ''}`}
+                }${cellsInGroup(g.idxs, requested) > 0 ? ' section-questioned' : ''}${
+                  cellsInGroup(g.idxs, intercompanyFlags) > 0 ? ' section-ic-flagged' : ''
+                }`}
                 onClick={onToggleGroup ? () => onToggleGroup(gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
                 tabIndex={onToggleGroup ? 0 : undefined}
@@ -944,7 +1083,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     {hasAnyValue(values) && groupIsEmpty(categories, values, g.idxs, numDays) && (
                       <span className="section-no-activity">no activity</span>
                     )}
-                    <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
+                    <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
+                    <SectionIntercompanyFlags count={cellsInGroup(g.idxs, intercompanyFlags)} />
                   </span>
                 ) : (
                   <>
@@ -952,7 +1092,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     {hasAnyValue(values) && groupIsEmpty(categories, values, g.idxs, numDays) && (
                       <span className="section-no-activity">no activity</span>
                     )}
-                    <SectionQuestions count={questionsInGroup(g.idxs, requested)} />
+                    <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
+                    <SectionIntercompanyFlags count={cellsInGroup(g.idxs, intercompanyFlags)} />
                   </>
                 )}
               </th>
@@ -973,7 +1114,11 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               <th
                 key={`g${col.gi}`}
                 className={`day-h group-end${col.band}${onToggleGroup ? ' band-toggle' : ''}${
-                  questionsInGroup(groups[col.gi].idxs, requested) > 0 ? ' section-questioned' : ''
+                  cellsInGroup(groups[col.gi].idxs, requested) > 0 ? ' section-questioned' : ''
+                }${
+                  cellsInGroup(groups[col.gi].idxs, intercompanyFlags) > 0
+                    ? ' section-ic-flagged'
+                    : ''
                 }`}
                 onClick={onToggleGroup ? () => onToggleGroup(col.gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
