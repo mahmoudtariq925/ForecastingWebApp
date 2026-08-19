@@ -203,10 +203,15 @@ export const standardCategories: TemplateCategory[] = [
   { label: 'Salaries', group: 'Payroll' },
   { label: 'Social Securities', group: 'Payroll' },
   { label: 'CAPEX' },
+  // The two entity-specific lines name their counterparty in the label, so
+  // they stay plain numbers. The generic pair is where intercompany
+  // settlements with ANY group company land, which is exactly the line the
+  // counterparty breakdown exists for — an amount there is split across the
+  // entities it moves to, and each share appears in that entity's forecast.
   { label: 'IC Inflows - NL', group: 'IC Settlements' },
   { label: 'IC Outflows - NL', group: 'IC Settlements' },
-  { label: 'IC Inflows', group: 'IC Settlements' },
-  { label: 'IC Outflows', group: 'IC Settlements' },
+  { label: 'IC Inflows', group: 'IC Settlements', intercompany: true },
+  { label: 'IC Outflows', group: 'IC Settlements', intercompany: true },
   { label: 'Other' },
 ];
 

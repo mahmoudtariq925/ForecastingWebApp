@@ -17,8 +17,10 @@ import {
   reorderRows,
   rowsFromCategories,
   sectionIndexByRow,
+  sectionIsIntercompany,
   sectionSpan,
   structureSummary,
+  withSectionIntercompany,
   withSectionSubtotals,
   type EditorRow,
   type EditorRowKind,
@@ -357,6 +359,43 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
     return section % 2 === 0 ? ' band-a' : ' band-b';
   };
 
+  /**
+   * Mark a line — or a whole section — as settled between group companies.
+   *
+   * This is the entire intercompany decision a template makes. No extra
+   * column and no counterparty picker belong here: WHO the money moves to is
+   * a property of the amount a submitter enters, and it is chosen on the cell.
+   * A section is shorthand for every line item inside it.
+   */
+  const IntercompanyToggle = ({ index }: { index: number }) => {
+    const row = rows[index];
+    if (!row || row.kind === 'subtotal') return null;
+    const isSection = row.kind === 'section';
+    const on = isSection ? sectionIsIntercompany(rows, index) : row.intercompany === true;
+    const what = isSection ? 'every line in this section' : 'this line';
+    return (
+      <button
+        type="button"
+        className={`ic-toggle${on ? ' on' : ''}`}
+        aria-pressed={on}
+        aria-label={`Intercompany: ${row.label || (isSection ? 'section' : 'line item')}`}
+        title={
+          on
+            ? `Intercompany — submitters split ${what} across counterparties, and the amounts mirror into their forecasts. Click to turn off.`
+            : `Mark ${what} as intercompany: submitters then split the amount across counterparties instead of typing one number.`
+        }
+        onClick={() =>
+          isSection
+            ? setRows((prev) => withSectionIntercompany(prev, index, !on))
+            : updateRow(row.id, { intercompany: !on })
+        }
+      >
+        <span aria-hidden="true">⇄</span>
+        IC
+      </button>
+    );
+  };
+
   /** Drag handle + insert-after + delete, shared by both orientations. */
   const RowControls = ({ index, vertical }: { index: number; vertical: boolean }) => (
     <div className={`sheet-row-actions${vertical ? '' : ' horizontal'}`}>
@@ -573,6 +612,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                     </option>
                                   ))}
                                 </select>
+                                <IntercompanyToggle index={index} />
                                 <RowControls index={index} vertical={false} />
                               </div>
                               <input
@@ -726,6 +766,7 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                                   onChange={(e) => updateRow(row.id, { label: e.target.value })}
                                   onKeyDown={(e) => onLabelKeyDown(e, index)}
                                 />
+                                <IntercompanyToggle index={index} />
                               </div>
                             </td>
                             {Array.from({ length: periodCount }, (_v, p) => {
@@ -793,7 +834,10 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                 <div className="grid-info">
                   <span className="text-muted">
                     Subtotals sum the line items above them within their section — they are
-                    computed, never typed.
+                    computed, never typed. <strong>⇄ IC</strong> marks a line (or a whole
+                    section) as intercompany: submitters split the amount across group
+                    counterparties, and each amount appears in that counterparty's own
+                    forecast.
                   </span>
                 </div>
               </div>

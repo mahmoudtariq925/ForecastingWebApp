@@ -178,6 +178,16 @@ export interface TemplateCategory {
    * the grand totals so nothing is double counted.
    */
   subtotal?: boolean;
+  /**
+   * Money moving between group companies rather than in or out of the group.
+   *
+   * The flag is the WHOLE template-level decision: an intercompany line needs
+   * no extra column and no counterparty picker here, because the counterparty
+   * is a property of the amount a submitter enters, not of the line itself.
+   * What it changes is the cell — an intercompany cell is opened and split
+   * across counterparties rather than typed into (see `IntercompanyRow`).
+   */
+  intercompany?: boolean;
 }
 
 /** How many forecast columns a template has, and how far apart they are. */
@@ -313,6 +323,84 @@ export interface ForecastQuestion {
   at: string;
 }
 
+/**
+ * One counterparty's share of an intercompany cell.
+ *
+ * An intercompany figure is never just a number: €500k of intercompany
+ * payments is €300k to France and €200k to Germany, and which is which is the
+ * whole point — it is what lets the group position net to zero. The cell's
+ * value is the SUM of its rows, so every screen that reads `Submission.values`
+ * keeps working without knowing rows exist.
+ *
+ * Amounts follow the grid's sign convention (inflows +, outflows −) from the
+ * perspective of the entity whose forecast holds the row.
+ */
+export interface IntercompanyRow {
+  /** Stable within the cell; mirrored rows derive theirs from the original. */
+  id: string;
+  /** Legal entity name the money is paid to / received from. */
+  counterparty: string;
+  /** EUR thousands, this entity's sign. */
+  amount: number;
+  /**
+   * The entity whose submitter entered the original figure. Set only on
+   * MIRRORED rows — the system-generated other half of somebody else's entry.
+   */
+  source?: string;
+  /** Cell key the mirror came from, on the source entity's own template. */
+  sourceCellKey?: string;
+  /**
+   * The mirrored amount as the source entity stated it (sign already flipped).
+   * A row whose `amount` differs from this is a DISPUTE — see
+   * `IntercompanyFlag`.
+   */
+  sourceAmount?: number;
+  /**
+   * The mirror landed after this entity had already handed its forecast over,
+   * so the figures somebody signed off no longer match what is here. Recorded
+   * rather than silently reopening a decision that was made in good faith.
+   */
+  late?: boolean;
+}
+
+/**
+ * A disputed mirrored amount: the receiving side changed a figure the
+ * originating side stated, and said why.
+ *
+ * Deliberately NOT stored on the cell value — the value is the sum of the
+ * rows and nothing else. A mismatch is a conversation between two entities,
+ * so it is shaped exactly like a question thread (`from` / `message` /
+ * `requestedAt` / `replies`) and rendered by the same `QuestionThread`, with
+ * `threadOf` and `withThreadMessage` applying to it unchanged.
+ *
+ * Non-blocking by design: a flag never gates submission or cycle closing.
+ */
+export interface IntercompanyFlag {
+  /** Cell the disputed row sits in, `${catIdx}-${dayIdx}`. */
+  cellKey: string;
+  /** The mirrored row being disputed. */
+  rowId: string;
+  /** Entity whose figure is being disputed. */
+  source: string;
+  /** What the source entity said, in the receiving entity's sign. */
+  sourceAmount: number;
+  /** What the receiving side changed it to. */
+  amount: number;
+  /** Display name of whoever raised the mismatch. */
+  from: string;
+  /** What capacity they raised it in. */
+  fromRole: ThreadRole;
+  /** The reason they gave — the opening message of the thread. */
+  message: string;
+  requestedAt: string;
+  /** Everything said after, oldest first. */
+  replies?: ThreadMessage[];
+  /** Set when the last message came from the answering side. */
+  answeredAt?: string;
+  /** Both sides are done: the flag stops counting as open. */
+  settledAt?: string;
+}
+
 export interface Submission {
   /** Forecast week key: ISO date of the Monday, e.g. "2026-07-13". */
   period: string;
@@ -345,6 +433,17 @@ export interface Submission {
    * approval cycle again. Cleared on resubmission.
    */
   revisedFrom?: SubmissionStatus;
+  /**
+   * The counterparty breakdown behind each intercompany cell, keyed like
+   * `values`. The cell's value in `values` is always the sum of these rows,
+   * so nothing downstream has to know about them.
+   */
+  intercompany?: Record<string, IntercompanyRow[]>;
+  /**
+   * Mismatches raised on mirrored amounts, keyed `${cellKey}#${rowId}`.
+   * Only ever present on the DISPUTING side's forecast.
+   */
+  intercompanyFlags?: Record<string, IntercompanyFlag>;
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**

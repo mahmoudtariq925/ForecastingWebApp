@@ -9,6 +9,7 @@ import { QuestionStrip } from './QuestionStrip';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
+import { IntercompanyModal, type DisputeDraft } from './IntercompanyModal';
 import {
   categoryGroups,
   cellKey,
@@ -61,6 +62,16 @@ import {
   settingsForEntity,
   templatesForEntity,
 } from '../../data/submissionService';
+import {
+  counterpartyOptions,
+  flagKey,
+  flaggedCells,
+  flagsForCell,
+  mirrorProblem,
+  rowsOf,
+  rowsTotal,
+  syncIntercompanyMirrors,
+} from '../../data/intercompanyService';
 import { currentUser } from '../../data/session';
 import { useDataVersion } from '../../data/useDataVersion';
 import {
@@ -79,8 +90,11 @@ import type {
   CommentRequest,
   ForecastQuestion,
   ForecastTemplate,
+  IntercompanyFlag,
+  IntercompanyRow,
   SubmissionStatus,
   TemplateLayout,
+  ThreadRole,
 } from '../../types';
 
 /** Deep-link target used by the Review / Approvals screens. */
@@ -463,6 +477,20 @@ function SubmissionEditor({
   const [commentRequests, setCommentRequests] = useState<Record<string, CommentRequest>>(
     initial.commentRequests ?? {},
   );
+  /**
+   * The counterparty breakdown behind every intercompany cell. The cell's
+   * value in `values` is always the sum of its rows, so the grid, the chart
+   * and every aggregate downstream carry on knowing nothing about them.
+   */
+  const [intercompany, setIntercompany] = useState<Record<string, IntercompanyRow[]>>(
+    initial.intercompany ?? {},
+  );
+  /** Mismatches raised here on figures another entity mirrored in. */
+  const [icFlags, setIcFlags] = useState<Record<string, IntercompanyFlag>>(
+    initial.intercompanyFlags ?? {},
+  );
+  /** The intercompany cell whose breakdown is open, and the digit that opened it. */
+  const [icCell, setIcCell] = useState<{ key: string; prefill?: string } | null>(null);
   /** Who asked the most recent question on this forecast, if anyone has. */
   const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
     initial.questionedBy,
@@ -698,6 +726,8 @@ function SubmissionEditor({
     commentRequests?: Record<string, CommentRequest>;
     questionedBy?: ForecastQuestion;
     revisedFrom?: SubmissionStatus;
+    intercompany?: Record<string, IntercompanyRow[]>;
+    intercompanyFlags?: Record<string, IntercompanyFlag>;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -717,6 +747,11 @@ function SubmissionEditor({
       // forecast has been submitted once already — the checklist reads both.
       questionedBy: 'questionedBy' in snap ? snap.questionedBy : questionedBy,
       revisedFrom: 'revisedFrom' in snap ? snap.revisedFrom : revisedFrom,
+      // Autosave must not forget the counterparty breakdown either: the cell
+      // values are the sum of these rows, so dropping them would leave a
+      // total with nothing behind it.
+      intercompany: snap.intercompany ?? intercompany,
+      intercompanyFlags: snap.intercompanyFlags ?? icFlags,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -1072,6 +1107,148 @@ function SubmissionEditor({
       ...withdrawn,
     });
     setVarianceCell(null);
+  };
+
+  // ---- Intercompany cells ------------------------------------------------
+  // An intercompany cell is a set of (amount, counterparty) rows rather than a
+  // number, so it is opened rather than typed into. Everything the rows change
+  // — the cell's value, the variance flag on it, the withdrawal from approval
+  // an edit costs — is exactly what typing a number would have changed; what
+  // is new is that each row also lands in the counterparty's own forecast.
+
+  /** What capacity this reader writes in, for anything they add to a thread. */
+  const threadRole: ThreadRole = canRequestComments
+    ? isTreasury
+      ? 'treasury'
+      : 'approver'
+    : 'submitter';
+  /** Treasury and approvers read the breakdown; only the entity edits it. */
+  const canEditIntercompany = canEditCells && !canRequestComments;
+  /** Cells carrying an unsettled mismatch — the grid's exclamation icon. */
+  const icFlaggedCells = useMemo(() => flaggedCells(icFlags), [icFlags]);
+  const counterparties = useMemo(() => counterpartyOptions(entity), [entity]);
+
+  const openIntercompany = (catIdx: number, dayIdx: number, prefill?: string) =>
+    setIcCell({ key: cellKey(catIdx, dayIdx), prefill });
+
+  /**
+   * Save one intercompany cell: its rows, the total they make, and the
+   * mirrored halves that belong in the counterparties' forecasts.
+   */
+  const saveIntercompany = (rows: IntercompanyRow[], disputes: DisputeDraft[]) => {
+    if (!icCell) return;
+    const key = icCell.key;
+    const now = new Date().toISOString();
+
+    pushUndo();
+    lastEditedCell.current = null;
+    const nextIntercompany = { ...intercompany };
+    if (rows.length === 0) delete nextIntercompany[key];
+    else nextIntercompany[key] = rows;
+
+    // The cell IS the sum of its rows — never a figure of its own.
+    const nextValues = { ...values };
+    if (rows.length === 0) delete nextValues[key];
+    else nextValues[key] = rowsTotal(rows);
+    const nextFlags = reflag(nextValues, [key], flags);
+
+    // A changed mirrored amount is a disagreement with another entity, so it
+    // becomes a thread rather than a number quietly overwritten. Changing an
+    // already-disputed row adds to the conversation instead of starting a
+    // second one about the same figure.
+    const nextIcFlags: Record<string, IntercompanyFlag> = { ...icFlags };
+    for (const dispute of disputes) {
+      const fk = flagKey(key, dispute.rowId);
+      const existing = nextIcFlags[fk];
+      const message = {
+        from: currentUser().name,
+        role: threadRole,
+        text: dispute.reason,
+        at: now,
+      };
+      nextIcFlags[fk] = existing
+        ? {
+            ...existing,
+            amount: dispute.amount,
+            sourceAmount: dispute.sourceAmount,
+            // Revisiting a settled mismatch reopens it.
+            settledAt: undefined,
+            replies: [...(existing.replies ?? []), message],
+          }
+        : {
+            cellKey: key,
+            rowId: dispute.rowId,
+            source: dispute.source,
+            sourceAmount: dispute.sourceAmount,
+            amount: dispute.amount,
+            from: message.from,
+            fromRole: threadRole,
+            message: dispute.reason,
+            requestedAt: now,
+          };
+    }
+    // A mismatch about a row that no longer exists has nothing to be about.
+    const liveRows = new Set(rows.map((r) => r.id));
+    const prunedFlags = Object.fromEntries(
+      Object.entries(nextIcFlags).filter(
+        ([, flag]) => flag.cellKey !== key || liveRows.has(flag.rowId),
+      ),
+    );
+
+    setIntercompany(nextIntercompany);
+    setValues(nextValues);
+    setFlags(nextFlags);
+    setIcFlags(prunedFlags);
+    // The grid cells hold their own in-progress text; remount so the cell
+    // shows the total saved here.
+    setRestoreVersion((n) => n + 1);
+    persist({
+      values: nextValues,
+      flags: nextFlags,
+      intercompany: nextIntercompany,
+      intercompanyFlags: prunedFlags,
+      ...withdrawFromApproval(),
+    });
+
+    // Each row's other half, in the counterparty's own forecast.
+    const outcomes = syncIntercompanyMirrors({
+      period: week,
+      entity,
+      template,
+      cellKey: key,
+      rows,
+    });
+    setIcCell(null);
+
+    const problems = outcomes.map(mirrorProblem).filter((p): p is string => p !== null);
+    if (problems.length > 0) {
+      void notify({
+        title: 'Saved — with notes on the mirrored entries',
+        message: problems.join(' '),
+      });
+    }
+  };
+
+  /** Add one message to a mismatch thread, from whichever side is reading. */
+  const replyToIntercompanyFlag = (key: string, text: string) => {
+    const message = {
+      from: currentUser().name,
+      role: threadRole,
+      text,
+      at: new Date().toISOString(),
+    };
+    const next = withThreadMessage(icFlags, key, message);
+    setIcFlags(next);
+    persist({ intercompanyFlags: next });
+  };
+
+  /** Both sides are done: the flag stops counting as open. */
+  const settleIntercompanyFlag = (key: string) => {
+    const flag = icFlags[key];
+    if (!flag) return;
+    const next = { ...icFlags, [key]: { ...flag, settledAt: new Date().toISOString() } };
+    setIcFlags(next);
+    persist({ intercompanyFlags: next });
   };
 
   /** "Mon 4 Aug" for a cell key, falling back to the column number. */
@@ -2175,6 +2352,12 @@ function SubmissionEditor({
                 onPaste={handlePaste}
                 onCellClick={openVariance}
                 clickableCells={canRequestComments ? 'all' : 'flagged'}
+                intercompanyFlags={icFlaggedCells}
+                onOpenIntercompany={openIntercompany}
+                // Treasury's and an approver's click already means "ask about
+                // this cell", so the breakdown gets its own icon there rather
+                // than competing for the same gesture.
+                intercompanyMode={canRequestComments ? 'icon' : 'cell'}
                 heatmapScope={heatScope}
                 showColumnTotals={template.columnTotals === true}
               />
@@ -2184,6 +2367,32 @@ function SubmissionEditor({
         </div>
 
       </div>
+
+      {/* The counterparty breakdown behind an intercompany cell. The same
+          dialog for everyone — read-only for whoever does not own the
+          figures, which is how a reader sees who a total is made up of. */}
+      {icCell && (
+        <IntercompanyModal
+          entity={entity}
+          label={
+            template.categories[Number(icCell.key.split('-')[0])]?.label ?? 'Intercompany'
+          }
+          periodLabel={periodLabelFor(icCell.key)}
+          context={`${entity} · ${weekLabelShort(week)}`}
+          rows={rowsOf(intercompany, icCell.key)}
+          cellValue={values[icCell.key] ?? 0}
+          flags={flagsForCell(icFlags, icCell.key)}
+          counterparties={counterparties}
+          editable={canEditIntercompany}
+          prefill={icCell.prefill}
+          viewer={currentUser().name}
+          viewerRole={threadRole}
+          onClose={() => setIcCell(null)}
+          onSave={saveIntercompany}
+          onReplyToFlag={replyToIntercompanyFlag}
+          onSettleFlag={settleIntercompanyFlag}
+        />
+      )}
 
       {/* Treasury and approvers ASK about a cell; the submitter EXPLAINS it.
           Two different jobs, so two dialogs — and the asking one is shared

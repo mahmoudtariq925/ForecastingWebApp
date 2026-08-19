@@ -5355,3 +5355,228 @@ thead th,
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+
+/* === INTERCOMPANY ==========================================================
+   Money moving between group companies. An intercompany cell is not a number
+   but a set of (amount, counterparty) rows, so it is opened rather than typed
+   into — the same treatment a cell with a question gets, and it borrows that
+   vocabulary deliberately: one grid, one set of signals.
+   ========================================================================= */
+
+/* The template builder's only intercompany control: a flag on a line, or on a
+   whole section as shorthand for its lines. */
+.ic-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.ic-toggle:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+.ic-toggle.on {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* An intercompany cell reads as a cell you open. The tint is the quietest of
+   the cell states — a flag or a question on the same cell still outranks it. */
+.forecast-grid td.cell.cell-intercompany {
+  box-shadow: inset 2px 0 0 var(--green);
+}
+.forecast-grid td.cell.cell-intercompany[role='button'] {
+  cursor: pointer;
+  font-weight: 600;
+}
+.forecast-grid td.cell.cell-intercompany[role='button']:hover {
+  box-shadow:
+    inset 2px 0 0 var(--green),
+    inset 0 0 0 2px var(--green);
+}
+.forecast-grid td.cell.cell-intercompany[role='button']:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+/* A mismatch outranks everything else the cell could be saying: somebody's
+   figures disagree with somebody else's. */
+.forecast-grid td.cell.cell-ic-flagged {
+  background: var(--red-soft);
+  box-shadow: inset 2px 0 0 var(--red);
+}
+
+/* The breakdown's own way in. Left-hand side, like the note button: the
+   figures are right-aligned, so anything sitting on the right sits ON the
+   number the cell exists to show. Where a cell carries both, this one steps
+   aside for the note button rather than stacking on top of it. */
+.cell-ic-btn {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+  background: var(--bg-elev);
+  border: 1px solid var(--green);
+  opacity: 0.75;
+  transition: opacity 0.12s ease;
+}
+button.cell-ic-btn {
+  cursor: pointer;
+}
+.forecast-grid td.cell:hover .cell-ic-btn,
+.forecast-grid td.cell:focus-within .cell-ic-btn,
+.cell-ic-btn:focus-visible {
+  opacity: 1;
+}
+.forecast-grid td.cell:has(.cell-note-btn) .cell-ic-btn {
+  left: 20px;
+}
+.cell-ic-btn.flagged {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--bg-elev);
+  font-weight: 700;
+  opacity: 1;
+}
+
+/* Collapsing a section hides the flagged cells inside it, so the band says so
+   — derived and styled exactly like the question count beside it. A section
+   that is both questioned and disputed shows the louder of the two. */
+.forecast-grid tr.section-row.section-ic-flagged > td.row-label,
+.forecast-grid th.day-h.section-ic-flagged {
+  box-shadow: inset 3px 0 0 var(--red);
+}
+.section-questions.section-ic-flags {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* ---- The breakdown dialog ---- */
+.ic-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ic-row {
+  display: grid;
+  /* Amount · counterparty · where a mirrored row came from · remove. The
+     source tag gets a column of its own so every select lines up whether or
+     not the row beside it carries one. */
+  grid-template-columns: 140px minmax(0, 1fr) auto 28px;
+  gap: 10px;
+  align-items: center;
+}
+.ic-row-head {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.ic-row-total {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+.ic-row-total .text-muted {
+  font-size: 12px;
+}
+.ic-amount {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.ic-party {
+  min-width: 0;
+}
+/* Where a mirrored figure came from — the whole point of the row. */
+.ic-source {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ic-row-mirrored .ic-amount {
+  border-color: var(--blue);
+}
+.ic-remove {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ic-remove:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+/* The reason a changed mirrored amount needs before it can be saved. */
+.ic-dispute-draft {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--red-soft);
+  border-left: 3px solid var(--red);
+}
+.ic-dispute-draft .form-textarea {
+  margin-bottom: 6px;
+}
+.ic-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.ic-flags {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.ic-flags-head {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--red);
+  letter-spacing: 0.02em;
+}
+.ic-flag {
+  border-left: 3px solid var(--red);
+}
+.ic-flag.settled {
+  border-left-color: var(--border-strong);
+  opacity: 0.75;
+}
