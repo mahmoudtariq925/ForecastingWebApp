@@ -376,7 +376,10 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     await notify({ tone: 'success', message: `${entity} forecast approved for ${weekLabel(week)}.` });
   };
 
-  /** Hand an approved forecast back to its submitter so they can change it. */
+  /**
+   * Hand a forecast back to its submitter so they can change it — the other
+   * half of the approver's decision, and the way back in after a sign-off.
+   */
   const returnForUpdate = async (entity: string) => {
     const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
     applyApprovalDecision(week, entity, templateId, 'rejected');
@@ -649,12 +652,20 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                             </button>
                             {/* The submitter's grid locks once they hand over,
                                 so this is their way back in when a figure has
-                                to change after you have signed it off. */}
-                            {r.status === 'approved' && (
+                                to change — whether you have signed it off or
+                                are looking at it for the first time. Offering
+                                it only after approval meant an approver who
+                                thought a forecast was wrong had to APPROVE it
+                                before they could send it back. */}
+                            {(r.status === 'approved' || awaitingDecision(r.status)) && (
                               <button
                                 className="btn btn-ghost"
                                 style={{ padding: '4px 10px', fontSize: 12 }}
-                                title="Send this forecast back to its submitter to change"
+                                title={
+                                  awaitingDecision(r.status)
+                                    ? 'Send this forecast back to its submitter instead of approving it'
+                                    : 'Send this forecast back to its submitter to change'
+                                }
                                 onClick={() => void returnForUpdate(r.entity)}
                               >
                                 Return for Update
@@ -730,9 +741,21 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           actions={
             preview.mode === 'approve' ? (
               previewDecidable && (
-                <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
-                  Approve Forecast
-                </button>
+                <>
+                  {/* Both halves of the decision, where the forecast is
+                      actually read. Offering only "Approve" meant the answer
+                      to "these numbers are wrong" was to approve them. */}
+                  <button
+                    className="btn btn-ghost"
+                    title="Send this forecast back to its submitter instead of approving it"
+                    onClick={() => void returnForUpdate(preview.entity)}
+                  >
+                    Return for Update
+                  </button>
+                  <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
+                    Approve Forecast
+                  </button>
+                </>
               )
             ) : (
               <>

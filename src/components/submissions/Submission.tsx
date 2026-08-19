@@ -63,6 +63,7 @@ import {
   templatesForEntity,
 } from '../../data/submissionService';
 import {
+  changedIntercompanyCells,
   counterpartyOptions,
   flagKey,
   flaggedCells,
@@ -71,6 +72,8 @@ import {
   rowsOf,
   rowsTotal,
   syncIntercompanyMirrors,
+  withIntercompanyTotals,
+  withOwnRowsFrom,
 } from '../../data/intercompanyService';
 import { currentUser } from '../../data/session';
 import { useDataVersion } from '../../data/useDataVersion';
@@ -372,6 +375,14 @@ interface EditState {
   comments: Record<string, string>;
   dayComments: Record<string, string>;
   startingBalance: number | null;
+  /**
+   * The counterparty breakdowns, because an intercompany cell's value IS its
+   * rows. Restoring the value alone left the cell showing a total nothing
+   * behind it added up to — and left the mirrored halves standing in the
+   * counterparties' forecasts, so the group stopped netting.
+   */
+  intercompany: Record<string, IntercompanyRow[]>;
+  intercompanyFlags: Record<string, IntercompanyFlag>;
 }
 
 /** Plenty for a working session; keeps the stack from growing unbounded. */
@@ -675,8 +686,10 @@ function SubmissionEditor({
       comments: { ...comments },
       dayComments: { ...dayComments },
       startingBalance,
+      intercompany: { ...intercompany },
+      intercompanyFlags: { ...icFlags },
     }),
-    [values, flags, comments, dayComments, startingBalance],
+    [values, flags, comments, dayComments, startingBalance, intercompany, icFlags],
   );
 
   /** Record the state a mutating action is about to replace. */
@@ -690,18 +703,29 @@ function SubmissionEditor({
   const applyState = (next: EditState) => {
     lastEditedCell.current = null;
     setRestoreVersion((n) => n + 1);
-    setValues(next.values);
+    // An intercompany cell's value is the sum of its rows, so the two are
+    // restored together and the totals recomputed from the rows rather than
+    // trusted from the snapshot.
+    const nextValues = withIntercompanyTotals(next.values, next.intercompany, template);
+    setValues(nextValues);
     setFlags(next.flags);
     setComments(next.comments);
     setDayComments(next.dayComments);
     setStartingBalance(next.startingBalance);
+    setIntercompany(next.intercompany);
+    setIcFlags(next.intercompanyFlags);
     persist({
-      values: next.values,
+      values: nextValues,
       flags: next.flags,
       comments: next.comments,
       dayComments: next.dayComments,
       startingBalance: next.startingBalance,
+      intercompany: next.intercompany,
+      intercompanyFlags: next.intercompanyFlags,
     });
+    // Undoing an intercompany entry has to withdraw the mirrored halves too,
+    // or the counterparties keep a figure this forecast no longer states.
+    remirror(intercompany, next.intercompany);
     setHistoryVersion((n) => n + 1);
   };
 
@@ -936,28 +960,51 @@ function SubmissionEditor({
     // Same treatment as undo: remount the cells so no in-progress text
     // lingers over the restored values.
     setRestoreVersion((n) => n + 1);
+    // The checkpoint carries the counterparty breakdowns too, so the
+    // intercompany cells go back with everything else — and their totals are
+    // recomputed from those rows rather than taken on trust.
     const restoredFlags = new Set(checkpoint.flags);
-    setValues(checkpoint.values);
+    const restoredIc = checkpoint.intercompany ?? {};
+    const restoredIcFlags = checkpoint.intercompanyFlags ?? {};
+    const restoredValues = withIntercompanyTotals(checkpoint.values, restoredIc, template);
+    setValues(restoredValues);
     setFlags(restoredFlags);
     setComments(checkpoint.comments ?? {});
     setDayComments(checkpoint.dayComments ?? {});
     setStartingBalance(checkpoint.startingBalance ?? null);
+    setIntercompany(restoredIc);
+    setIcFlags(restoredIcFlags);
     persist({
-      values: checkpoint.values,
+      values: restoredValues,
       flags: restoredFlags,
       comments: checkpoint.comments ?? {},
       dayComments: checkpoint.dayComments ?? {},
       startingBalance: checkpoint.startingBalance ?? null,
+      intercompany: restoredIc,
+      intercompanyFlags: restoredIcFlags,
     });
+    // Whatever this forecast no longer says about a counterparty has to stop
+    // standing in that counterparty's forecast.
+    remirror(intercompany, restoredIc);
   };
 
   const copyPrior = async () => {
     const prevKey = prevWeekKey(week);
-    const hasStored = loadSubmission(prevKey, entity, template.id) !== null;
+    const stored = loadSubmission(prevKey, entity, template.id);
+    const hasStored = stored !== null;
     pushUndo();
-    setValues({ ...prior });
+    // An intercompany cell is copied as its BREAKDOWN, not as a bare figure:
+    // copying the number alone left a total with no counterparties behind it.
+    // Only this entity's own rows travel — last week's mirrored rows are what
+    // OTHER entities said about a different period, and re-mirroring them
+    // would put words in their mouths for this one.
+    const nextIntercompany = withOwnRowsFrom(intercompany, stored?.intercompany);
+    const nextValues = withIntercompanyTotals({ ...prior }, nextIntercompany, template);
+    setValues(nextValues);
     setFlags(new Set());
-    persist({ values: { ...prior }, flags: new Set() });
+    setIntercompany(nextIntercompany);
+    persist({ values: nextValues, flags: new Set(), intercompany: nextIntercompany });
+    remirror(intercompany, nextIntercompany);
     lastEditedCell.current = null;
     await notify({
       tone: 'success',
@@ -1130,6 +1177,30 @@ function SubmissionEditor({
 
   const openIntercompany = (catIdx: number, dayIdx: number, prefill?: string) =>
     setIcCell({ key: cellKey(catIdx, dayIdx), prefill });
+
+  /**
+   * Push the mirrored halves out again for every cell whose rows changed.
+   *
+   * Restoring a breakdown wholesale — undo, redo, Reset, Copy Prior Forecast —
+   * is as much a statement about what this entity pays its counterparties as
+   * typing one is, so the counterparties' forecasts have to follow. Only the
+   * cells that actually moved are re-mirrored, so an undo stays instant on a
+   * template with forty intercompany cells.
+   */
+  const remirror = (
+    before: Record<string, IntercompanyRow[]>,
+    after: Record<string, IntercompanyRow[]>,
+  ) => {
+    for (const key of changedIntercompanyCells(before, after)) {
+      syncIntercompanyMirrors({
+        period: week,
+        entity,
+        template,
+        cellKey: key,
+        rows: after[key] ?? [],
+      });
+    }
+  };
 
   /**
    * Save one intercompany cell: its rows, the total they make, and the
@@ -1336,13 +1407,17 @@ function SubmissionEditor({
   const answering = isSubmitterView && openRequests.length > 0;
 
   /**
-   * Editable cells with no number in them yet. Subtotals are computed, so
-   * they never "need input"; a stored 0 is a real answer and counts as filled.
+   * Editable cells with no number in them yet. Subtotals are computed and
+   * intercompany cells are a breakdown rather than a figure, so neither ever
+   * "needs input"; a stored 0 is a real answer and counts as filled.
    */
   const emptyCells = useMemo(() => {
     const out = new Set<string>();
     template.categories.forEach((cat, catIdx) => {
-      if (cat.subtotal) return;
+      // Subtotals are computed, and an intercompany cell holds a breakdown
+      // rather than a number — see `submissionGaps`, which this must agree
+      // with or the gate and the spotlights would point at different cells.
+      if (cat.subtotal || cat.intercompany) return;
       for (let d = 0; d < numPeriods; d++) {
         const key = cellKey(catIdx, d);
         if (values[key] === undefined) out.add(key);

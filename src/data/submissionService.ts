@@ -475,12 +475,20 @@ export interface SubmissionGaps {
  * Pre-submit validation, shared by the Submission screen and the checklist's
  * preview modal so both agree on what "ready to submit" means. Subtotal rows
  * are computed and never count; a stored 0 is a real answer.
+ *
+ * Intercompany cells do not count either. They hold a counterparty breakdown
+ * rather than a number, and "nothing settled with a group company this
+ * period" is the ordinary case — there is nothing to type, and an empty
+ * breakdown saves nothing, so every one of them read as an unfilled gap that
+ * could not be filled. On the standard template that put forty red cells and
+ * a "40 cells still need a number" gate in front of every submission, with
+ * "Submit Anyway" the only way past.
  */
 export function submissionGaps(sub: Submission, template: ForecastTemplate): SubmissionGaps {
   const periods = periodsOf(template).count;
   const emptyCells: string[] = [];
   template.categories.forEach((cat, catIdx) => {
-    if (cat.subtotal) return;
+    if (cat.subtotal || cat.intercompany) return;
     for (let d = 0; d < periods; d++) {
       if (sub.values[`${catIdx}-${d}`] === undefined) emptyCells.push(`${catIdx}-${d}`);
     }

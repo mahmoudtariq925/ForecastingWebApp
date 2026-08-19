@@ -68,6 +68,74 @@ export function rowsTotal(rows: IntercompanyRow[]): number {
 export const isOwnRow = (row: IntercompanyRow): boolean => !row.source;
 
 /**
+ * Bring every intercompany cell's VALUE back in line with its rows.
+ *
+ * The cell is the sum of its rows and nothing else, so any operation that
+ * restores `values` wholesale — undo, Reset, Copy Prior Forecast — has to run
+ * this or it leaves a total that nothing behind it adds up to.
+ */
+export function withIntercompanyTotals(
+  values: Record<string, number>,
+  intercompany: Record<string, IntercompanyRow[]>,
+  template: ForecastTemplate,
+): Record<string, number> {
+  const next = { ...values };
+  for (const key of intercompanyCells(template)) {
+    const rows = intercompany[key] ?? [];
+    if (rows.length === 0) delete next[key];
+    else next[key] = rowsTotal(rows);
+  }
+  return next;
+}
+
+/**
+ * Which cells' rows differ between two breakdowns — the cells whose mirrors
+ * have to be pushed out again. Restoring a snapshot usually touches one cell,
+ * so re-mirroring only what changed keeps undo instant.
+ */
+export function changedIntercompanyCells(
+  before: Record<string, IntercompanyRow[]> | undefined,
+  after: Record<string, IntercompanyRow[]> | undefined,
+): string[] {
+  const a = before ?? {};
+  const b = after ?? {};
+  const fingerprint = (rows: IntercompanyRow[] = []) =>
+    JSON.stringify(
+      rows.map((r) => [r.id, r.counterparty, r.amount, r.source ?? '', r.sourceAmount ?? '']),
+    );
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].filter((k) => fingerprint(a[k]) !== fingerprint(b[k]));
+}
+
+/**
+ * This entity's OWN rows taken from another forecast, keeping whatever has
+ * been mirrored in here.
+ *
+ * Copying a prior week copies what this entity said it would pay; it must not
+ * copy what OTHER entities said last week, because those figures are their
+ * statements about a different period — and re-mirroring them would put words
+ * in their mouths for this one. Mirrors already received for this week are
+ * facts and stay.
+ */
+export function withOwnRowsFrom(
+  current: Record<string, IntercompanyRow[]> | undefined,
+  source: Record<string, IntercompanyRow[]> | undefined,
+): Record<string, IntercompanyRow[]> {
+  const out: Record<string, IntercompanyRow[]> = {};
+  const keys = new Set([...Object.keys(current ?? {}), ...Object.keys(source ?? {})]);
+  for (const key of keys) {
+    const mirrored = (current?.[key] ?? []).filter((r) => !isOwnRow(r));
+    const own = (source?.[key] ?? []).filter(isOwnRow);
+    // A copied row is a new row on this forecast, so it needs an id of its
+    // own — sharing the source week's would make one edit rewrite both.
+    const copied = own.map((r) => ({ ...r, id: `${r.id}:copy` }));
+    const rows = [...mirrored, ...copied];
+    if (rows.length > 0) out[key] = rows;
+  }
+  return out;
+}
+
+/**
  * A mirrored row the receiving side has changed. The deviation is derived
  * from the row, never stored as a number of its own.
  */
