@@ -422,9 +422,31 @@ export function syncIntercompanyMirrors(args: SyncMirrorsArgs): MirrorOutcome[] 
     const liveRowIds = new Set(
       Object.values(nextIntercompany).flatMap((cellRows) => cellRows.map((r) => r.id)),
     );
+    const stamp = new Date().toISOString();
     const nextFlags = Object.fromEntries(
       Object.entries(submission.intercompanyFlags ?? {}).map(([key, flag]) => {
-        if (!liveRowIds.has(flag.rowId)) return [key, null];
+        // The figure the disagreement was about has been withdrawn. That
+        // settles it — it does not delete it: two entities argued about a
+        // number, and why they disagreed is worth keeping once the number is
+        // gone. Erasing the thread took the record with it and left the
+        // receiving side unable to see what had happened.
+        if (!liveRowIds.has(flag.rowId)) {
+          if (flag.settledAt) return [key, flag];
+          const withdrawn: ThreadMessage = {
+            from: entity,
+            role: 'submitter',
+            text: `${entity} withdrew this figure, so there is nothing left to reconcile.`,
+            at: stamp,
+          };
+          return [
+            key,
+            {
+              ...flag,
+              settledAt: stamp,
+              replies: [...(flag.replies ?? []), withdrawn],
+            } satisfies IntercompanyFlag,
+          ];
+        }
         const fresh = incoming.find((r) => r.id === flag.rowId);
         const restated = fresh?.sourceAmount;
         // The originator moved their figure while a dispute was open: the
@@ -434,7 +456,7 @@ export function syncIntercompanyMirrors(args: SyncMirrorsArgs): MirrorOutcome[] 
           from: entity,
           role: 'submitter',
           text: `${entity} changed their figure to ${restated.toLocaleString()}k.`,
-          at: new Date().toISOString(),
+          at: stamp,
         };
         return [
           key,
@@ -451,10 +473,8 @@ export function syncIntercompanyMirrors(args: SyncMirrorsArgs): MirrorOutcome[] 
       ...submission,
       values,
       intercompany: nextIntercompany,
-      intercompanyFlags: Object.fromEntries(
-        Object.entries(nextFlags).filter(([, flag]) => flag !== null),
-      ) as Record<string, IntercompanyFlag>,
-      updatedAt: new Date().toISOString(),
+      intercompanyFlags: nextFlags as Record<string, IntercompanyFlag>,
+      updatedAt: stamp,
     });
     outcomes.push({
       counterparty,

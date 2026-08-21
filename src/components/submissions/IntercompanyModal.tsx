@@ -49,7 +49,11 @@ interface IntercompanyModalProps {
   viewerRole: ThreadRole;
   onClose: () => void;
   /** Save the rows, together with any mismatch raised in the same breath. */
-  onSave: (rows: IntercompanyRow[], disputes: DisputeDraft[]) => void;
+  /**
+   * `agreed` names the mirrored rows that now match what the other side
+   * stated — whatever mismatch was open on them is over.
+   */
+  onSave: (rows: IntercompanyRow[], disputes: DisputeDraft[], agreed: string[]) => void;
   onReplyToFlag: (key: string, text: string) => void;
   onSettleFlag: (key: string) => void;
 }
@@ -155,9 +159,21 @@ export function IntercompanyModal({
     [draft],
   );
 
-  /** A mirrored row whose amount has been changed here — a disagreement. */
-  const isChangedMirror = (row: DraftRow): boolean =>
-    row.source !== undefined && amountOf(row) !== row.storedAmount;
+  /**
+   * A mirrored row whose amount does not match what the originating entity
+   * stated. Measured against THEIR figure, not against what this cell held a
+   * moment ago: putting a figure back as it arrived is agreement, and asking
+   * somebody to justify agreeing — then leaving the cell flagged afterwards —
+   * made a settled disagreement impossible to close from this side.
+   */
+  const disagreesWithSource = (row: DraftRow): boolean =>
+    row.source !== undefined && amountOf(row) !== (row.sourceAmount ?? row.storedAmount);
+
+  /** Changed in this sitting, as opposed to arriving that way. */
+  const touched = (row: DraftRow): boolean => amountOf(row) !== row.storedAmount;
+
+  /** A change that needs explaining: it leaves the two sides disagreeing. */
+  const isChangedMirror = (row: DraftRow): boolean => touched(row) && disagreesWithSource(row);
 
   const setRow = (id: string, patch: Partial<DraftRow>) =>
     setDraft((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -216,7 +232,13 @@ export function IntercompanyModal({
       amount: amountOf(r),
       reason: reasons[r.id]?.trim() ?? '',
     }));
-    onSave(nextRows, disputes);
+    // Rows that now carry exactly what the other side stated. Any mismatch
+    // open on one of these is over — the two forecasts agree — so it settles
+    // rather than sitting on the cell as an exclamation nobody can clear.
+    const agreed = cleaned
+      .filter((r) => r.source !== undefined && !disagreesWithSource(r))
+      .map((r) => r.id);
+    onSave(nextRows, disputes, agreed);
   };
 
   const incoming = draft.filter((r) => r.source);

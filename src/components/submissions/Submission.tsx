@@ -1206,7 +1206,11 @@ function SubmissionEditor({
    * Save one intercompany cell: its rows, the total they make, and the
    * mirrored halves that belong in the counterparties' forecasts.
    */
-  const saveIntercompany = (rows: IntercompanyRow[], disputes: DisputeDraft[]) => {
+  const saveIntercompany = (
+    rows: IntercompanyRow[],
+    disputes: DisputeDraft[],
+    agreed: string[],
+  ) => {
     if (!icCell) return;
     const key = icCell.key;
     const now = new Date().toISOString();
@@ -1258,12 +1262,38 @@ function SubmissionEditor({
             requestedAt: now,
           };
     }
-    // A mismatch about a row that no longer exists has nothing to be about.
+    // …and a row put back as the other side stated it is agreement. The
+    // mismatch is over: the flag clears, and the conversation that produced
+    // it stays readable rather than being deleted along with the disagreement.
+    for (const rowId of agreed) {
+      const fk = flagKey(key, rowId);
+      const flag = nextIcFlags[fk];
+      if (!flag || flag.settledAt) continue;
+      nextIcFlags[fk] = {
+        ...flag,
+        settledAt: now,
+        replies: [
+          ...(flag.replies ?? []),
+          {
+            from: currentUser().name,
+            role: threadRole,
+            text: `${entity} now carries ${flag.sourceAmount.toLocaleString()}k, as ${flag.source} stated. Settled.`,
+            at: now,
+          },
+        ],
+      };
+    }
+    // A mismatch whose row has gone is settled, not erased — see
+    // `syncIntercompanyMirrors`, which does the same when the ORIGINATOR
+    // withdraws a figure. What was disagreed about, and why, is worth keeping.
     const liveRows = new Set(rows.map((r) => r.id));
     const prunedFlags = Object.fromEntries(
-      Object.entries(nextIcFlags).filter(
-        ([, flag]) => flag.cellKey !== key || liveRows.has(flag.rowId),
-      ),
+      Object.entries(nextIcFlags).map(([fk, flag]) => {
+        if (flag.cellKey !== key || liveRows.has(flag.rowId) || flag.settledAt) {
+          return [fk, flag];
+        }
+        return [fk, { ...flag, settledAt: now } satisfies IntercompanyFlag];
+      }),
     );
 
     setIntercompany(nextIntercompany);
