@@ -376,7 +376,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     await notify({ tone: 'success', message: `${entity} forecast approved for ${weekLabel(week)}.` });
   };
 
-  /** Hand an approved forecast back to its submitter so they can change it. */
+  /**
+   * Hand an APPROVED forecast back to its submitter so they can change it.
+   *
+   * Not a way of answering a doubt about a figure — that is a question on the
+   * cell, which leaves the forecast where it is while the answer comes back.
+   * This is for after the sign-off, when the submitter's grid is locked and a
+   * number nevertheless has to move.
+   */
   const returnForUpdate = async (entity: string) => {
     const templateId = templateForEntity(loadTemplates(), entity)?.id ?? '';
     applyApprovalDecision(week, entity, templateId, 'rejected');
@@ -647,9 +654,18 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                             >
                               {awaitingDecision(r.status) ? 'Review & Approve' : 'View Forecast'}
                             </button>
-                            {/* The submitter's grid locks once they hand over,
-                                so this is their way back in when a figure has
-                                to change after you have signed it off. */}
+                            {/* Only AFTER a sign-off. A forecast still waiting
+                                on a decision is queried, not returned: an
+                                approver who doubts a number asks about that
+                                cell, exactly as treasury does, and the figures
+                                stay where they are while the answer comes
+                                back. Handing the whole forecast back over one
+                                number makes a submitter resubmit a week of
+                                work to answer a question.
+
+                                Once it is approved the submitter's grid is
+                                locked, so this is their way back in when a
+                                figure has to change after the event. */}
                             {r.status === 'approved' && (
                               <button
                                 className="btn btn-ghost"
@@ -729,6 +745,9 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           canRequestComments={preview.mode === 'approve' && permissions.canRequestCommentary}
           actions={
             preview.mode === 'approve' ? (
+              // Approve, or ask. A doubt about a number is a question on that
+              // cell — which is what clicking one here does — not a reason to
+              // hand a week of work back and make it be submitted again.
               previewDecidable && (
                 <button className="btn btn-success" onClick={() => void approveNow(preview.entity)}>
                   Approve Forecast

@@ -601,7 +601,15 @@ function NumberCell({
       }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
-          // Abandon the edit: put the cell back exactly as it was found.
+          // Escape abandons an edit IN PROGRESS. With no draft there is no
+          // edit to abandon, and `committedBefore` is then stale — it is only
+          // refreshed when typing starts, so anything that changed the value
+          // by another route (a paste, an undo, a figure corrected in the
+          // dialog) left it holding a figure from before that change.
+          // Restoring it regardless is how pressing Escape after pasting a
+          // block put the pre-paste number back into the cell the paste
+          // started from, silently corrupting one corner of the block.
+          if (draft === null) return;
           e.preventDefault();
           e.stopPropagation();
           setDraft(null);
