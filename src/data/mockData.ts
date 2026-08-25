@@ -203,13 +203,12 @@ export const standardCategories: TemplateCategory[] = [
   { label: 'Salaries', group: 'Payroll' },
   { label: 'Social Securities', group: 'Payroll' },
   { label: 'CAPEX' },
-  // The two entity-specific lines name their counterparty in the label, so
-  // they stay plain numbers. The generic pair is where intercompany
-  // settlements with ANY group company land, which is exactly the line the
-  // counterparty breakdown exists for — an amount there is split across the
-  // entities it moves to, and each share appears in that entity's forecast.
-  { label: 'IC Inflows - NL', group: 'IC Settlements' },
-  { label: 'IC Outflows - NL', group: 'IC Settlements' },
+  // An intercompany SECTION: the rows a submitter adds under it name a group
+  // company, and each amount appears in that company's own forecast. The two
+  // lines are the section's own totals in and out — a counterparty never
+  // belongs in a template label ("IC Inflows - NL" made one country's
+  // relationship part of every country's template), it belongs on the row the
+  // submitter adds.
   { label: 'IC Inflows', group: 'IC Settlements', intercompany: true },
   { label: 'IC Outflows', group: 'IC Settlements', intercompany: true },
   { label: 'Other' },
@@ -242,8 +241,6 @@ export const lineItemConfigs: LineItemConfig[] = [
   { label: 'Salaries', baseMin: -800, baseMax: -300, payday: true },
   { label: 'Social Securities', baseMin: -300, baseMax: -80, payday: true },
   { label: 'CAPEX', baseMin: -300, baseMax: 0 },
-  { label: 'IC Inflows - NL', baseMin: 200, baseMax: 600 },
-  { label: 'IC Outflows - NL', baseMin: -400, baseMax: 0 },
   { label: 'IC Inflows', baseMin: 100, baseMax: 400 },
   { label: 'IC Outflows', baseMin: -300, baseMax: 0 },
   { label: 'Other', baseMin: -100, baseMax: 150 },

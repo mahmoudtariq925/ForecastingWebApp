@@ -12,7 +12,14 @@
 // The answers live here rather than in the screen, so the modals and the page
 // can never disagree, and the whole lot moves behind an API untouched.
 // ============================================================================
-import type { Cycle, Entity, ForecastTemplate, Settings, SubmissionStatus } from '../types';
+import type {
+  Cycle,
+  Entity,
+  ForecastTemplate,
+  Settings,
+  Submission,
+  SubmissionStatus,
+} from '../types';
 import { cycleSummary, type CycleSummary } from './cycleService';
 import { listEntities } from './appData';
 import { periodsOf } from './periods';
@@ -31,6 +38,7 @@ import {
 import { loadApprovals, loadTemplates, type ApprovalMap } from '../storage/localStorage';
 import { activeCycleId } from './submissionService';
 import { dayInflows, dayNet, dayOutflows } from '../components/submissions/gridMath';
+import { customRowsOf, gridCatCount } from './customRows';
 
 /**
  * One country's line in the cycle-progress and approval views.
@@ -57,6 +65,42 @@ export interface RegionProgress {
   received: number;
   /** Countries submitted but not yet approved. */
   awaiting: number;
+}
+
+/**
+ * One entity's line-item sums, keyed by label — the shape every cross-entity
+ * rollup matches on, because entities can be on different templates.
+ *
+ * The rows a SUBMITTER added are folded into their section, onto its first
+ * input line. "Customer A" is one country's way of splitting its receivables,
+ * not a line of the group's forecast; what the group needs is the money, and
+ * the money belongs to the section. Consolidation does exactly the same thing
+ * (see `consolidatedValues`), so the two agree.
+ */
+function sumsByLabel(
+  template: ForecastTemplate,
+  sub: Submission,
+  selection: number[],
+): Map<string, number> {
+  const byLabel = new Map<string, number>();
+  const add = (label: string, value: number) => {
+    const key = label.trim().toLowerCase();
+    byLabel.set(key, (byLabel.get(key) ?? 0) + value);
+  };
+  const sectionLine = new Map<string, string>();
+  template.categories.forEach((cat, catIdx) => {
+    if (cat.subtotal) return;
+    if (cat.group && !sectionLine.has(cat.group.trim().toLowerCase())) {
+      sectionLine.set(cat.group.trim().toLowerCase(), cat.label);
+    }
+    add(cat.label, categorySum(sub.values, catIdx, selection));
+  });
+  customRowsOf(sub).forEach((row, i) => {
+    const target = sectionLine.get(row.section.trim().toLowerCase());
+    if (target === undefined) return;
+    add(target, categorySum(sub.values, template.categories.length + i, selection));
+  });
+  return byLabel;
 }
 
 /**
@@ -353,7 +397,9 @@ export function consolidatedReport(
   const perEntity = reportedEntities(week, onlyEntities).map((e) => {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
-    const cats = template.categories.length;
+    // The entity's own rows are part of its forecast, so they are part of its
+    // totals — `gridCatCount` is what the grid itself sums over.
+    const cats = gridCatCount(template, sub);
     let inflows = 0;
     let outflows = 0;
     let net = 0;
@@ -364,12 +410,7 @@ export function consolidatedReport(
     }
     // Line items are matched by LABEL, exactly like the consolidation itself,
     // so an entity on another template still lands on the right row.
-    const byLabel = new Map<string, number>();
-    template.categories.forEach((cat, catIdx) => {
-      if (cat.subtotal) return;
-      const key = cat.label.trim().toLowerCase();
-      byLabel.set(key, (byLabel.get(key) ?? 0) + categorySum(sub.values, catIdx, selection));
-    });
+    const byLabel = sumsByLabel(template, sub, selection);
     return { entity: e.name, inflows, outflows, net, byLabel };
   });
 
@@ -491,7 +532,7 @@ export function dayContributions(
     const settings = settingsForEntity(entity.name, base);
     const sub = peekSubmission(entity.name, week, template);
     const prior = getPriorValues(entity.name, week, template);
-    const cats = template.categories.length;
+    const cats = gridCatCount(template, sub);
 
     const net = dayNet(cats, sub.values, dayIdx);
     // The prior forecast's view of the SAME calendar day (horizons roll).
@@ -589,13 +630,7 @@ export function categoryCountryMatrix(
   for (const e of entities) {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
-    const byLabel = new Map<string, number>();
-    template.categories.forEach((cat, catIdx) => {
-      if (cat.subtotal) return;
-      const key = cat.label.trim().toLowerCase();
-      byLabel.set(key, (byLabel.get(key) ?? 0) + categorySum(sub.values, catIdx, selection));
-    });
-    perCountry.set(e.name, byLabel);
+    perCountry.set(e.name, sumsByLabel(template, sub, selection));
   }
 
   const countryTotals: Record<string, number> = {};

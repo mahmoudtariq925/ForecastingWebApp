@@ -3,6 +3,7 @@ import { Modal } from '../common/Modal';
 import { StatusPill } from '../common/StatusPill';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
+import { customRowsOf, gridCategories } from '../../data/customRows';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
 import { categoryGroups, cellKey, dayNet, runningBalance } from './gridMath';
 import { useDataVersion } from '../../data/useDataVersion';
@@ -98,14 +99,19 @@ export function ForecastPreviewModal({
       prev.includes(key) ? prev.filter((w) => w !== key) : [...prev, key],
     );
 
+  // The forecast's own lines, the submitter's added rows included — read the
+  // template alone and a preview would show a different total from the grid
+  // it is previewing.
+  const gridCats = useMemo(
+    () => (template ? gridCategories(template, customRowsOf(submission)) : []),
+    [template, submission],
+  );
   const sections = useMemo(
     () =>
-      template
-        ? categoryGroups(template.categories)
-            .map((g, gi) => (g.label ? gi : -1))
-            .filter((gi) => gi >= 0)
-        : [],
-    [template],
+      categoryGroups(gridCats)
+        .map((g, gi) => (g.label ? gi : -1))
+        .filter((gi) => gi >= 0),
+    [gridCats],
   );
   const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set(sections));
   const toggleGroup = (gi: number) =>
@@ -125,14 +131,12 @@ export function ForecastPreviewModal({
 
   const askCell = (catIdx: number, dayIdx: number) => {
     // Expand the section first, so closing the dialog leaves the cell in view.
-    const gi = template
-      ? categoryGroups(template.categories).findIndex((g) => g.idxs.includes(catIdx))
-      : -1;
+    const gi = categoryGroups(gridCats).findIndex((g) => g.idxs.includes(catIdx));
     if (gi >= 0) setCollapsed((prev) => (prev.has(gi) ? new Set([...prev].filter((g) => g !== gi)) : prev));
     setAsking(cellKey(catIdx, dayIdx));
   };
 
-  const numCats = template?.categories.length ?? 0;
+  const numCats = gridCats.length;
   const values = submission?.values ?? {};
   const requests = submission?.commentRequests ?? {};
   /** Questions still waiting on the submitter — an answered one is history. */
@@ -174,7 +178,7 @@ export function ForecastPreviewModal({
       week,
       templateId: template.id,
       cellKey: asking,
-      label: template.categories[c]?.label ?? `Line ${c + 1}`,
+      label: gridCats[c]?.label ?? `Line ${c + 1}`,
       periodLabel: dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`,
       current: values[asking] ?? 0,
       prior: priorValueFor(prior, c, d, template),
@@ -268,7 +272,7 @@ export function ForecastPreviewModal({
             ))}
             <div className="forecast-grid-wrap preview-grid">
               <ForecastGrid
-                categories={template.categories}
+                categories={gridCats}
                 layout={template.layout}
                 dayLabels={dayLabels}
                 values={values}

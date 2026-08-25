@@ -139,16 +139,43 @@ export interface CategoryGroup {
 }
 
 /**
- * Consecutive runs of categories sharing the same group band, in template
- * order — drives section rows (days-across) and header bands (grouped).
+ * The sections of a forecast, in template order — section rows in the
+ * days-across layout, header bands in the grouped one.
+ *
+ * A NAMED section gathers every line that carries its label, wherever the
+ * line sits in the array. That is what lets a submitter's own rows be
+ * APPENDED to the categories (which keeps every existing cell key meaning
+ * what it meant) and still render inside the section they were added under.
+ * Unnamed lines keep their consecutive runs — they have no name to be
+ * gathered by.
+ *
+ * A section's computed subtotal always sorts to the end of it, so a row added
+ * to a section lands above its total rather than below it.
  */
 export function categoryGroups(categories: TemplateCategory[]): CategoryGroup[] {
   const out: CategoryGroup[] = [];
+  const byLabel = new Map<string, CategoryGroup>();
   categories.forEach((cat, i) => {
+    if (cat.group) {
+      const key = cat.group.trim().toLowerCase();
+      let group = byLabel.get(key);
+      if (!group) {
+        group = { label: cat.group, idxs: [] };
+        byLabel.set(key, group);
+        out.push(group);
+      }
+      group.idxs.push(i);
+      return;
+    }
     const last = out[out.length - 1];
-    if (last && last.label === cat.group) last.idxs.push(i);
-    else out.push({ label: cat.group, idxs: [i] });
+    if (last && last.label === undefined) last.idxs.push(i);
+    else out.push({ label: undefined, idxs: [i] });
   });
+  for (const group of out) {
+    const items = group.idxs.filter((i) => !categories[i]?.subtotal);
+    const totals = group.idxs.filter((i) => categories[i]?.subtotal);
+    group.idxs = [...items, ...totals];
+  }
   return out;
 }
 
@@ -240,6 +267,19 @@ export function subtotalValue(
   const target = categories[catIdx];
   if (!target?.subtotal) return 0;
   let sum = 0;
+  // A section's total is the section, all of it: its template lines and the
+  // rows the submitter added under it, wherever those sit in the array.
+  // Walking backwards would stop at the last template line and leave every
+  // added row out of the total it is part of.
+  if (target.group) {
+    const key = target.group.trim().toLowerCase();
+    categories.forEach((cat, i) => {
+      if (cat.subtotal || !cat.group) return;
+      if (cat.group.trim().toLowerCase() !== key) return;
+      sum += catValue(values, i, dayIdx);
+    });
+    return sum;
+  }
   for (let i = catIdx - 1; i >= 0; i--) {
     const cat = categories[i];
     if (!cat) break;

@@ -360,35 +360,34 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
   };
 
   /**
-   * Mark a line — or a whole section — as settled between group companies.
+   * Mark a SECTION as settled between group companies.
    *
-   * This is the entire intercompany decision a template makes. No extra
-   * column and no counterparty picker belong here: WHO the money moves to is
-   * a property of the amount a submitter enters, and it is chosen on the cell.
-   * A section is shorthand for every line item inside it.
+   * This is the entire intercompany decision a template makes, and it is made
+   * once per section rather than line by line. What it changes is the rows a
+   * submitter may add under that section: everywhere else they name their own
+   * rows, and here each row IS a legal entity picked from the master data, so
+   * the amount reaches that entity's forecast and the group nets to zero.
+   *
+   * A line item has no toggle of its own — an intercompany line with no
+   * counterparty rows under it was a figure that could never be mirrored, and
+   * a section is where the rows live.
    */
   const IntercompanyToggle = ({ index }: { index: number }) => {
     const row = rows[index];
-    if (!row || row.kind === 'subtotal') return null;
-    const isSection = row.kind === 'section';
-    const on = isSection ? sectionIsIntercompany(rows, index) : row.intercompany === true;
-    const what = isSection ? 'every line in this section' : 'this line';
+    if (!row || row.kind !== 'section') return null;
+    const on = sectionIsIntercompany(rows, index);
     return (
       <button
         type="button"
         className={`ic-toggle${on ? ' on' : ''}`}
         aria-pressed={on}
-        aria-label={`Intercompany: ${row.label || (isSection ? 'section' : 'line item')}`}
+        aria-label={`Intercompany section: ${row.label || 'section'}`}
         title={
           on
-            ? `Intercompany — submitters split ${what} across counterparties, and the amounts mirror into their forecasts. Click to turn off.`
-            : `Mark ${what} as intercompany: submitters then split the amount across counterparties instead of typing one number.`
+            ? 'Intercompany — rows added under this section are legal entities, and each amount appears in that entity\u2019s own forecast. Click to turn off.'
+            : 'Mark this section as intercompany: submitters then add rows that name a group company, instead of naming the rows themselves.'
         }
-        onClick={() =>
-          isSection
-            ? setRows((prev) => withSectionIntercompany(prev, index, !on))
-            : updateRow(row.id, { intercompany: !on })
-        }
+        onClick={() => setRows((prev) => withSectionIntercompany(prev, index, !on))}
       >
         <span aria-hidden="true">⇄</span>
         IC
@@ -833,11 +832,12 @@ export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorPro
                 </div>
                 <div className="grid-info">
                   <span className="text-muted">
-                    Subtotals sum the line items above them within their section — they are
-                    computed, never typed. <strong>⇄ IC</strong> marks a line (or a whole
-                    section) as intercompany: submitters split the amount across group
-                    counterparties, and each amount appears in that counterparty's own
-                    forecast.
+                    Subtotals sum the line items in their section — they are computed, never
+                    typed. Submitters can add their own rows under any section as they fill
+                    the forecast in, and those rows are summed into it.{' '}
+                    <strong>⇄ IC</strong> marks a section as intercompany: the rows added
+                    under it name a group company rather than being freely named, and each
+                    amount appears in that company's own forecast.
                   </span>
                 </div>
               </div>

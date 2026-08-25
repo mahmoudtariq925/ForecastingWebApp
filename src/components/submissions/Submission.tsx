@@ -9,7 +9,6 @@ import { QuestionStrip } from './QuestionStrip';
 import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
-import { IntercompanyModal, type DisputeDraft } from './IntercompanyModal';
 import {
   categoryGroups,
   cellKey,
@@ -62,19 +61,29 @@ import {
   settingsForEntity,
   templatesForEntity,
 } from '../../data/submissionService';
+import { mirrorFingerprint, mirrorProblem, syncMirrors } from '../../data/intercompanyService';
 import {
-  changedIntercompanyCells,
-  counterpartyOptions,
-  flagKey,
-  flaggedCells,
-  flagsForCell,
-  mirrorProblem,
-  rowsOf,
-  rowsTotal,
-  syncIntercompanyMirrors,
-  withIntercompanyTotals,
-  withOwnRowsFrom,
-} from '../../data/intercompanyService';
+  customRowsOf,
+  entityOptions,
+  gridCatCount,
+  gridCategories,
+  isOwnRow,
+  makeCustomRow,
+  priorRowIndex,
+  readingOrder,
+  remapKeySet,
+  remapRecord,
+  remapRowKey,
+  rowValues,
+  withRowValues,
+} from '../../data/customRows';
+import { useDebounced } from './heatmap';
+import {
+  FORMATTING_OPTIONS,
+  loadConditionalFormatting,
+  saveConditionalFormatting,
+  type ConditionalFormatting,
+} from '../../data/viewPreferences';
 import { currentUser } from '../../data/session';
 import { useDataVersion } from '../../data/useDataVersion';
 import {
@@ -91,13 +100,11 @@ import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { ViewId } from '../../types/nav';
 import type {
   CommentRequest,
+  CustomRow,
   ForecastQuestion,
   ForecastTemplate,
-  IntercompanyFlag,
-  IntercompanyRow,
   SubmissionStatus,
   TemplateLayout,
-  ThreadRole,
 } from '../../types';
 
 /** Deep-link target used by the Review / Approvals screens. */
@@ -376,13 +383,11 @@ interface EditState {
   dayComments: Record<string, string>;
   startingBalance: number | null;
   /**
-   * The counterparty breakdowns, because an intercompany cell's value IS its
-   * rows. Restoring the value alone left the cell showing a total nothing
-   * behind it added up to — and left the mirrored halves standing in the
-   * counterparties' forecasts, so the group stopped netting.
+   * The rows the submitter added, because their figures are addressed BY
+   * their position in this list. Restoring the values without the rows would
+   * leave a column of numbers belonging to rows that are no longer there.
    */
-  intercompany: Record<string, IntercompanyRow[]>;
-  intercompanyFlags: Record<string, IntercompanyFlag>;
+  customRows: CustomRow[];
 }
 
 /** Plenty for a working session; keeps the stack from growing unbounded. */
@@ -446,6 +451,7 @@ function SubmissionEditor({
   const dates = useMemo(() => templateDates(template, week), [template, week]);
   const dayLabels = useMemo(() => templateDayLabels(template, week), [template, week]);
   const numPeriods = dates.length;
+  /** Lines the TEMPLATE defines. The grid can hold more — see `gridCats`. */
   const numCats = template.categories.length;
 
   const prior = useMemo(() => getPriorValues(entity, week, template), [entity, week, template]);
@@ -489,19 +495,13 @@ function SubmissionEditor({
     initial.commentRequests ?? {},
   );
   /**
-   * The counterparty breakdown behind every intercompany cell. The cell's
-   * value in `values` is always the sum of its rows, so the grid, the chart
-   * and every aggregate downstream carry on knowing nothing about them.
+   * The rows this submitter added under the template's sections — their own
+   * customers, their own counterparties. Their figures live in `values` like
+   * everything else, so nothing below this line has to know they are here.
    */
-  const [intercompany, setIntercompany] = useState<Record<string, IntercompanyRow[]>>(
-    initial.intercompany ?? {},
-  );
-  /** Mismatches raised here on figures another entity mirrored in. */
-  const [icFlags, setIcFlags] = useState<Record<string, IntercompanyFlag>>(
-    initial.intercompanyFlags ?? {},
-  );
-  /** The intercompany cell whose breakdown is open, and the digit that opened it. */
-  const [icCell, setIcCell] = useState<{ key: string; prefill?: string } | null>(null);
+  const [rows, setRows] = useState<CustomRow[]>(customRowsOf(initial));
+  /** Every line the grid shows: the template's, then the submitter's own. */
+  const gridCats = useMemo(() => gridCategories(template, rows), [template, rows]);
   /** Who asked the most recent question on this forecast, if anyone has. */
   const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
     initial.questionedBy,
@@ -599,21 +599,29 @@ function SubmissionEditor({
   // Text held while the starting balance is being typed (see NumberCell).
   const [balanceDraft, setBalanceDraft] = useState<string | null>(null);
   /**
-   * What the conditional formatting measures a cell against: its own line
-   * ("is this a big week for receivables?") or the whole forecast ("where is
-   * the money at all?"). A view preference, so it is not persisted.
+   * What the conditional formatting measures a cell against — its own line,
+   * the whole forecast, or nothing at all.
+   *
+   * A view preference rather than a property of the forecast, so it is kept
+   * per browser: a reader who works in the numbers and turns the shading off
+   * means it, and having to turn it off again on every forecast they open is
+   * how a setting becomes an annoyance.
    */
-  const [heatScope, setHeatScope] = useState<'row' | 'grid'>('row');
+  const [heatMode, setHeatMode] = useState<ConditionalFormatting>(loadConditionalFormatting);
+  const chooseHeatMode = (mode: ConditionalFormatting) => {
+    setHeatMode(mode);
+    saveConditionalFormatting(mode);
+  };
 
   // Sections start collapsed for anyone who came to READ the forecast —
   // treasury, approvers, viewers — because the shape is the point and every
   // line item is noise. Whoever is entering the numbers needs them open.
   const sections = useMemo(
     () =>
-      categoryGroups(template.categories)
+      categoryGroups(gridCats)
         .map((g, gi) => (g.label ? gi : -1))
         .filter((gi) => gi >= 0),
-    [template],
+    [gridCats],
   );
   /**
    * Sections that hold no figures at all, and have nothing waiting on anyone.
@@ -626,12 +634,16 @@ function SubmissionEditor({
    * because that is the one thing worth scrolling to.
    */
   const emptySections = useMemo(() => {
-    const groups = categoryGroups(template.categories);
+    // Read against the forecast AS STORED, rows and all: a section whose only
+    // figures are on rows the submitter added is not an empty section.
+    const opened = gridCategories(template, customRowsOf(initial));
+    const groups = categoryGroups(opened);
     if (!hasAnyValue(initial.values)) return [];
     const marked = new Set([...initial.flags, ...Object.keys(initial.commentRequests ?? {})]);
     return sections.filter((gi) => {
       const g = groups[gi];
-      if (!groupIsEmpty(template.categories, initial.values, g.idxs, numPeriods)) return false;
+      if (!g) return false;
+      if (!groupIsEmpty(opened, initial.values, g.idxs, numPeriods)) return false;
       return !g.idxs.some((c) => {
         for (let d = 0; d < numPeriods; d++) if (marked.has(cellKey(c, d))) return true;
         return false;
@@ -646,6 +658,19 @@ function SubmissionEditor({
       ? new Set(sections)
       : new Set(emptySections),
   );
+  /**
+   * Open or fold every section at once.
+   *
+   * A forecast is read one way and filled in another: a reviewer wants the
+   * shape (all folded, section totals only), and whoever is entering the
+   * numbers wants the lines. Doing that a section at a time on a template
+   * with a dozen of them is twelve clicks in the wrong direction.
+   */
+  const allCollapsed = sections.length > 0 && sections.every((gi) => collapsedGroups.has(gi));
+  const allExpanded = sections.every((gi) => !collapsedGroups.has(gi));
+  const setAllCollapsed = (collapse: boolean) =>
+    setCollapsedGroups(collapse ? new Set(sections) : new Set());
+
   const toggleGroup = (gi: number) =>
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
@@ -686,10 +711,9 @@ function SubmissionEditor({
       comments: { ...comments },
       dayComments: { ...dayComments },
       startingBalance,
-      intercompany: { ...intercompany },
-      intercompanyFlags: { ...icFlags },
+      customRows: [...rows],
     }),
-    [values, flags, comments, dayComments, startingBalance, intercompany, icFlags],
+    [values, flags, comments, dayComments, startingBalance, rows],
   );
 
   /** Record the state a mutating action is about to replace. */
@@ -703,29 +727,23 @@ function SubmissionEditor({
   const applyState = (next: EditState) => {
     lastEditedCell.current = null;
     setRestoreVersion((n) => n + 1);
-    // An intercompany cell's value is the sum of its rows, so the two are
-    // restored together and the totals recomputed from the rows rather than
-    // trusted from the snapshot.
-    const nextValues = withIntercompanyTotals(next.values, next.intercompany, template);
-    setValues(nextValues);
+    // The rows and their figures go back together: a row's figures are
+    // addressed by where the row sits, so restoring one without the other
+    // would move every number below it up a line.
+    setValues(next.values);
     setFlags(next.flags);
     setComments(next.comments);
     setDayComments(next.dayComments);
     setStartingBalance(next.startingBalance);
-    setIntercompany(next.intercompany);
-    setIcFlags(next.intercompanyFlags);
+    setRows(next.customRows);
     persist({
-      values: nextValues,
+      values: next.values,
       flags: next.flags,
       comments: next.comments,
       dayComments: next.dayComments,
       startingBalance: next.startingBalance,
-      intercompany: next.intercompany,
-      intercompanyFlags: next.intercompanyFlags,
+      customRows: next.customRows,
     });
-    // Undoing an intercompany entry has to withdraw the mirrored halves too,
-    // or the counterparties keep a figure this forecast no longer states.
-    remirror(intercompany, next.intercompany);
     setHistoryVersion((n) => n + 1);
   };
 
@@ -750,8 +768,7 @@ function SubmissionEditor({
     commentRequests?: Record<string, CommentRequest>;
     questionedBy?: ForecastQuestion;
     revisedFrom?: SubmissionStatus;
-    intercompany?: Record<string, IntercompanyRow[]>;
-    intercompanyFlags?: Record<string, IntercompanyFlag>;
+    customRows?: CustomRow[];
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -771,11 +788,9 @@ function SubmissionEditor({
       // forecast has been submitted once already — the checklist reads both.
       questionedBy: 'questionedBy' in snap ? snap.questionedBy : questionedBy,
       revisedFrom: 'revisedFrom' in snap ? snap.revisedFrom : revisedFrom,
-      // Autosave must not forget the counterparty breakdown either: the cell
-      // values are the sum of these rows, so dropping them would leave a
-      // total with nothing behind it.
-      intercompany: snap.intercompany ?? intercompany,
-      intercompanyFlags: snap.intercompanyFlags ?? icFlags,
+      // Autosave must not forget the submitter's own rows either: without
+      // them their figures are a block of numbers with no lines to sit on.
+      customRows: snap.customRows ?? rows,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -828,6 +843,30 @@ function SubmissionEditor({
     return () => document.removeEventListener('keydown', onKeyDown);
   });
 
+  /** The rows this entity had last week — what a row's prior figure is. */
+  const priorRows = useMemo(
+    () => customRowsOf(loadSubmission(prevWeekKey(week), entity, template.id)),
+    [week, entity, template.id],
+  );
+
+  /**
+   * The prior-cycle figure a cell is compared against.
+   *
+   * For a template line that is last week's cell. For a row the submitter
+   * added it is last week's figure ON THAT ROW — found by what the row is,
+   * since a row sits at a different index in every forecast — and `null`
+   * where last week had no such row at all, which is what stops a row from
+   * being flagged as a swing on the day it is created.
+   */
+  const priorAt = (catIdx: number, dayIdx: number): number | null => {
+    if (catIdx < numCats) return priorValueFor(prior, catIdx, dayIdx, template);
+    const row = rows[catIdx - numCats];
+    if (!row) return null;
+    const index = priorRowIndex(row, priorRows);
+    if (index === null) return null;
+    return priorValueFor(prior, numCats + index, dayIdx, template);
+  };
+
   const reflag = (
     v: GridValues,
     keys: Iterable<string>,
@@ -838,7 +877,7 @@ function SubmissionEditor({
     const next = new Set(base);
     for (const key of keys) {
       const [c, d] = key.split('-').map(Number);
-      if (isVariance(v[key] || 0, priorValueFor(prior, c, d), settings)) next.add(key);
+      if (isVariance(v[key] || 0, priorAt(c, d), settings)) next.add(key);
       // A cell that has been ASKED ABOUT stays in the review queue whatever
       // the numbers do. Correcting the figure is a perfectly good answer, and
       // it usually brings the cell back under the threshold — which used to
@@ -892,7 +931,14 @@ function SubmissionEditor({
         // Pasted rows/cols follow the on-screen orientation.
         const catIdx = orientation === 'grouped' ? startCat + ci : startCat + ri;
         const dayIdx = orientation === 'grouped' ? startDay + ri : startDay + ci;
-        if (catIdx >= numCats || dayIdx >= numPeriods) {
+        if (catIdx >= gridCats.length || dayIdx >= numPeriods) {
+          clipped++;
+          return;
+        }
+        // A mirrored row is another entity's statement — it is read here, so
+        // a paste that runs over one leaves it alone rather than quietly
+        // rewriting what they said.
+        if (gridCats[catIdx]?.source !== undefined) {
           clipped++;
           return;
         }
@@ -960,32 +1006,24 @@ function SubmissionEditor({
     // Same treatment as undo: remount the cells so no in-progress text
     // lingers over the restored values.
     setRestoreVersion((n) => n + 1);
-    // The checkpoint carries the counterparty breakdowns too, so the
-    // intercompany cells go back with everything else — and their totals are
-    // recomputed from those rows rather than taken on trust.
+    // The checkpoint carries the submitter's own rows too, so they go back
+    // with the figures that sit on them.
     const restoredFlags = new Set(checkpoint.flags);
-    const restoredIc = checkpoint.intercompany ?? {};
-    const restoredIcFlags = checkpoint.intercompanyFlags ?? {};
-    const restoredValues = withIntercompanyTotals(checkpoint.values, restoredIc, template);
-    setValues(restoredValues);
+    const restoredRows = customRowsOf(checkpoint);
+    setValues(checkpoint.values);
     setFlags(restoredFlags);
     setComments(checkpoint.comments ?? {});
     setDayComments(checkpoint.dayComments ?? {});
     setStartingBalance(checkpoint.startingBalance ?? null);
-    setIntercompany(restoredIc);
-    setIcFlags(restoredIcFlags);
+    setRows(restoredRows);
     persist({
-      values: restoredValues,
+      values: checkpoint.values,
       flags: restoredFlags,
       comments: checkpoint.comments ?? {},
       dayComments: checkpoint.dayComments ?? {},
       startingBalance: checkpoint.startingBalance ?? null,
-      intercompany: restoredIc,
-      intercompanyFlags: restoredIcFlags,
+      customRows: restoredRows,
     });
-    // Whatever this forecast no longer says about a counterparty has to stop
-    // standing in that counterparty's forecast.
-    remirror(intercompany, restoredIc);
   };
 
   const copyPrior = async () => {
@@ -993,18 +1031,36 @@ function SubmissionEditor({
     const stored = loadSubmission(prevKey, entity, template.id);
     const hasStored = stored !== null;
     pushUndo();
-    // An intercompany cell is copied as its BREAKDOWN, not as a bare figure:
-    // copying the number alone left a total with no counterparties behind it.
-    // Only this entity's own rows travel — last week's mirrored rows are what
-    // OTHER entities said about a different period, and re-mirroring them
-    // would put words in their mouths for this one.
-    const nextIntercompany = withOwnRowsFrom(intercompany, stored?.intercompany);
-    const nextValues = withIntercompanyTotals({ ...prior }, nextIntercompany, template);
+    // A row the submitter added last week is copied WITH its figures — the
+    // customers a country invoices are the same customers this week, and
+    // copying the numbers without the rows would land them on nothing.
+    //
+    // Only their OWN rows travel. Last week's mirrors are what other entities
+    // said about a different period; this week's mirrors are facts about this
+    // one, so those stay exactly as they arrived.
+    const mirrors = rows.filter((r) => !isOwnRow(r));
+    const copied = priorRows
+      .filter(isOwnRow)
+      // A copied row is a new row on this forecast, so it needs an id of its
+      // own — sharing last week's would make one edit rewrite both.
+      .map((r) => ({ ...r, id: `${r.id}:copy` }));
+    const nextRows = [...mirrors, ...copied];
+    // Prior figures for the template's own lines; the rows bring theirs.
+    let nextValues: GridValues = {};
+    for (const [key, v] of Object.entries(prior)) {
+      if (Number(key.split('-')[0]) < numCats) nextValues[key] = v;
+    }
+    nextRows.forEach((row, i) => {
+      const figures = isOwnRow(row)
+        ? rowValues(template, priorRows, row.id.replace(/:copy$/, ''), prior, numPeriods)
+        : rowValues(template, rows, row.id, values, numPeriods);
+      nextValues = withRowValues(nextValues, numCats + i, numPeriods, figures);
+    });
     setValues(nextValues);
     setFlags(new Set());
-    setIntercompany(nextIntercompany);
-    persist({ values: nextValues, flags: new Set(), intercompany: nextIntercompany });
-    remirror(intercompany, nextIntercompany);
+    setRows(nextRows);
+    setRestoreVersion((n) => n + 1);
+    persist({ values: nextValues, flags: new Set(), customRows: nextRows });
     lastEditedCell.current = null;
     await notify({
       tone: 'success',
@@ -1053,8 +1109,8 @@ function SubmissionEditor({
     setValueDraft(values[key] === undefined ? '' : String(values[key]));
     setVarianceCell({
       key,
-      label: template.categories[catIdx]?.label ?? '',
-      prior: priorValueFor(prior, catIdx, dayIdx, template),
+      label: gridCats[catIdx]?.label ?? '',
+      prior: priorAt(catIdx, dayIdx),
       current: values[key] || 0,
     });
   };
@@ -1156,201 +1212,156 @@ function SubmissionEditor({
     setVarianceCell(null);
   };
 
-  // ---- Intercompany cells ------------------------------------------------
-  // An intercompany cell is a set of (amount, counterparty) rows rather than a
-  // number, so it is opened rather than typed into. Everything the rows change
-  // — the cell's value, the variance flag on it, the withdrawal from approval
-  // an edit costs — is exactly what typing a number would have changed; what
-  // is new is that each row also lands in the counterparty's own forecast.
+  // ---- The submitter's own rows ------------------------------------------
+  // Every section header carries a `+`. What it adds is an ordinary row of
+  // the grid — named here, typed into here, summed into the section it sits
+  // in — because "Customer A, Customer B, other" is what a country's
+  // receivables are actually made of, and no template can know that.
+  //
+  // Under an INTERCOMPANY section the name is not free: the row is a legal
+  // entity picked from the master data, so the amount can be mirrored into
+  // that entity's forecast and the group position can net to zero.
 
-  /** What capacity this reader writes in, for anything they add to a thread. */
-  const threadRole: ThreadRole = canRequestComments
-    ? isTreasury
-      ? 'treasury'
-      : 'approver'
-    : 'submitter';
-  /** Treasury and approvers read the breakdown; only the entity edits it. */
-  const canEditIntercompany = canEditCells && !canRequestComments;
-  /** Cells carrying an unsettled mismatch — the grid's exclamation icon. */
-  const icFlaggedCells = useMemo(() => flaggedCells(icFlags), [icFlags]);
-  const counterparties = useMemo(() => counterpartyOptions(entity), [entity]);
+  /** Treasury and approvers READ the rows; only the entity adds to them. */
+  const canEditRows = canEditCells && !canRequestComments;
+  /** The legal entities an intercompany row may name. */
+  const entityChoices = useMemo(() => entityOptions(entity), [entity]);
 
-  const openIntercompany = (catIdx: number, dayIdx: number, prefill?: string) =>
-    setIcCell({ key: cellKey(catIdx, dayIdx), prefill });
+  /** Add a row to a section, ready to be named. */
+  const addRow = (section: string) => {
+    if (!canEditRows) return;
+    pushUndo();
+    lastEditedCell.current = null;
+    const nextRows = [...rows, makeCustomRow(section)];
+    setRows(nextRows);
+    // A new row holds no figures, so nothing about the forecast's numbers has
+    // changed yet and an already-submitted forecast stays where it is.
+    persist({ customRows: nextRows });
+    // Put the cursor in the new row's name — an unnamed row is the one thing
+    // it must not be left as.
+    requestAnimationFrame(() => {
+      const inputs = document.querySelectorAll<HTMLElement>(
+        '.forecast-grid .row-name-input, .forecast-grid .row-entity-select',
+      );
+      inputs[inputs.length - 1]?.focus();
+    });
+  };
 
-  /**
-   * Push the mirrored halves out again for every cell whose rows changed.
-   *
-   * Restoring a breakdown wholesale — undo, redo, Reset, Copy Prior Forecast —
-   * is as much a statement about what this entity pays its counterparties as
-   * typing one is, so the counterparties' forecasts have to follow. Only the
-   * cells that actually moved are re-mirrored, so an undo stays instant on a
-   * template with forty intercompany cells.
-   */
-  const remirror = (
-    before: Record<string, IntercompanyRow[]>,
-    after: Record<string, IntercompanyRow[]>,
-  ) => {
-    for (const key of changedIntercompanyCells(before, after)) {
-      syncIntercompanyMirrors({
-        period: week,
-        entity,
-        template,
-        cellKey: key,
-        rows: after[key] ?? [],
-      });
+  /** Rename one — free-text sections only. */
+  const renameRow = (rowId: string, label: string) => {
+    if (!canEditRows) return;
+    // Typing a name is not an undo step of its own: coalesce a run of
+    // keystrokes on one row exactly as a run of digits in one cell is.
+    if (lastEditedCell.current !== `row:${rowId}`) {
+      pushUndo();
+      lastEditedCell.current = `row:${rowId}`;
     }
+    const nextRows = rows.map((r) => (r.id === rowId ? { ...r, label } : r));
+    setRows(nextRows);
+    persist({ customRows: nextRows });
+  };
+
+  /** Point one at a legal entity — intercompany sections only. */
+  const setRowEntity = (rowId: string, entityName: string) => {
+    if (!canEditRows) return;
+    pushUndo();
+    lastEditedCell.current = null;
+    const nextRows = rows.map((r) =>
+      r.id === rowId
+        ? { ...r, entity: entityName || undefined, label: entityName || r.label }
+        : r,
+    );
+    setRows(nextRows);
+    persist({ customRows: nextRows });
   };
 
   /**
-   * Save one intercompany cell: its rows, the total they make, and the
-   * mirrored halves that belong in the counterparties' forecasts.
+   * Remove a row, and its figures with it.
+   *
+   * Every row below it moves up a place, and a row's figures, flags and
+   * commentary are addressed BY that place — so all of them move together or
+   * a deleted row leaves its numbers behind on the row beneath.
    */
-  const saveIntercompany = (
-    rows: IntercompanyRow[],
-    disputes: DisputeDraft[],
-    agreed: string[],
-  ) => {
-    if (!icCell) return;
-    const key = icCell.key;
-    const now = new Date().toISOString();
-
+  const removeRow = async (rowId: string) => {
+    if (!canEditRows) return;
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    const hasFigures = Object.keys(
+      rowValues(template, rows, rowId, values, numPeriods),
+    ).length > 0;
+    if (hasFigures) {
+      const ok = await confirm({
+        title: 'Remove row',
+        message: `Remove "${row.label.trim() || 'this row'}" and the figures on it? The section total goes down by what it held.`,
+        confirmLabel: 'Remove Row',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     pushUndo();
     lastEditedCell.current = null;
-    const nextIntercompany = { ...intercompany };
-    if (rows.length === 0) delete nextIntercompany[key];
-    else nextIntercompany[key] = rows;
-
-    // The cell IS the sum of its rows — never a figure of its own.
-    const nextValues = { ...values };
-    if (rows.length === 0) delete nextValues[key];
-    else nextValues[key] = rowsTotal(rows);
-    const nextFlags = reflag(nextValues, [key], flags);
-
-    // A changed mirrored amount is a disagreement with another entity, so it
-    // becomes a thread rather than a number quietly overwritten. Changing an
-    // already-disputed row adds to the conversation instead of starting a
-    // second one about the same figure.
-    const nextIcFlags: Record<string, IntercompanyFlag> = { ...icFlags };
-    for (const dispute of disputes) {
-      const fk = flagKey(key, dispute.rowId);
-      const existing = nextIcFlags[fk];
-      const message = {
-        from: currentUser().name,
-        role: threadRole,
-        text: dispute.reason,
-        at: now,
-      };
-      nextIcFlags[fk] = existing
-        ? {
-            ...existing,
-            amount: dispute.amount,
-            sourceAmount: dispute.sourceAmount,
-            // Revisiting a settled mismatch reopens it.
-            settledAt: undefined,
-            replies: [...(existing.replies ?? []), message],
-          }
-        : {
-            cellKey: key,
-            rowId: dispute.rowId,
-            source: dispute.source,
-            sourceAmount: dispute.sourceAmount,
-            amount: dispute.amount,
-            from: message.from,
-            fromRole: threadRole,
-            message: dispute.reason,
-            requestedAt: now,
-          };
-    }
-    // …and a row put back as the other side stated it is agreement. The
-    // mismatch is over: the flag clears, and the conversation that produced
-    // it stays readable rather than being deleted along with the disagreement.
-    for (const rowId of agreed) {
-      const fk = flagKey(key, rowId);
-      const flag = nextIcFlags[fk];
-      if (!flag || flag.settledAt) continue;
-      nextIcFlags[fk] = {
-        ...flag,
-        settledAt: now,
-        replies: [
-          ...(flag.replies ?? []),
-          {
-            from: currentUser().name,
-            role: threadRole,
-            text: `${entity} now carries ${flag.sourceAmount.toLocaleString()}k, as ${flag.source} stated. Settled.`,
-            at: now,
-          },
-        ],
-      };
-    }
-    // A mismatch whose row has gone is settled, not erased — see
-    // `syncIntercompanyMirrors`, which does the same when the ORIGINATOR
-    // withdraws a figure. What was disagreed about, and why, is worth keeping.
-    const liveRows = new Set(rows.map((r) => r.id));
-    const prunedFlags = Object.fromEntries(
-      Object.entries(nextIcFlags).map(([fk, flag]) => {
-        if (flag.cellKey !== key || liveRows.has(flag.rowId) || flag.settledAt) {
-          return [fk, flag];
-        }
-        return [fk, { ...flag, settledAt: now } satisfies IntercompanyFlag];
-      }),
-    );
-
-    setIntercompany(nextIntercompany);
+    const nextRows = rows.filter((r) => r.id !== rowId);
+    const remap = remapRowKey(template, rows, nextRows);
+    const nextValues = remapRecord(values, remap);
+    const nextFlags = remapKeySet(flags, remap);
+    const nextComments = remapRecord(comments, remap);
+    const nextRequests = remapRecord(commentRequests, remap);
+    setRows(nextRows);
     setValues(nextValues);
     setFlags(nextFlags);
-    setIcFlags(prunedFlags);
-    // The grid cells hold their own in-progress text; remount so the cell
-    // shows the total saved here.
+    setComments(nextComments);
+    setCommentRequests(nextRequests);
     setRestoreVersion((n) => n + 1);
     persist({
       values: nextValues,
       flags: nextFlags,
-      intercompany: nextIntercompany,
-      intercompanyFlags: prunedFlags,
-      ...withdrawFromApproval(),
+      comments: nextComments,
+      commentRequests: nextRequests,
+      customRows: nextRows,
+      ...(hasFigures ? withdrawFromApproval() : {}),
     });
+  };
 
-    // Each row's other half, in the counterparty's own forecast.
-    const outcomes = syncIntercompanyMirrors({
-      period: week,
-      entity,
-      template,
-      cellKey: key,
-      rows,
-    });
-    setIcCell(null);
-
-    const problems = outcomes.map(mirrorProblem).filter((p): p is string => p !== null);
+  /**
+   * Mirroring, driven off what this forecast SAYS rather than off each edit.
+   *
+   * A figure typed into a counterparty row, a row added, an entity repointed,
+   * an undo, a Reset and a copied prior week are all the same statement about
+   * what this entity will settle with whom — and every one of them has to
+   * reach the counterparty's forecast. Watching the statement itself covers
+   * all of them with one rule, and the debounce keeps a burst of keystrokes
+   * from writing into ten other forecasts on every digit.
+   */
+  const statement = useMemo(
+    () => mirrorFingerprint(template, rows, values, numPeriods),
+    [template, rows, values, numPeriods],
+  );
+  const settledStatement = useDebounced(statement, 700);
+  const lastMirrored = useRef(statement);
+  /** Notes already given, so a note is made once and not on every keystroke. */
+  const toldAbout = useRef(new Set<string>());
+  useEffect(() => {
+    if (!canEditRows) return;
+    if (settledStatement === lastMirrored.current) return;
+    lastMirrored.current = settledStatement;
+    const outcomes = syncMirrors({ period: week, entity, template, rows, values });
+    const problems = outcomes
+      .map(mirrorProblem)
+      .filter((p): p is string => p !== null)
+      // "Germany has already submitted" is worth saying once. Saying it again
+      // on the next figure typed into the same row is nagging.
+      .filter((p) => !toldAbout.current.has(p));
     if (problems.length > 0) {
+      for (const p of problems) toldAbout.current.add(p);
       void notify({
-        title: 'Saved — with notes on the mirrored entries',
+        title: 'Saved — with notes on the mirrored rows',
         message: problems.join(' '),
       });
     }
-  };
-
-  /** Add one message to a mismatch thread, from whichever side is reading. */
-  const replyToIntercompanyFlag = (key: string, text: string) => {
-    const message = {
-      from: currentUser().name,
-      role: threadRole,
-      text,
-      at: new Date().toISOString(),
-    };
-    const next = withThreadMessage(icFlags, key, message);
-    setIcFlags(next);
-    persist({ intercompanyFlags: next });
-  };
-
-  /** Both sides are done: the flag stops counting as open. */
-  const settleIntercompanyFlag = (key: string) => {
-    const flag = icFlags[key];
-    if (!flag) return;
-    const next = { ...icFlags, [key]: { ...flag, settledAt: new Date().toISOString() } };
-    setIcFlags(next);
-    persist({ intercompanyFlags: next });
-  };
+    // The fingerprint is what changed; `rows` and `values` are read at the
+    // moment it settles, which is exactly the state that has to be mirrored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settledStatement, canEditRows]);
 
   /** "Mon 4 Aug" for a cell key, falling back to the column number. */
   const periodLabelFor = (key: string): string => {
@@ -1361,7 +1372,7 @@ function SubmissionEditor({
   /** "Receivables · Mon 4 Aug" for a cell key, for banners and lists. */
   const cellLabelFor = (key: string): string => {
     const c = Number(key.split('-')[0]);
-    return `${template.categories[c]?.label ?? `Line ${c + 1}`} · ${periodLabelFor(key)}`;
+    return `${gridCats[c]?.label ?? `Line ${c + 1}`} · ${periodLabelFor(key)}`;
   };
 
   /** The open cell dialog, as the shared "ask about this cell" dialog wants it. */
@@ -1476,7 +1487,7 @@ function SubmissionEditor({
    * group would point at nothing. */
   const expandSectionOf = (key: string) => {
     const [c] = key.split('-').map(Number);
-    const gi = categoryGroups(template.categories).findIndex((g) => g.idxs.includes(c));
+    const gi = categoryGroups(gridCats).findIndex((g) => g.idxs.includes(c));
     if (gi < 0) return;
     setCollapsedGroups((prev) => {
       if (!prev.has(gi)) return prev;
@@ -1687,14 +1698,18 @@ function SubmissionEditor({
   };
 
   const exportGrid = () => {
+    // The workbook is written from the array, not from the sections, so the
+    // submitter's own rows are flattened into reading order first — a section
+    // band has to span a contiguous run of columns.
+    const flat = readingOrder(gridCats, values, numPeriods);
     exportSubmissionXlsx({
-      template,
+      template: { ...template, categories: flat.categories },
       layout: orientation,
       entity,
       weekLabel: weekLabelShort(week),
       dates,
       dayLabels,
-      values,
+      values: flat.values,
       startingBalance: startingBalance ?? 0,
       dayComments,
       filename: `${entity.replace(/\s+/g, '-')}-${week}-forecast.xlsx`,
@@ -1709,12 +1724,14 @@ function SubmissionEditor({
 
   // ---- Live horizon aggregates (drive the chart + the approver email) ----
   const numDays = dayLabels.length;
-  const inflowByDay = dates.map((_d, d) => dayInflows(numCats, values, d));
-  const outflowByDay = dates.map((_d, d) => dayOutflows(numCats, values, d));
-  const netByDay = dates.map((_d, d) => dayNet(numCats, values, d));
+  // Every line on the grid counts towards the day's shape, the submitter's
+  // own rows included — they are part of the forecast, not a note beside it.
+  const inflowByDay = dates.map((_d, d) => dayInflows(gridCats.length, values, d));
+  const outflowByDay = dates.map((_d, d) => dayOutflows(gridCats.length, values, d));
+  const netByDay = dates.map((_d, d) => dayNet(gridCats.length, values, d));
   const hasBalance = startingBalance !== null;
   const balanceByDay = dates.map((_d, d) =>
-    runningBalance(numCats, values, startingBalance ?? 0, d),
+    runningBalance(gridCats.length, values, startingBalance ?? 0, d),
   );
   const totalInflows = inflowByDay.reduce((a, b) => a + b, 0);
   const totalOutflows = outflowByDay.reduce((a, b) => a + b, 0);
@@ -1765,16 +1782,20 @@ function SubmissionEditor({
       compareWeeks.map((key, i) => {
         const past = peekSubmission(entity, key, template);
         const pastValues = past.values;
+        // That week's own line count: it had its own rows, and reading it
+        // with this week's would drop the ones it has and count ones it
+        // never had.
+        const pastCats = gridCatCount(template, past);
         const metricAt = (d: number): number => {
           switch (compareMetric) {
             case 'net':
-              return dayNet(numCats, pastValues, d);
+              return dayNet(pastCats, pastValues, d);
             case 'balance':
-              return runningBalance(numCats, pastValues, past.startingBalance ?? 0, d);
+              return runningBalance(pastCats, pastValues, past.startingBalance ?? 0, d);
             case 'inflows':
-              return dayInflows(numCats, pastValues, d);
+              return dayInflows(pastCats, pastValues, d);
             case 'outflows':
-              return dayOutflows(numCats, pastValues, d);
+              return dayOutflows(pastCats, pastValues, d);
           }
         };
         return {
@@ -1785,7 +1806,7 @@ function SubmissionEditor({
           dashed: true,
         };
       }),
-    [compareWeeks, compareMetric, entity, template, numCats, numPeriods],
+    [compareWeeks, compareMetric, entity, template, numPeriods],
   );
 
   const toggleCompareWeek = (key: string) =>
@@ -1837,12 +1858,14 @@ function SubmissionEditor({
     const [c, d] = commentFlow.key.split('-').map(Number);
     return {
       key: commentFlow.key,
-      label: template.categories[c]?.label ?? `Line ${c + 1}`,
+      label: gridCats[c]?.label ?? `Line ${c + 1}`,
       dateLabel: dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`,
-      prior: priorValueFor(prior, c, d, template),
+      prior: priorAt(c, d),
       current: values[commentFlow.key] || 0,
     };
-  }, [commentFlow, template, dayLabels, prior, values]);
+    // `priorAt` is derived from these on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentFlow, template, gridCats, dayLabels, prior, priorRows, rows, values]);
 
   const flowDelta =
     flowCell && flowCell.prior !== null
@@ -2223,58 +2246,93 @@ function SubmissionEditor({
               )}
             </div>
           </div>
-          <div className="grid-toolbar" style={{ borderTop: 'none' }}>
+          {/* The VIEW bar: how the forecast is drawn, and the one figure the
+              grid cannot hold — everything here changes what you see, not
+              what the forecast says. The row above it changes the forecast. */}
+          <div className="grid-toolbar view-bar" style={{ borderTop: 'none' }}>
             <div className="grid-toolbar-left">
-              <div className="grid-info">
-                <strong>{template.name}</strong>{' '}
-                <span className="text-muted">EUR thousands · inflows +, outflows −</span>
+              {/* Conditional formatting: what the shading measures a cell
+                  against, or nothing at all. Three ways of reading the same
+                  grid, so all three sit in the open rather than behind a
+                  settings screen. */}
+              <div className="toggle-field">
+                <span className="toggle-field-label">Shading</span>
+                <div
+                  className="seg-toggle"
+                  role="group"
+                  aria-label="Conditional formatting"
+                  data-tour="conditional-formatting"
+                >
+                  {FORMATTING_OPTIONS.map((o) => (
+                    <button
+                      key={o.mode}
+                      className={heatMode === o.mode ? 'active' : ''}
+                      aria-pressed={heatMode === o.mode}
+                      onClick={() => chooseHeatMode(o.mode)}
+                      title={o.title}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div
-                className="seg-toggle"
-                role="group"
-                aria-label="Conditional formatting scale"
-                title="What the cell shading is measured against"
-              >
-                <button
-                  className={heatScope === 'row' ? 'active' : ''}
-                  onClick={() => setHeatScope('row')}
-                  title="Shade each line item against its own biggest days"
+              {sections.length > 0 && (
+                <div className="toggle-field">
+                  <span className="toggle-field-label">Sections</span>
+                  <div className="seg-toggle" role="group" aria-label="Expand or collapse sections">
+                    <button
+                      className={allExpanded ? 'active' : ''}
+                      aria-pressed={allExpanded}
+                      onClick={() => setAllCollapsed(false)}
+                      title="Open every section and show its lines"
+                    >
+                      Expand all
+                    </button>
+                    <button
+                      className={allCollapsed ? 'active' : ''}
+                      aria-pressed={allCollapsed}
+                      onClick={() => setAllCollapsed(true)}
+                      title="Fold every section to its total"
+                    >
+                      Collapse all
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="toggle-field">
+                <span className="toggle-field-label">Layout</span>
+                <div
+                  className="seg-toggle"
+                  role="group"
+                  aria-label="Grid orientation"
+                  data-tour="orientation-toggle"
                 >
-                  Shade by Row
-                </button>
-                <button
-                  className={heatScope === 'grid' ? 'active' : ''}
-                  onClick={() => setHeatScope('grid')}
-                  title="Shade every cell against the whole forecast"
-                >
-                  Whole Forecast
-                </button>
-              </div>
-              <div className="seg-toggle" role="group" aria-label="Grid orientation" data-tour="orientation-toggle">
-                <button
-                  className={orientation === 'days-across' ? 'active' : ''}
-                  onClick={() => onChangeOrientation('days-across')}
-                  title="Dates across the columns, one row per line item"
-                >
-                  Dates → Columns
-                </button>
-                <button
-                  className={orientation === 'grouped' ? 'active' : ''}
-                  onClick={() => onChangeOrientation('grouped')}
-                  title="Dates down the rows, one column per line item"
-                >
-                  Dates ↓ Rows
-                </button>
+                  <button
+                    className={orientation === 'days-across' ? 'active' : ''}
+                    aria-pressed={orientation === 'days-across'}
+                    onClick={() => onChangeOrientation('days-across')}
+                    title="Dates across the columns, one row per line item"
+                  >
+                    Dates → Columns
+                  </button>
+                  <button
+                    className={orientation === 'grouped' ? 'active' : ''}
+                    aria-pressed={orientation === 'grouped'}
+                    onClick={() => onChangeOrientation('grouped')}
+                    title="Dates down the rows, one column per line item"
+                  >
+                    Dates ↓ Rows
+                  </button>
+                </div>
               </div>
 
             </div>
-            <div className="row-flex">
-              <label className="form-label" style={{ margin: 0 }}>
-                Starting Balance <span className="text-muted">(optional)</span>
-              </label>
+            <div className="toggle-field">
+              <span className="toggle-field-label">
+                Opening balance <span className="optional">optional</span>
+              </span>
               <input
-                className="form-input"
-                style={{ width: 120, textAlign: 'right', fontFamily: 'var(--mono)' }}
+                className="form-input balance-input"
                 // Same draft-while-typing treatment as a grid cell, so a
                 // negative opening balance can actually be typed.
                 value={balanceDraft ?? (startingBalance === null ? '' : String(startingBalance))}
@@ -2429,6 +2487,48 @@ function SubmissionEditor({
         {/* The forecast itself, in its own box — the controls above are
             settings, not part of the grid. */}
         <div className="panel grid-panel">
+          {/* What this forecast SAYS, above what it is made of.
+              A submitter fills in twenty days of numbers and then has to
+              scroll to the bottom of the grid to find out what they add up
+              to; a reviewer opens the page for these four figures and
+              nothing else. They belong at the top, on the box that holds
+              the numbers they come from. */}
+          <div className="forecast-summary">
+            <div className="forecast-summary-id">
+              <strong>{template.name}</strong>
+              <span className="text-muted">
+                {entity} · {weekLabelShort(week)} · EUR thousands · inflows +, outflows −
+              </span>
+            </div>
+            <div className="forecast-stats">
+              <div className="forecast-stat">
+                <span className="forecast-stat-label">Inflows</span>
+                <span className="forecast-stat-value net-positive">{fmtK(totalInflows)}</span>
+              </div>
+              <div className="forecast-stat">
+                <span className="forecast-stat-label">Outflows</span>
+                <span className="forecast-stat-value net-negative">{fmtK(totalOutflows)}</span>
+              </div>
+              <div className="forecast-stat">
+                <span className="forecast-stat-label">Net</span>
+                <span
+                  className={`forecast-stat-value${
+                    totalNet < 0 ? ' net-negative' : totalNet > 0 ? ' net-positive' : ''
+                  }`}
+                >
+                  {fmtK(totalNet)}
+                </span>
+              </div>
+              {/* A closing balance only means something once an opening one
+                  is given, exactly as in the grid's own running total. */}
+              {hasBalance && (
+                <div className="forecast-stat">
+                  <span className="forecast-stat-label">Closing</span>
+                  <span className="forecast-stat-value">{fmtK(closingBalance)}</span>
+                </div>
+              )}
+            </div>
+          </div>
           {/* The commentary dock sits BESIDE the grid (left when the spotlit
               cell is on the right half), so the numbers stay in view while
               the explanation is written. */}
@@ -2437,7 +2537,7 @@ function SubmissionEditor({
             <div className="forecast-grid-wrap" data-tour="forecast-grid">
               <ForecastGrid
                 key={restoreVersion}
-                categories={template.categories}
+                categories={gridCats}
                 layout={orientation}
                 dayLabels={dayLabels}
                 values={values}
@@ -2457,13 +2557,15 @@ function SubmissionEditor({
                 onPaste={handlePaste}
                 onCellClick={openVariance}
                 clickableCells={canRequestComments ? 'all' : 'flagged'}
-                intercompanyFlags={icFlaggedCells}
-                onOpenIntercompany={openIntercompany}
-                // Treasury's and an approver's click already means "ask about
-                // this cell", so the breakdown gets its own icon there rather
-                // than competing for the same gesture.
-                intercompanyMode={canRequestComments ? 'icon' : 'cell'}
-                heatmapScope={heatScope}
+                // Adding a row is the submitter's gesture, so the `+` on a
+                // section header appears only on their screen — a reader
+                // opens a forecast to read it, not to add lines to it.
+                onAddRow={canEditRows ? addRow : undefined}
+                onRenameRow={canEditRows ? renameRow : undefined}
+                onSetRowEntity={canEditRows ? setRowEntity : undefined}
+                onRemoveRow={canEditRows ? (id) => void removeRow(id) : undefined}
+                entityOptions={entityChoices}
+                heatmapMode={heatMode}
                 showColumnTotals={template.columnTotals === true}
               />
             </div>
@@ -2472,32 +2574,6 @@ function SubmissionEditor({
         </div>
 
       </div>
-
-      {/* The counterparty breakdown behind an intercompany cell. The same
-          dialog for everyone — read-only for whoever does not own the
-          figures, which is how a reader sees who a total is made up of. */}
-      {icCell && (
-        <IntercompanyModal
-          entity={entity}
-          label={
-            template.categories[Number(icCell.key.split('-')[0])]?.label ?? 'Intercompany'
-          }
-          periodLabel={periodLabelFor(icCell.key)}
-          context={`${entity} · ${weekLabelShort(week)}`}
-          rows={rowsOf(intercompany, icCell.key)}
-          cellValue={values[icCell.key] ?? 0}
-          flags={flagsForCell(icFlags, icCell.key)}
-          counterparties={counterparties}
-          editable={canEditIntercompany}
-          prefill={icCell.prefill}
-          viewer={currentUser().name}
-          viewerRole={threadRole}
-          onClose={() => setIcCell(null)}
-          onSave={saveIntercompany}
-          onReplyToFlag={replyToIntercompanyFlag}
-          onSettleFlag={settleIntercompanyFlag}
-        />
-      )}
 
       {/* Treasury and approvers ASK about a cell; the submitter EXPLAINS it.
           Two different jobs, so two dialogs — and the asking one is shared

@@ -5356,15 +5356,16 @@ thead th,
   letter-spacing: 0.01em;
 }
 
-/* === INTERCOMPANY ==========================================================
-   Money moving between group companies. An intercompany cell is not a number
-   but a set of (amount, counterparty) rows, so it is opened rather than typed
-   into — the same treatment a cell with a question gets, and it borrows that
-   vocabulary deliberately: one grid, one set of signals.
+/* === THE SUBMITTER'S OWN ROWS ==============================================
+   A template says what a forecast is shaped like; it cannot say what one
+   country's receivables are made of. Every section header therefore carries a
+   `+`, and the rows added under it are named, typed into and totalled exactly
+   like the template's own — so they need to LOOK like rows of the same grid,
+   one step further in, rather than like a widget bolted to it.
    ========================================================================= */
 
-/* The template builder's only intercompany control: a flag on a line, or on a
-   whole section as shorthand for its lines. */
+/* The template builder's only intercompany control: a flag on a section,
+   which is what makes the rows under it legal entities. */
 .ic-toggle {
   display: inline-flex;
   align-items: center;
@@ -5395,188 +5396,372 @@ thead th,
   color: var(--green);
 }
 
-/* An intercompany cell reads as a cell you open. The tint is the quietest of
-   the cell states — a flag or a question on the same cell still outranks it. */
-.forecast-grid td.cell.cell-intercompany {
-  box-shadow: inset 2px 0 0 var(--green);
-}
-.forecast-grid td.cell.cell-intercompany[role='button'] {
-  cursor: pointer;
-  font-weight: 600;
-}
-.forecast-grid td.cell.cell-intercompany[role='button']:hover {
-  box-shadow:
-    inset 2px 0 0 var(--green),
-    inset 0 0 0 2px var(--green);
-}
-.forecast-grid td.cell.cell-intercompany[role='button']:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: -2px;
-}
-/* A mismatch outranks everything else the cell could be saying: somebody's
-   figures disagree with somebody else's. */
-.forecast-grid td.cell.cell-ic-flagged {
-  background: var(--red-soft);
-  box-shadow: inset 2px 0 0 var(--red);
-}
-
-/* The breakdown's own way in. Left-hand side, like the note button: the
-   figures are right-aligned, so anything sitting on the right sits ON the
-   number the cell exists to show. Where a cell carries both, this one steps
-   aside for the note button rather than stacking on top of it. */
-.cell-ic-btn {
-  position: absolute;
-  left: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1;
+/* ---- The `+` on a section header ----------------------------------------
+   Quiet until the section is under the pointer, then unmistakable: a control
+   repeated on every section cannot shout, but the one gesture that makes the
+   forecast the submitter's own cannot be hidden either. */
+.section-add-row {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--green);
+  width: 19px;
+  height: 19px;
+  margin-left: 8px;
+  vertical-align: middle;
+  border-radius: var(--r-xs);
+  border: 1px dashed var(--border-strong);
   background: var(--bg-elev);
-  border: 1px solid var(--green);
-  opacity: 0.75;
-  transition: opacity 0.12s ease;
-}
-button.cell-ic-btn {
-  cursor: pointer;
-}
-.forecast-grid td.cell:hover .cell-ic-btn,
-.forecast-grid td.cell:focus-within .cell-ic-btn,
-.cell-ic-btn:focus-visible {
-  opacity: 1;
-}
-.forecast-grid td.cell:has(.cell-note-btn) .cell-ic-btn {
-  left: 20px;
-}
-.cell-ic-btn.flagged {
-  color: var(--red);
-  border-color: var(--red);
-  background: var(--bg-elev);
-  font-weight: 700;
-  opacity: 1;
-}
-
-/* Collapsing a section hides the flagged cells inside it, so the band says so
-   — derived and styled exactly like the question count beside it. A section
-   that is both questioned and disputed shows the louder of the two. */
-.forecast-grid tr.section-row.section-ic-flagged > td.row-label,
-.forecast-grid th.day-h.section-ic-flagged {
-  box-shadow: inset 3px 0 0 var(--red);
-}
-.section-questions.section-ic-flags {
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-/* ---- The breakdown dialog ---- */
-.ic-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.ic-row {
-  display: grid;
-  /* Amount · counterparty · where a mirrored row came from · remove. The
-     source tag gets a column of its own so every select lines up whether or
-     not the row beside it carries one. */
-  grid-template-columns: 140px minmax(0, 1fr) auto 28px;
-  gap: 10px;
-  align-items: center;
-}
-.ic-row-head {
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
   color: var(--text-muted);
-  letter-spacing: 0.02em;
-}
-.ic-row-total {
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
-.ic-row-total .text-muted {
-  font-size: 12px;
+.forecast-grid tr.section-row:hover .section-add-row,
+.forecast-grid th.section-band:hover .section-add-row,
+.section-add-row:focus-visible {
+  opacity: 1;
 }
-.ic-amount {
-  text-align: right;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
+.section-add-row:hover {
+  opacity: 1;
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-softer);
+  color: var(--accent);
 }
-.ic-party {
+
+/* "Rows here are legal entities" — said once, on the section. */
+.section-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 100px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* ---- The line that closes an expanded section --------------------------- */
+.forecast-grid tr.add-row-line td {
+  background: var(--n-25);
+  border-bottom: 1px solid var(--border);
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.add-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.forecast-grid tr.add-row-line:hover .add-row-btn,
+.add-row-btn:focus-visible {
+  opacity: 1;
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-softer);
+  color: var(--accent);
+}
+
+/* ---- A row of the submitter's own --------------------------------------- */
+.forecast-grid td.row-label.row-label-custom {
+  /* One step further in than a template line: the section owns it, and the
+     indent is what says so without a second label. */
+  padding-left: 34px;
+  padding-right: 6px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.custom-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
   min-width: 0;
 }
-/* Where a mirrored figure came from — the whole point of the row. */
-.ic-source {
+.custom-row-mark {
   flex: none;
-  padding: 2px 8px;
+  color: var(--n-400);
+  font-size: 11px;
+  line-height: 1;
+}
+.row-name-input,
+.row-entity-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.row-name-input::placeholder {
+  color: var(--n-400);
+  font-style: italic;
+  font-weight: 400;
+}
+.row-name-input:hover,
+.row-entity-select:hover {
+  border-color: var(--border);
+  background: var(--bg-elev);
+}
+.row-name-input:focus,
+.row-entity-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-focus);
+}
+/* An entity row says WHICH company in two characters, so the code carries the
+   weight and the full name lives in the dropdown and the tooltip. A picker
+   the width of the label column would make two characters look like a form
+   field, so it is sized to what it holds. */
+.row-entity-select {
+  flex: 0 1 auto;
+  max-width: 168px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.row-name-static {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+}
+/* Where a mirrored row came from — the whole point of the row. */
+.row-source-tag {
+  flex: none;
+  padding: 1px 7px;
   border-radius: 100px;
   background: var(--blue-soft);
   color: var(--blue);
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 500;
   white-space: nowrap;
 }
-.ic-row-mirrored .ic-amount {
-  border-color: var(--blue);
+.row-source-tag.late {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
-.ic-remove {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text-muted);
+.row-remove {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--n-400);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
-.ic-remove:hover {
+.forecast-grid tr.custom-row:hover .row-remove,
+.row-remove:focus-visible {
+  opacity: 1;
+}
+.row-remove:hover {
   color: var(--red);
   border-color: var(--red);
 }
-/* The reason a changed mirrored amount needs before it can be saved. */
-.ic-dispute-draft {
-  grid-column: 1 / -1;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--red-soft);
-  border-left: 3px solid var(--red);
+
+/* A mirrored row is another entity's statement: read here, entered there. */
+.forecast-grid td.cell.cell-mirrored {
+  box-shadow: inset 2px 0 0 var(--blue-light);
+  color: var(--text-dim);
+  cursor: default;
 }
-.ic-dispute-draft .form-textarea {
-  margin-bottom: 6px;
+
+/* Dates-down-rows: a submitter's row is a COLUMN, and its header holds the
+   same controls the row label does in the other orientation. */
+.forecast-grid thead th.day-h.day-h-custom {
+  padding: 4px 6px;
+  text-transform: none;
+  letter-spacing: 0;
 }
-.ic-actions {
-  display: flex;
+.forecast-grid thead th.day-h-custom .custom-row-name {
+  justify-content: center;
+}
+.forecast-grid thead th.day-h-custom .row-name-input,
+.forecast-grid thead th.day-h-custom .row-entity-select {
+  max-width: 100px;
+}
+
+/* ---- A labelled control in a grid toolbar ------------------------------- */
+.toggle-field {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 14px;
+  gap: 7px;
+}
+.toggle-field-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   FORECAST SUBMISSION — the page a country's week is typed into.
+   --------------------------------------------------------------------------
+   Three jobs happen on one screen: filling a forecast in, explaining what
+   moved, and answering questions about it. The layout is built so the reader
+   can always answer three questions without scrolling — what am I looking at,
+   what does it add up to, and what is being asked of me — and so the grid
+   itself stays as dense as a spreadsheet, because that is what entering
+   twenty days of numbers actually needs.
+   ========================================================================== */
+
+/* ---- The two control bars ------------------------------------------------
+   The upper bar changes the FORECAST (which one, and what happens to it); the
+   lower one changes the VIEW. Separating them is what stops "Submit for
+   Approval" from sitting in the same row of chips as "Dates ↓ Rows". */
+.grid-toolbar.view-bar {
+  gap: 18px;
+  padding: 8px 16px;
+  background: var(--bg-elev);
+}
+.grid-toolbar.view-bar .grid-toolbar-left {
+  gap: 22px;
   flex-wrap: wrap;
 }
-.ic-flags {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+.grid-toolbar.view-bar .toggle-field-label .optional {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--n-400);
 }
-.ic-flags-head {
-  margin: 0 0 12px;
-  font-size: 13px;
+.balance-input {
+  width: 120px;
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- What the forecast says, at the head of the box that holds it -------- */
+.forecast-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+}
+.forecast-summary-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.forecast-summary-id strong {
+  font-family: var(--serif);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--red);
-  letter-spacing: 0.02em;
+  color: var(--text);
 }
-.ic-flag {
-  border-left: 3px solid var(--red);
+.forecast-summary-id .text-muted {
+  font-size: 12px;
 }
-.ic-flag.settled {
-  border-left-color: var(--border-strong);
-  opacity: 0.75;
+.forecast-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: wrap;
+}
+.forecast-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-end;
+  padding: 0 18px;
+  border-left: 1px solid var(--border);
+}
+.forecast-stat:first-child {
+  border-left: none;
+}
+.forecast-stat-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.forecast-stat-value {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ---- The grid itself -----------------------------------------------------
+   Density is the point on a data-entry surface, so nothing here makes a row
+   taller. What it does is make the STRUCTURE readable at a glance: a section
+   is a block with a lid, its lines sit inside it, and the row under the
+   pointer is unmistakable across twenty columns. */
+.forecast-grid tbody tr:not(.section-row):not(.add-row-line):hover > td.row-label {
+  background: var(--n-100);
+}
+/* A section's lines are inside it, not beside it: one hairline down the label
+   column says so on every row without a second indent. */
+.forecast-grid td.row-label.indent {
+  box-shadow: inset 3px 0 0 var(--n-100);
+}
+.forecast-grid td.row-label.row-label-custom {
+  box-shadow: inset 3px 0 0 var(--n-200);
+}
+
+/* A section's total while the section is OPEN: present, but drawn back so the
+   lines underneath stay the thing being read. Collapsed, the same cells carry
+   the section's own conditional formatting and full weight. */
+.forecast-grid tr.section-row td.cell.section-open-total {
+  color: var(--text-muted);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* A section header carries its name and up to three marks (intercompany, an
+   open question, no activity) plus the `+`. Wrapped across two lines they
+   stop reading as one label. */
+.forecast-grid tr.section-row td.row-label {
+  white-space: nowrap;
 }
