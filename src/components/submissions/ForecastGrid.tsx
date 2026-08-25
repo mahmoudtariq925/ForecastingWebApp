@@ -1,16 +1,19 @@
 import {
+  Fragment,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import type { TemplateCategory, TemplateLayout } from '../../types';
+import type { TemplateLayout } from '../../types';
+import { sectionIsIntercompany, type EntityOption, type GridCategory } from '../../data/customRows';
 import type { DayLabel } from '../../data/periods';
 import {
   catTotal,
   catValue,
   categoryGroups,
+  type CategoryGroup,
   cellKey,
   dayInflows,
   dayNet,
@@ -44,7 +47,12 @@ const fmt = (v: number) => (v === 0 ? '—' : v.toLocaleString());
 const netClass = (v: number) => (v < 0 ? ' net-negative' : v > 0 ? ' net-positive' : '');
 
 export interface ForecastGridProps {
-  categories: TemplateCategory[];
+  /**
+   * Every line the grid shows: the template's, plus the rows the submitter
+   * added under its sections. A custom row is a row like any other — see
+   * `gridCategories`.
+   */
+  categories: GridCategory[];
   layout: TemplateLayout;
   dayLabels: DayLabel[];
   values: GridValues;
@@ -57,28 +65,19 @@ export interface ForecastGridProps {
    */
   answered?: Set<string>;
   /**
-   * Cells carrying an unsettled intercompany mismatch — the receiving side
-   * changed an amount another entity stated. Rendered as an exclamation, and
-   * propagated to a collapsed section's band exactly as questions are.
+   * Add a row to a section. Given, every section header carries a `+` — the
+   * one gesture that makes a forecast the submitter's own rather than the
+   * template's.
    */
-  intercompanyFlags?: Set<string>;
-  /**
-   * Open the counterparty breakdown behind an intercompany cell. `prefill` is
-   * the digit the user typed to open it, which starts the first row's amount.
-   */
-  onOpenIntercompany?: (catIdx: number, dayIdx: number, prefill?: string) => void;
-  /**
-   * How an intercompany cell is opened.
-   *
-   * `cell` — the whole cell is the button (submitters and viewers: there is
-   * nothing else a click on it could mean).
-   * `icon` — a small sibling button opens the breakdown read-only, and the
-   * cell's own click keeps asking the submitter a question. Treasury and
-   * approvers get this: their click already means something, and a
-   * double-click handler would fire the single-click one twice and clobber
-   * whatever draft it had just opened.
-   */
-  intercompanyMode?: 'cell' | 'icon';
+  onAddRow?: (section: string) => void;
+  /** Rename one of those rows (free-text sections only). */
+  onRenameRow?: (rowId: string, label: string) => void;
+  /** Point one at a legal entity (intercompany sections). */
+  onSetRowEntity?: (rowId: string, entity: string) => void;
+  /** Remove one, and its figures with it. */
+  onRemoveRow?: (rowId: string) => void;
+  /** The legal entities an intercompany row may name, ISO code first. */
+  entityOptions?: EntityOption[];
   /**
    * Focus mode: when set, these cells are spotlit and every other cell is
    * dimmed. Used to point at the cells still needing input before submission.
@@ -105,18 +104,18 @@ export interface ForecastGridProps {
    */
   clickableCells?: 'flagged' | 'all';
   onChangeDayComment?: (dayIdx: number, comment: string) => void;
-  /** Diverging heatmap on the numeric cells (on by default). */
-  heatmap?: boolean;
   /**
-   * What each cell is shaded AGAINST.
+   * Conditional formatting, and what each cell is shaded AGAINST.
    *
    * `row` (the default) scales every line item against itself — the colour
    * then answers "is this a big week for receivables?". `grid` puts every
    * data cell on one scale, which answers "where is the money in this
-   * forecast at all?" and washes the smaller lines out entirely. Both are
-   * legitimate readings, so the forecast screen offers the choice.
+   * forecast at all?" and washes the smaller lines out entirely. `off` is
+   * neither: a plain grid of numbers, for anyone who reads the figures and
+   * finds the colour in the way. All three are legitimate, so the forecast
+   * screen offers the choice rather than deciding for everyone.
    */
-  heatmapScope?: 'row' | 'grid';
+  heatmapMode?: 'row' | 'grid' | 'off';
   /** Extra pinned row/column summing every line item per period. */
   showColumnTotals?: boolean;
   /**
@@ -155,31 +154,34 @@ interface GridScales {
 
 /** Recompute the colour extremes from the cells currently on screen. */
 function useGridScales(props: ForecastGridProps): GridScales {
-  const {
-    categories,
-    values,
-    startingBalance,
-    dayLabels,
-    heatmap = true,
-    heatmapScope = 'row',
-  } = props;
+  const { categories, values, startingBalance, dayLabels, heatmapMode = 'row' } = props;
+  const heatmap = heatmapMode !== 'off';
+  const heatmapScope = heatmapMode;
   const numDays = dayLabels.length;
   const numCats = categories.length;
 
   // One band per line item — or, when the whole grid is one scale, the same
   // band repeated so every cell is measured against the forecast's extremes.
+  //
+  // A row the SUBMITTER added takes no band at all. Those rows are what an
+  // expanded section is made of, and they are read as a breakdown — "which of
+  // these adds up to the section total" — where a second colour scale running
+  // underneath the first says nothing the numbers do not, and turns an opened
+  // section into a block of colour. The section's own figures keep theirs.
   const catScales = useHeatScales(() => {
     if (!heatmap) return [];
     const rows = Array.from({ length: numCats }, (_v, c) =>
-      Array.from({ length: numDays }, (_x, d) =>
-        categories[c]?.subtotal
-          ? subtotalValue(categories, values, c, d)
-          : catValue(values, c, d),
-      ),
+      categories[c]?.customRowId !== undefined
+        ? []
+        : Array.from({ length: numDays }, (_x, d) =>
+            categories[c]?.subtotal
+              ? subtotalValue(categories, values, c, d)
+              : catValue(values, c, d),
+          ),
     );
     if (heatmapScope === 'row') return rows;
     const all = rows.flat();
-    return rows.map(() => all);
+    return rows.map((band) => (band.length === 0 ? [] : all));
   }, [heatmap, heatmapScope, categories, values, numDays, numCats]);
 
   // A collapsed section stands in for its line items, so it takes a band of
@@ -232,8 +234,6 @@ const bandScale = (scales: HeatScale[], index: number): HeatScale =>
  *
  * Collapsing a section hides the marked cells in it, and with them the only
  * sign that someone is waiting on an answer — so the section band says it.
- * The same counting serves intercompany mismatches, which disappear behind a
- * collapsed section for exactly the same reason.
  */
 function cellsInGroup(idxs: number[], marked: Set<string> | undefined): number {
   if (!marked || marked.size === 0) return 0;
@@ -258,15 +258,134 @@ function SectionQuestions({ count }: { count: number }) {
   );
 }
 
-/** The same marker for intercompany mismatches, in the flag's colour. */
-function SectionIntercompanyFlags({ count }: { count: number }) {
-  if (count === 0) return null;
+/**
+ * Whether the reader may add rows to this section — and, under an
+ * intercompany section, whether they can be given an entity to name.
+ */
+function canAddTo(props: ForecastGridProps, group: CategoryGroup): boolean {
+  return Boolean(props.onAddRow) && props.editable && Boolean(group.label);
+}
+
+/** The `+` that turns a section header into a place rows can be added. */
+function AddRowButton({
+  section,
+  intercompany,
+  onAddRow,
+}: {
+  section: string;
+  intercompany: boolean;
+  onAddRow: (section: string) => void;
+}) {
   return (
-    <span
-      className="section-questions section-ic-flags"
-      title={`${count} intercompany mismatch${count === 1 ? '' : 'es'} inside this section`}
+    <button
+      type="button"
+      className="section-add-row"
+      title={
+        intercompany
+          ? `Add a counterparty row to ${section} — rows here are legal entities`
+          : `Add a row to ${section} — name it whatever this section is made of`
+      }
+      aria-label={`Add a row to ${section}`}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAddRow(section);
+      }}
     >
-      ! {count}
+      +
+    </button>
+  );
+}
+
+/**
+ * The name of one line.
+ *
+ * A template line is a label. A row the SUBMITTER added is a small editor:
+ * free text where the section is theirs to describe, and a legal-entity
+ * dropdown where it is intercompany — free text there would be an amount that
+ * can never reach the entity it names, so the picker is the only way in. A
+ * MIRRORED row is neither: it is another entity's statement, shown with where
+ * it came from and nothing to edit.
+ */
+function RowName({
+  catIdx,
+  props,
+  intercompany,
+}: {
+  catIdx: number;
+  props: ForecastGridProps;
+  intercompany: boolean;
+}) {
+  const { categories, editable, entityOptions = [], onRenameRow, onSetRowEntity, onRemoveRow } =
+    props;
+  const cat = categories[catIdx];
+  const rowId = cat?.customRowId;
+  if (rowId === undefined) return <>{cat?.label}</>;
+
+  const mirrored = cat.source !== undefined;
+  const canEdit = editable && !mirrored;
+  const options = cat.entityName && !entityOptions.some((o) => o.name === cat.entityName)
+    ? [...entityOptions, { name: cat.entityName, code: cat.label, country: '' }]
+    : entityOptions;
+
+  return (
+    <span className="custom-row-name">
+      <span className="custom-row-mark" aria-hidden="true">
+        ↳
+      </span>
+      {canEdit && intercompany && onSetRowEntity ? (
+        <select
+          className="row-entity-select"
+          value={cat.entityName ?? ''}
+          aria-label="Counterparty legal entity"
+          title={cat.entityName ?? 'Pick the legal entity this row is about'}
+          onChange={(e) => onSetRowEntity(rowId, e.target.value)}
+        >
+          <option value="">Entity…</option>
+          {options.map((o) => (
+            <option key={o.name} value={o.name}>
+              {o.code} · {o.name}
+            </option>
+          ))}
+        </select>
+      ) : canEdit && onRenameRow ? (
+        <input
+          className="row-name-input"
+          value={cat.customLabel ?? ''}
+          placeholder="Name this row…"
+          aria-label="Row name"
+          onChange={(e) => onRenameRow(rowId, e.target.value)}
+        />
+      ) : (
+        <span className="row-name-static" title={cat.entityName ?? cat.label}>
+          {cat.label}
+        </span>
+      )}
+      {mirrored && (
+        <span
+          className={`row-source-tag${cat.late ? ' late' : ''}`}
+          title={
+            cat.late
+              ? `Mirrored from ${cat.source} — it arrived after this forecast was submitted`
+              : `Mirrored from ${cat.source}'s forecast — they enter it, you read it`
+          }
+        >
+          from {cat.source}
+          {cat.late ? ' · late' : ''}
+        </span>
+      )}
+      {canEdit && onRemoveRow && (
+        <button
+          type="button"
+          className="row-remove"
+          title="Remove this row and its figures"
+          aria-label={`Remove row ${cat.label}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onRemoveRow(rowId)}
+        >
+          ×
+        </button>
+      )}
     </span>
   );
 }
@@ -319,9 +438,6 @@ function EditableCell({
     onPaste,
     onCellClick,
     clickableCells = 'flagged',
-    intercompanyFlags,
-    onOpenIntercompany,
-    intercompanyMode = 'cell',
   } = props;
   const key = cellKey(catIdx, dayIdx);
   const flagged = flags.has(key);
@@ -357,6 +473,14 @@ function EditableCell({
   }
 
   const val = catValue(values, catIdx, dayIdx);
+  const cat = categories[catIdx];
+  /**
+   * A row mirrored in from another entity's forecast is that entity's
+   * statement, not this one's: it is read here and edited there. Both sides
+   * then hold the same figure by construction, which is the whole reason the
+   * group position nets to zero.
+   */
+  const mirrored = cat?.source !== undefined;
   // A cell with a question on it always opens, whatever the flag set says.
   // Flags are recomputed from the numbers on every edit, and a question can
   // sit on a cell those rules would not flag — an empty one, say — which is
@@ -368,127 +492,50 @@ function EditableCell({
    * thing being asked for were a 16px pencil and the banner above the grid.
    */
   const toAnswer = asked && clickable;
-  /**
-   * An intercompany cell holds a set of (amount, counterparty) rows rather
-   * than a number, so it is opened, not typed into — the same treatment a
-   * cell with a question gets, for the same reason.
-   */
-  const isIntercompany = categories[catIdx]?.intercompany === true;
-  const icFlagged = isIntercompany && (intercompanyFlags?.has(key) ?? false);
-  // Grids that only DISPLAY a forecast — the template preview, the
-  // consolidated position — still mark their intercompany lines; what they
-  // have no handler for is opening one.
-  const icOpenable = isIntercompany && Boolean(onOpenIntercompany);
-  /**
-   * The question outranks the breakdown. A cell can be both, and the one
-   * somebody is waiting on an answer to is the one a click should open — so
-   * the existing auto-open and deep-link paths land where they always did,
-   * and the breakdown moves to its icon.
-   */
-  const icOnCell = icOpenable && intercompanyMode === 'cell' && !toAnswer;
-  const icOnIcon = icOpenable && !icOnCell;
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
+  const typeable = editable && !toAnswer && !mirrored;
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     replied ? 'comment-answered' : ''
-  } ${isIntercompany ? 'cell-intercompany' : ''} ${icFlagged ? 'cell-ic-flagged' : ''} ${
-    clickable || icOnCell ? 'cell-askable' : ''
-  } ${editable && !toAnswer && !icOnCell ? 'cell-input' : ''} ${extraClass}${focus}`
+  } ${cat?.customRowId !== undefined ? 'cell-custom' : ''} ${
+    mirrored ? 'cell-mirrored' : ''
+  } ${clickable ? 'cell-askable' : ''} ${typeable ? 'cell-input' : ''} ${extraClass}${focus}`
     .replace(/\s+/g, ' ')
     .trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
   const style = flagged ? undefined : fill(val, scale);
   const open = () => onCellClick?.(catIdx, dayIdx);
-  const openIntercompany = (prefill?: string) =>
-    onOpenIntercompany?.(catIdx, dayIdx, prefill);
-
-  /**
-   * The breakdown's own way in, for cells whose click already means something
-   * else: treasury's and an approver's question, or a question waiting on an
-   * answer. Deliberately a sibling of the note button rather than a
-   * double-click — on a read-only cell the single-click handler fires twice
-   * for a double, which would re-run the drafts it had just populated.
-   */
-  const intercompanyButton = icOnIcon ? (
-    <button
-      type="button"
-      className={`cell-ic-btn${icFlagged ? ' flagged' : ''}`}
-      tabIndex={-1}
-      title={
-        icFlagged
-          ? 'A mismatch has been raised on this cell — open the counterparty breakdown'
-          : 'Open the counterparty breakdown for this cell'
-      }
-      aria-label={`Intercompany breakdown for ${
-        categories[catIdx]?.label ?? 'this cell'
-      }, period ${dayIdx + 1}`}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => {
-        e.stopPropagation();
-        openIntercompany();
-      }}
-    >
-      {icFlagged ? '!' : '⇄'}
-    </button>
-  ) : icFlagged ? (
-    // The cell itself opens the breakdown here, so this is signage: a second
-    // button inside a cell that is already one is a target for the same job.
-    <span className="cell-ic-btn flagged" aria-hidden="true">
-      !
-    </span>
-  ) : null;
 
   // A read-only grid has nothing else a click could mean, so the whole cell
   // opens the dialog — and so does a cell waiting on an answer, where the
   // dialog is the whole job. Both carry the cell coordinates an editable one
   // does, so a deep link ("explain THIS cell") still finds and scrolls to it,
   // and Enter opens the one the keyboard has landed on.
-  if (!editable || toAnswer || icOnCell) {
-    // Which surface this cell opens, when it opens one at all.
-    const asButton = toAnswer || icOnCell;
-    const openHere = icOnCell ? () => openIntercompany() : open;
+  if (!typeable) {
     return (
       <td
         className={cls}
         style={style}
         data-cat={catIdx}
         data-day={dayIdx}
-        onClick={asButton ? openHere : clickable ? open : undefined}
-        role={asButton ? 'button' : undefined}
-        tabIndex={asButton ? 0 : undefined}
+        onClick={clickable ? open : undefined}
+        role={toAnswer ? 'button' : undefined}
+        tabIndex={toAnswer ? 0 : undefined}
         title={
           toAnswer
             ? editable
               ? 'Open the question on this cell and answer it'
               : 'Open the question on this cell'
-            : icOnCell
-              ? editable
-                ? 'Intercompany — open the counterparty breakdown, or type a figure to start one'
-                : 'Intercompany — open the counterparty breakdown'
+            : mirrored
+              ? `Mirrored from ${cat?.source}'s forecast — they enter this figure, you read it`
               : undefined
         }
         onKeyDown={
-          asButton
+          toAnswer
             ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  openHere();
-                  return;
-                }
-                // Typing a figure at an intercompany cell opens the breakdown
-                // with that digit already in the first row's amount — the
-                // cell behaves like the input it replaced. Arrows are
-                // untouched, so arrowing ACROSS one never opens anything.
-                if (
-                  icOnCell &&
-                  editable &&
-                  !e.ctrlKey &&
-                  !e.metaKey &&
-                  !e.altKey &&
-                  /^[0-9-]$/.test(e.key)
-                ) {
-                  e.preventDefault();
-                  openIntercompany(e.key);
+                  open();
                   return;
                 }
                 moveWithKeyboard(e);
@@ -497,7 +544,6 @@ function EditableCell({
         }
       >
         {fmt(val)}
-        {intercompanyButton}
       </td>
     );
   }
@@ -529,7 +575,6 @@ function EditableCell({
           ?
         </button>
       )}
-      {intercompanyButton}
     </td>
   );
 }
@@ -841,16 +886,19 @@ function GroupRows({
     collapsedGroups,
     onToggleGroup,
     requested,
-    intercompanyFlags,
+    onAddRow,
   } = props;
   const numDays = dayLabels.length;
   const totalScale = scales.totals;
+  // Rows added under an intercompany section name a legal entity; everywhere
+  // else the submitter names them.
+  const intercompany = sectionIsIntercompany(categories, group.idxs);
+  const addable = canAddTo(props, group);
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
   const collapsed = collapsible && (collapsedGroups?.has(groupIndex) ?? false);
   const questions = cellsInGroup(group.idxs, requested);
-  const mismatches = cellsInGroup(group.idxs, intercompanyFlags);
   // A section with nothing in it says so on its own row. Collapsed, a row of
   // "—" across every column is indistinguishable from a section of zeros
   // somebody actually forecast, and it is worth knowing which you are looking
@@ -869,7 +917,7 @@ function GroupRows({
         <tr
           className={`section-row${band}${collapsed ? ' section-collapsed' : ''}${
             questions > 0 ? ' section-questioned' : ''
-          }${mismatches > 0 ? ' section-ic-flagged' : ''}${empty ? ' section-empty' : ''}`}
+          }${empty ? ' section-empty' : ''}`}
         >
           {/* The whole label cell toggles the section — the caret button is
               signage, not the only target. */}
@@ -905,58 +953,96 @@ function GroupRows({
                   {collapsed ? '▸' : '▾'}
                 </span>
                 {group.label}
+                {intercompany && (
+                  <span className="section-tag" title="Rows in this section are legal entities">
+                    IC
+                  </span>
+                )}
                 {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
-                <SectionIntercompanyFlags count={mismatches} />
               </button>
             ) : (
               <>
                 {group.label}
+                {intercompany && (
+                  <span className="section-tag" title="Rows in this section are legal entities">
+                    IC
+                  </span>
+                )}
                 {empty && <span className="section-no-activity">no activity</span>}
                 <SectionQuestions count={questions} />
-                <SectionIntercompanyFlags count={mismatches} />
               </>
             )}
+            {addable && group.label && (
+              <AddRowButton
+                section={group.label}
+                intercompany={intercompany}
+                onAddRow={(section) => {
+                  // Adding to a folded section would put the new row out of
+                  // sight, so the section opens with it.
+                  if (collapsed) onToggleGroup?.(groupIndex);
+                  onAddRow?.(section);
+                }}
+              />
+            )}
           </td>
-          {/* Collapsed, the band itself carries the section's numbers. */}
-          {collapsed
-            ? dayLabels.map((_dl, d) => {
-                const v = groupValue(categories, values, group.idxs, d);
-                return (
-                  <td
-                    key={d}
-                    className="cell subtotal-cell"
-                    style={fill(v, bandScale(scales.byGroup, groupIndex))}
-                  >
-                    {fmt(v)}
-                  </td>
-                );
-              })
-            : Array.from({ length: numDays }).map((_, i) => <td key={i} />)}
-          {collapsed ? (
-            (() => {
-              const t = groupTotal(categories, values, group.idxs, numDays);
-              return (
-                <td
-                  className="cell row-total-cell"
-                  style={{ fontWeight: 600, ...(fill(t, totalScale) ?? {}) }}
-                >
-                  {t.toLocaleString()}
-                </td>
-              );
-            })()
-          ) : (
-            <td />
-          )}
+          {/* The band carries the section's numbers whether it is open or
+              shut. Collapsed they ARE the section; open they are what its
+              lines add up to, which is the figure a reader checks a line
+              against — and having to collapse the section to see it meant
+              never seeing the two together. Open, they are drawn back so the
+              lines below stay the thing being read. */}
+          {dayLabels.map((_dl, d) => {
+            const v = groupValue(categories, values, group.idxs, d);
+            return (
+              <td
+                key={d}
+                className={`cell subtotal-cell${collapsed ? '' : ' section-open-total'}`}
+                style={collapsed ? fill(v, bandScale(scales.byGroup, groupIndex)) : undefined}
+              >
+                {fmt(v)}
+              </td>
+            );
+          })}
+          {(() => {
+            const t = groupTotal(categories, values, group.idxs, numDays);
+            return (
+              <td
+                className={`cell row-total-cell${collapsed ? '' : ' section-open-total'}`}
+                style={
+                  collapsed ? { fontWeight: 600, ...(fill(t, totalScale) ?? {}) } : undefined
+                }
+              >
+                {t.toLocaleString()}
+              </td>
+            );
+          })()}
         </tr>
       )}
       {!collapsed &&
-        group.idxs.map((catIdx) => {
+        group.idxs.map((catIdx, position) => {
           const isSubtotal = categories[catIdx].subtotal === true;
+          const custom = categories[catIdx].customRowId !== undefined;
+          // The section's own rows end where its computed total begins, and
+          // that is where "add a row" belongs — under the rows it will join,
+          // above the figure it will change.
+          const lastInput =
+            !isSubtotal &&
+            (position === group.idxs.length - 1 ||
+              categories[group.idxs[position + 1]]?.subtotal === true);
           return (
-            <tr key={catIdx} className={band + (isSubtotal ? ' subtotal-row' : '')}>
-              <td className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}`}>
-                {categories[catIdx].label}
+            <Fragment key={catIdx}>
+            <tr
+              className={
+                band + (isSubtotal ? ' subtotal-row' : '') + (custom ? ' custom-row' : '')
+              }
+            >
+              <td
+                className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}${
+                  custom ? ' row-label-custom' : ''
+                }`}
+              >
+                <RowName catIdx={catIdx} props={props} intercompany={intercompany} />
               </td>
               {dayLabels.map((_dl, d) => (
                 <EditableCell
@@ -981,9 +1067,64 @@ function GroupRows({
                 );
               })()}
             </tr>
+            {lastInput && addable && group.label && (
+              <AddRowLine
+                section={group.label}
+                intercompany={intercompany}
+                columns={numDays + 1}
+                band={band}
+                onAddRow={onAddRow}
+              />
+            )}
+            </Fragment>
           );
         })}
+      {/* A section with nothing in it yet still has to be fillable. */}
+      {!collapsed && addable && group.label && group.idxs.length === 0 && (
+        <AddRowLine
+          section={group.label}
+          intercompany={intercompany}
+          columns={numDays + 1}
+          band={band}
+          onAddRow={onAddRow}
+        />
+      )}
     </>
+  );
+}
+
+/** The "add a row" line that closes an expanded section. */
+function AddRowLine({
+  section,
+  intercompany,
+  columns,
+  band,
+  onAddRow,
+}: {
+  section: string;
+  intercompany: boolean;
+  columns: number;
+  band: string;
+  onAddRow?: (section: string) => void;
+}) {
+  return (
+    <tr className={`add-row-line${band}`}>
+      <td className="row-label indent">
+        <button
+          type="button"
+          className="add-row-btn"
+          onClick={() => onAddRow?.(section)}
+          title={
+            intercompany
+              ? 'Add a counterparty — the amount lands in their forecast too'
+              : 'Add a row of your own to this section'
+          }
+        >
+          + {intercompany ? 'Add counterparty' : 'Add row'}
+        </button>
+      </td>
+      <td colSpan={columns} />
+    </tr>
   );
 }
 
@@ -1003,7 +1144,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     collapsedGroups,
     onToggleGroup,
     requested,
-    intercompanyFlags,
+    onAddRow,
     scales,
   } = props;
   const numDays = dayLabels.length;
@@ -1057,9 +1198,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 colSpan={isCollapsed(gi) ? 1 : g.idxs.length}
                 className={`day-h section-band${gi % 2 === 0 ? ' band-a' : ' band-b'}${
                   onToggleGroup ? ' band-toggle' : ''
-                }${cellsInGroup(g.idxs, requested) > 0 ? ' section-questioned' : ''}${
-                  cellsInGroup(g.idxs, intercompanyFlags) > 0 ? ' section-ic-flagged' : ''
-                }`}
+                }${cellsInGroup(g.idxs, requested) > 0 ? ' section-questioned' : ''}`}
                 onClick={onToggleGroup ? () => onToggleGroup(gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
                 tabIndex={onToggleGroup ? 0 : undefined}
@@ -1092,7 +1231,6 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                       <span className="section-no-activity">no activity</span>
                     )}
                     <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
-                    <SectionIntercompanyFlags count={cellsInGroup(g.idxs, intercompanyFlags)} />
                   </span>
                 ) : (
                   <>
@@ -1101,8 +1239,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                       <span className="section-no-activity">no activity</span>
                     )}
                     <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
-                    <SectionIntercompanyFlags count={cellsInGroup(g.idxs, intercompanyFlags)} />
                   </>
+                )}
+                {canAddTo(props, g) && (
+                  <AddRowButton
+                    section={g.label}
+                    intercompany={sectionIsIntercompany(categories, g.idxs)}
+                    onAddRow={(section) => {
+                      if (isCollapsed(gi)) onToggleGroup?.(gi);
+                      onAddRow?.(section);
+                    }}
+                  />
                 )}
               </th>
             ) : (
@@ -1123,10 +1270,6 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 key={`g${col.gi}`}
                 className={`day-h group-end${col.band}${onToggleGroup ? ' band-toggle' : ''}${
                   cellsInGroup(groups[col.gi].idxs, requested) > 0 ? ' section-questioned' : ''
-                }${
-                  cellsInGroup(groups[col.gi].idxs, intercompanyFlags) > 0
-                    ? ' section-ic-flagged'
-                    : ''
                 }`}
                 onClick={onToggleGroup ? () => onToggleGroup(col.gi) : undefined}
                 role={onToggleGroup ? 'button' : undefined}
@@ -1151,9 +1294,15 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             ) : (
               <th
                 key={col.catIdx}
-                className={`day-h${col.end ? ' group-end' : ''}${col.band}`}
+                className={`day-h${col.end ? ' group-end' : ''}${col.band}${
+                  categories[col.catIdx].customRowId !== undefined ? ' day-h-custom' : ''
+                }`}
               >
-                {categories[col.catIdx].label}
+                <RowName
+                  catIdx={col.catIdx}
+                  props={props}
+                  intercompany={sectionIsIntercompany(categories, groups[col.gi].idxs)}
+                />
               </th>
             ),
           )}

@@ -27,11 +27,8 @@ import {
 } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle } from './cycleService';
-import {
-  intercompanyCells,
-  normalizeIntercompany,
-  normalizeIntercompanyFlags,
-} from './intercompanyService';
+import { intercompanyCells } from './intercompanyService';
+import { customRowsOf, normalizeCustomRows, sectionKey } from './customRows';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
 import {
@@ -320,8 +317,7 @@ function normalizeSubmission(sub: Submission): Submission {
       sub.questionedBy ?? (sub as { reopenedBy?: unknown }).reopenedBy,
     ),
     ...(typeof sub.revisedFrom === 'string' ? { revisedFrom: sub.revisedFrom } : {}),
-    intercompany: normalizeIntercompany(sub.intercompany),
-    intercompanyFlags: normalizeIntercompanyFlags(sub.intercompanyFlags),
+    customRows: normalizeCustomRows(sub.customRows),
     dayComments: record(sub.dayComments) ?? {},
     startingBalance: typeof sub.startingBalance === 'number' ? sub.startingBalance : null,
     updatedAt: typeof sub.updatedAt === 'string' ? sub.updatedAt : new Date().toISOString(),
@@ -564,6 +560,23 @@ export function consolidatedValues(
   display.categories.forEach((cat, i) => {
     if (!cat.subtotal) displayIdxByLabel.set(cat.label.trim().toLowerCase(), i);
   });
+  /**
+   * Where a submitter's OWN row is consolidated to: the first input line of
+   * the section it was added under.
+   *
+   * "Customer A" is one country's way of splitting its receivables, not a line
+   * of the group's forecast — publishing it as a consolidated category would
+   * give the group as many categories as its countries have customers. What
+   * the group position needs is the money, and the money belongs to the
+   * section, so the row is summed into it and the name stays on the forecast
+   * it was typed into (where treasury can expand the section and read it).
+   */
+  const displayIdxBySection = new Map<string, number>();
+  display.categories.forEach((cat, i) => {
+    if (cat.subtotal || !cat.group) return;
+    const key = sectionKey(cat.group);
+    if (!displayIdxBySection.has(key)) displayIdxBySection.set(key, i);
+  });
 
   const values: GridValues = {};
   let startingBalance = 0;
@@ -589,16 +602,24 @@ export function consolidatedValues(
       const target = displayIdxByLabel.get(cat.label.trim().toLowerCase());
       if (target !== undefined) remap.set(i, target);
     });
+    // …and the rows this entity added itself, onto their section.
+    customRowsOf(sub).forEach((row, i) => {
+      const target = displayIdxBySection.get(sectionKey(row.section));
+      if (target !== undefined) remap.set(template.categories.length + i, target);
+    });
     for (const [key, v] of Object.entries(sub.values)) {
       if (!v) continue;
       const [c, d] = key.split('-').map(Number);
       const target = remap.get(c);
       if (target === undefined) {
         // Nothing on the display template matches this line, so it is left
-        // out. Record it rather than dropping it silently.
+        // out. Record it rather than dropping it silently — and a custom row
+        // is recorded under its SECTION, never under the name one submitter
+        // gave it.
+        const custom = customRowsOf(sub)[c - template.categories.length];
         const cat = template.categories[c];
-        if (!cat || cat.subtotal) continue;
-        const label = cat.label.trim();
+        if (!custom && (!cat || cat.subtotal)) continue;
+        const label = custom ? custom.section.trim() : cat.label.trim();
         const entry = dropped.get(label.toLowerCase()) ?? { label, entities: [], total: 0 };
         if (!entry.entities.includes(e.name)) entry.entities.push(e.name);
         entry.total += v;
