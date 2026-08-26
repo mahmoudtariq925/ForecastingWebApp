@@ -1227,23 +1227,24 @@ function SubmissionEditor({
   /** The legal entities an intercompany row may name. */
   const entityChoices = useMemo(() => entityOptions(entity), [entity]);
 
-  /** Add a row to a section, ready to be named. */
-  const addRow = (section: string) => {
+  /** Add a row under a line — or under the section, where it has no lines. */
+  const addRow = (section: string, parent?: string) => {
     if (!canEditRows) return;
     pushUndo();
     lastEditedCell.current = null;
-    const nextRows = [...rows, makeCustomRow(section)];
+    const row = makeCustomRow(section, parent);
+    const nextRows = [...rows, row];
     setRows(nextRows);
     // A new row holds no figures, so nothing about the forecast's numbers has
     // changed yet and an already-submitted forecast stays where it is.
     persist({ customRows: nextRows });
     // Put the cursor in the new row's name — an unnamed row is the one thing
-    // it must not be left as.
+    // it must not be left as. Found by the row's OWN id: rows sit under the
+    // line they break down, so the newest one is rarely the last on screen.
     requestAnimationFrame(() => {
-      const inputs = document.querySelectorAll<HTMLElement>(
-        '.forecast-grid .row-name-input, .forecast-grid .row-entity-select',
-      );
-      inputs[inputs.length - 1]?.focus();
+      document
+        .querySelector<HTMLElement>(`.forecast-grid [data-row-id="${row.id}"]`)
+        ?.focus();
     });
   };
 

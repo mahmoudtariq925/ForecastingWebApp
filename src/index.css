@@ -5858,3 +5858,29 @@ thead th,
      them reads as a chart that failed to load the rest of itself. */
   margin-inline: auto;
 }
+
+/* The `+` on a LINE, not just on a section: a row breaks down a line, so one
+   sits after Receivables and another after Payables. Faint at rest — ten of
+   them at full strength would compete with the labels they follow — and full
+   under the pointer, on whichever row or column header is being read. */
+.forecast-grid td.row-label .section-add-row,
+.forecast-grid thead th.day-h .section-add-row {
+  opacity: 0.32;
+  width: 17px;
+  height: 17px;
+  margin-left: 6px;
+  font-size: 13px;
+}
+.forecast-grid tbody tr:hover td.row-label .section-add-row,
+.forecast-grid thead th.day-h:hover .section-add-row,
+.forecast-grid td.row-label .section-add-row:focus-visible,
+.forecast-grid thead th.day-h .section-add-row:focus-visible {
+  opacity: 1;
+}
+/* In the dates-down-rows layout the column header stacks its label over its
+   control, so the `+` gets a line of its own rather than pushing the label
+   off-centre. */
+.forecast-grid thead th.day-h .section-add-row {
+  display: block;
+  margin: 3px auto 0;
+}

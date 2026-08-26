@@ -32,6 +32,8 @@ import { listLegalEntities } from './legalEntityService';
 export interface GridCategory extends TemplateCategory {
   /** Set when this line is a row the submitter added. */
   customRowId?: string;
+  /** The template line it breaks down, by label — see `CustomRow.parent`. */
+  parentLabel?: string;
   /**
    * What the submitter has typed into the row's name so far, as opposed to
    * `label`, which is what the row is CALLED — a placeholder while the name
@@ -72,24 +74,38 @@ export function gridCategories(
   rows: CustomRow[],
 ): GridCategory[] {
   const sectionIC = new Map<string, boolean>();
+  const lineIC = new Map<string, boolean>();
   for (const cat of template.categories) {
+    if (cat.subtotal) continue;
+    lineIC.set(sectionKey(cat.label), cat.intercompany === true);
     if (!cat.group) continue;
     const key = sectionKey(cat.group);
-    if (cat.subtotal) continue;
     sectionIC.set(key, (sectionIC.get(key) ?? true) && cat.intercompany === true);
   }
   return [
     ...template.categories,
-    ...rows.map((row) => ({
-      label: rowLabel(row),
-      group: row.section,
-      ...(sectionIC.get(sectionKey(row.section)) ? { intercompany: true as const } : {}),
-      customRowId: row.id,
-      customLabel: row.label,
-      ...(row.entity ? { entityName: row.entity } : {}),
-      ...(row.source ? { source: row.source } : {}),
-      ...(row.late ? { late: true as const } : {}),
-    })),
+    ...rows.map((row) => {
+      // Whether a row names a legal entity is decided by the LINE it breaks
+      // down — a section can hold an intercompany line and an ordinary one —
+      // falling back to the section for a row that belongs to no line.
+      const intercompany =
+        row.parent !== undefined
+          ? lineIC.get(sectionKey(row.parent)) === true
+          : sectionIC.get(sectionKey(row.section)) === true;
+      return {
+        label: rowLabel(row),
+        // A row under a line that belongs to no section belongs to none
+        // either — it bands with that line, wherever the line sits.
+        ...(row.section ? { group: row.section } : {}),
+        ...(intercompany ? { intercompany: true as const } : {}),
+        customRowId: row.id,
+        customLabel: row.label,
+        ...(row.parent !== undefined ? { parentLabel: row.parent } : {}),
+        ...(row.entity ? { entityName: row.entity } : {}),
+        ...(row.source ? { source: row.source } : {}),
+        ...(row.late ? { late: true as const } : {}),
+      };
+    }),
   ];
 }
 
@@ -153,9 +169,24 @@ export function newRowId(): string {
   return `cr${seq}-${Date.now().toString(36)}`;
 }
 
-/** A fresh row under `section`, named (or not) by whoever added it. */
-export function makeCustomRow(section: string, label = '', entity?: string): CustomRow {
-  return { id: newRowId(), section, label, ...(entity ? { entity } : {}) };
+/**
+ * A fresh row, named (or not) by whoever added it: under `parent` where it
+ * breaks a line down, and under the section itself where there is no line to
+ * belong to.
+ */
+export function makeCustomRow(
+  section: string,
+  parent?: string,
+  label = '',
+  entity?: string,
+): CustomRow {
+  return {
+    id: newRowId(),
+    section,
+    ...(parent !== undefined ? { parent } : {}),
+    label,
+    ...(entity ? { entity } : {}),
+  };
 }
 
 /** A row this entity entered itself, as opposed to one mirrored into it. */
@@ -282,6 +313,7 @@ export function normalizeCustomRows(raw: unknown): CustomRow[] | undefined {
       id: r.id,
       section: r.section,
       label: typeof r.label === 'string' ? r.label : '',
+      ...(typeof r.parent === 'string' ? { parent: r.parent } : {}),
       ...(typeof r.entity === 'string' ? { entity: r.entity } : {}),
       ...(typeof r.source === 'string' ? { source: r.source } : {}),
       ...(typeof r.sourceRowId === 'string' ? { sourceRowId: r.sourceRowId } : {}),

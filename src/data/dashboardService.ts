@@ -96,7 +96,11 @@ function sumsByLabel(
     add(cat.label, categorySum(sub.values, catIdx, selection));
   });
   customRowsOf(sub).forEach((row, i) => {
-    const target = sectionLine.get(row.section.trim().toLowerCase());
+    // The line the row breaks down, or the first line of its section.
+    const parent = row.parent?.trim().toLowerCase();
+    const target =
+      (parent && byLabel.has(parent) ? row.parent?.trim() : undefined) ??
+      sectionLine.get(row.section.trim().toLowerCase());
     if (target === undefined) return;
     add(target, categorySum(sub.values, template.categories.length + i, selection));
   });

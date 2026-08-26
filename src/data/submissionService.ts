@@ -602,9 +602,14 @@ export function consolidatedValues(
       const target = displayIdxByLabel.get(cat.label.trim().toLowerCase());
       if (target !== undefined) remap.set(i, target);
     });
-    // …and the rows this entity added itself, onto their section.
+    // …and the rows this entity added itself, onto the LINE they break down —
+    // "Customer A" is part of Receivables — falling back to the first line of
+    // their section for a row that belongs to no line.
     customRowsOf(sub).forEach((row, i) => {
-      const target = displayIdxBySection.get(sectionKey(row.section));
+      const target =
+        (row.parent !== undefined
+          ? displayIdxByLabel.get(row.parent.trim().toLowerCase())
+          : undefined) ?? displayIdxBySection.get(sectionKey(row.section));
       if (target !== undefined) remap.set(template.categories.length + i, target);
     });
     for (const [key, v] of Object.entries(sub.values)) {
@@ -619,7 +624,9 @@ export function consolidatedValues(
         const custom = customRowsOf(sub)[c - template.categories.length];
         const cat = template.categories[c];
         if (!custom && (!cat || cat.subtotal)) continue;
-        const label = custom ? custom.section.trim() : cat.label.trim();
+        const label = custom
+          ? (custom.parent ?? custom.section).trim() || 'Added rows'
+          : cat.label.trim();
         const entry = dropped.get(label.toLowerCase()) ?? { label, entities: [], total: 0 };
         if (!entry.entities.includes(e.name)) entry.entities.push(e.name);
         entry.total += v;

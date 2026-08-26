@@ -69,7 +69,7 @@ export interface ForecastGridProps {
    * one gesture that makes a forecast the submitter's own rather than the
    * template's.
    */
-  onAddRow?: (section: string) => void;
+  onAddRow?: (section: string, parent?: string) => void;
   /** Rename one of those rows (free-text sections only). */
   onRenameRow?: (rowId: string, label: string) => void;
   /** Point one at a legal entity (intercompany sections). */
@@ -242,38 +242,59 @@ function SectionQuestions({ count }: { count: number }) {
   );
 }
 
-/**
- * Whether the reader may add rows to this section — and, under an
- * intercompany section, whether they can be given an entity to name.
- */
-function canAddTo(props: ForecastGridProps, group: CategoryGroup): boolean {
-  return Boolean(props.onAddRow) && props.editable && Boolean(group.label);
+/** Whether the reader may add rows to this forecast at all. */
+function canAddRows(props: ForecastGridProps): boolean {
+  return Boolean(props.onAddRow) && props.editable;
 }
 
-/** The `+` that turns a section header into a place rows can be added. */
+/**
+ * Whether a SECTION header carries the `+` itself.
+ *
+ * Normally it does not: a row breaks down a LINE, so the `+` belongs on the
+ * line — under Receivables for a customer, under Payables for a supplier, and
+ * a section holding both cannot answer "which of these is this row part of?"
+ * from one button at the top. A section with no lines of its own is the
+ * exception; without this it would be the one place a row could never be
+ * added.
+ */
+function sectionTakesAddButton(
+  props: ForecastGridProps,
+  group: CategoryGroup,
+): boolean {
+  if (!canAddRows(props) || !group.label) return false;
+  return !group.idxs.some(
+    (i) => !props.categories[i]?.subtotal && props.categories[i]?.customRowId === undefined,
+  );
+}
+
+/** The `+` that makes a line — or a section with none — a place rows go. */
 function AddRowButton({
   section,
+  parent,
   intercompany,
   onAddRow,
 }: {
   section: string;
+  /** The line the row will break down; omitted for a section-level `+`. */
+  parent?: string;
   intercompany: boolean;
-  onAddRow: (section: string) => void;
+  onAddRow: (section: string, parent?: string) => void;
 }) {
+  const under = parent ?? section;
   return (
     <button
       type="button"
       className="section-add-row"
       title={
         intercompany
-          ? `Add a counterparty row to ${section} — rows here are legal entities`
-          : `Add a row to ${section} — name it whatever this section is made of`
+          ? `Add a counterparty under ${under} — rows here name a group company`
+          : `Add a row under ${under} — name it whatever this line is made of`
       }
-      aria-label={`Add a row to ${section}`}
+      aria-label={`Add a row under ${under}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => {
         e.stopPropagation();
-        onAddRow(section);
+        onAddRow(section, parent);
       }}
     >
       +
@@ -291,15 +312,7 @@ function AddRowButton({
  * MIRRORED row is neither: it is another entity's statement, shown with where
  * it came from and nothing to edit.
  */
-function RowName({
-  catIdx,
-  props,
-  intercompany,
-}: {
-  catIdx: number;
-  props: ForecastGridProps;
-  intercompany: boolean;
-}) {
+function RowName({ catIdx, props }: { catIdx: number; props: ForecastGridProps }) {
   const { categories, editable, entityOptions = [], onRenameRow, onSetRowEntity, onRemoveRow } =
     props;
   const cat = categories[catIdx];
@@ -317,9 +330,10 @@ function RowName({
       <span className="custom-row-mark" aria-hidden="true">
         ↳
       </span>
-      {canEdit && intercompany && onSetRowEntity ? (
+      {canEdit && cat.intercompany === true && onSetRowEntity ? (
         <select
           className="row-entity-select"
+          data-row-id={rowId}
           value={cat.entityName ?? ''}
           aria-label="Counterparty legal entity"
           title={cat.entityName ?? 'Pick the legal entity this row is about'}
@@ -335,6 +349,7 @@ function RowName({
       ) : canEdit && onRenameRow ? (
         <input
           className="row-name-input"
+          data-row-id={rowId}
           value={cat.customLabel ?? ''}
           placeholder="Name this row…"
           aria-label="Row name"
@@ -925,7 +940,7 @@ function GroupRows({
   // Rows added under an intercompany section name a legal entity; everywhere
   // else the submitter names them.
   const intercompany = sectionIsIntercompany(categories, group.idxs);
-  const addable = canAddTo(props, group);
+
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
@@ -1005,15 +1020,15 @@ function GroupRows({
                 <SectionQuestions count={questions} />
               </>
             )}
-            {addable && group.label && (
+            {sectionTakesAddButton(props, group) && group.label && (
               <AddRowButton
                 section={group.label}
                 intercompany={intercompany}
-                onAddRow={(section) => {
+                onAddRow={(section, parent) => {
                   // Adding to a folded section would put the new row out of
                   // sight, so the section opens with it.
                   if (collapsed) onToggleGroup?.(groupIndex);
-                  onAddRow?.(section);
+                  onAddRow?.(section, parent);
                 }}
               />
             )}
@@ -1057,10 +1072,21 @@ function GroupRows({
           // The section's own rows end where its computed total begins, and
           // that is where "add a row" belongs — under the rows it will join,
           // above the figure it will change.
-          const lastInput =
-            !isSubtotal &&
-            (position === group.idxs.length - 1 ||
-              categories[group.idxs[position + 1]]?.subtotal === true);
+          const next = categories[group.idxs[position + 1]];
+          const parentLabel = custom
+            ? categories[catIdx].parentLabel
+            : categories[catIdx].label;
+          /**
+           * The last line of one line's block: this row is a row somebody
+           * added, and nothing under the same line follows it. That is where
+           * "add another" belongs — under the rows it will join.
+           */
+          const endOfBlock =
+            custom &&
+            parentLabel !== undefined &&
+            (next === undefined ||
+              next.customRowId === undefined ||
+              next.parentLabel !== parentLabel);
           return (
             <Fragment key={catIdx}>
             <tr
@@ -1073,7 +1099,18 @@ function GroupRows({
                   custom ? ' row-label-custom' : ''
                 }`}
               >
-                <RowName catIdx={catIdx} props={props} intercompany={intercompany} />
+                <RowName catIdx={catIdx} props={props} />
+                {/* A row breaks down a LINE, so the `+` sits on the line —
+                    one under Receivables, another under Payables, and each
+                    adds to its own. */}
+                {!isSubtotal && !custom && canAddRows(props) && (
+                  <AddRowButton
+                    section={group.label ?? ''}
+                    parent={categories[catIdx].label}
+                    intercompany={categories[catIdx].intercompany === true}
+                    onAddRow={(section, parent) => onAddRow?.(section, parent)}
+                  />
+                )}
               </td>
               {dayLabels.map((_dl, d) => (
                 <EditableCell
@@ -1102,10 +1139,14 @@ function GroupRows({
                 );
               })()}
             </tr>
-            {lastInput && addable && group.label && (
+            {/* Only under a line that already HAS rows: an invitation under
+                every line of the template would be as many of them as there
+                are lines, and the `+` on the line is the way in. */}
+            {endOfBlock && canAddRows(props) && (
               <AddRowLine
-                section={group.label}
-                intercompany={intercompany}
+                section={group.label ?? ''}
+                parent={parentLabel}
+                intercompany={categories[catIdx].intercompany === true}
                 columns={numDays + 1}
                 band={band}
                 onAddRow={onAddRow}
@@ -1114,8 +1155,8 @@ function GroupRows({
             </Fragment>
           );
         })}
-      {/* A section with nothing in it yet still has to be fillable. */}
-      {!collapsed && addable && group.label && group.idxs.length === 0 && (
+      {/* A section with no lines of its own still has to be fillable. */}
+      {!collapsed && sectionTakesAddButton(props, group) && group.label && (
         <AddRowLine
           section={group.label}
           intercompany={intercompany}
@@ -1131,16 +1172,19 @@ function GroupRows({
 /** The "add a row" line that closes an expanded section. */
 function AddRowLine({
   section,
+  parent,
   intercompany,
   columns,
   band,
   onAddRow,
 }: {
   section: string;
+  /** The line these rows break down; omitted for a section with no lines. */
+  parent?: string;
   intercompany: boolean;
   columns: number;
   band: string;
-  onAddRow?: (section: string) => void;
+  onAddRow?: (section: string, parent?: string) => void;
 }) {
   return (
     <tr className={`add-row-line${band}`}>
@@ -1148,11 +1192,11 @@ function AddRowLine({
         <button
           type="button"
           className="add-row-btn"
-          onClick={() => onAddRow?.(section)}
+          onClick={() => onAddRow?.(section, parent)}
           title={
             intercompany
-              ? 'Add a counterparty — the amount lands in their forecast too'
-              : 'Add a row of your own to this section'
+              ? `Add a counterparty under ${parent ?? section} — the amount lands in their forecast too`
+              : `Add another row under ${parent ?? section}`
           }
         >
           + {intercompany ? 'Add counterparty' : 'Add row'}
@@ -1289,13 +1333,13 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
                   </>
                 )}
-                {canAddTo(props, g) && (
+                {sectionTakesAddButton(props, g) && (
                   <AddRowButton
                     section={g.label}
                     intercompany={sectionIsIntercompany(categories, g.idxs)}
-                    onAddRow={(section) => {
+                    onAddRow={(section, parent) => {
                       if (isCollapsed(gi)) onToggleGroup?.(gi);
-                      onAddRow?.(section);
+                      onAddRow?.(section, parent);
                     }}
                   />
                 )}
@@ -1346,11 +1390,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                   categories[col.catIdx].customRowId !== undefined ? ' day-h-custom' : ''
                 }`}
               >
-                <RowName
-                  catIdx={col.catIdx}
-                  props={props}
-                  intercompany={sectionIsIntercompany(categories, groups[col.gi].idxs)}
-                />
+                <RowName catIdx={col.catIdx} props={props} />
+                {categories[col.catIdx].customRowId === undefined &&
+                  categories[col.catIdx].subtotal !== true &&
+                  canAddRows(props) && (
+                    <AddRowButton
+                      section={groups[col.gi].label ?? ''}
+                      parent={categories[col.catIdx].label}
+                      intercompany={categories[col.catIdx].intercompany === true}
+                      onAddRow={(section, parent) => onAddRow?.(section, parent)}
+                    />
+                  )}
               </th>
             ),
           )}

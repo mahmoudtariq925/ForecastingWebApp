@@ -350,6 +350,19 @@ export interface CustomRow {
   id: string;
   /** Section it belongs to: the template `group` label it was added under. */
   section: string;
+  /**
+   * The LINE the row breaks down, by its label — "Customer A" belongs under
+   * Receivables, not loose at the bottom of Trade AR & AP, and a section that
+   * holds both receivables and payables needs to know which of them a row is
+   * part of.
+   *
+   * Kept by label rather than by index, exactly as line-item ownership is: a
+   * template edit that inserts a row above would otherwise silently reparent
+   * every row below it. Absent on rows added before this existed (and on rows
+   * added to a section with no lines of its own), which read as belonging to
+   * the section itself and sit at the end of it.
+   */
+  parent?: string;
   /** What the submitter called it, or the counterparty's ISO code. */
   label: string;
   /**
