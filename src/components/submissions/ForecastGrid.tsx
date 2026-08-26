@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { TemplateLayout } from '../../types';
 import { sectionIsIntercompany, type EntityOption, type GridCategory } from '../../data/customRows';
-import type { DayLabel } from '../../data/periods';
+import { weekBandsOf, type DayLabel } from '../../data/periods';
 import {
   catTotal,
   catValue,
@@ -116,6 +116,16 @@ export interface ForecastGridProps {
    * screen offers the choice rather than deciding for everyone.
    */
   heatmapMode?: 'row' | 'grid' | 'off';
+  /**
+   * Draw the horizon's WEEKS over its dates: a band per week, a rule where
+   * one week ends, and the last working day of each shaded.
+   *
+   * Twenty date columns in a row give the eye nothing to count by, and a
+   * forecast is discussed a week at a time ("what does week 3 look like"). The
+   * grid that a template is AUTHORED in has no weeks to show — a template is
+   * a shape, not a horizon — so this is the forecast screen's alone.
+   */
+  weekBands?: boolean;
   /** Extra pinned row/column summing every line item per period. */
   showColumnTotals?: boolean;
   /**
@@ -394,6 +404,29 @@ function RowName({
 function fill(value: number, scale: HeatScale): { background: string } | undefined {
   const background = heatColor(value, scale);
   return background ? { background } : undefined;
+}
+
+/**
+ * The extra classes a date column carries: the last working day of a week,
+ * and the week's closing edge.
+ *
+ * Friday is where a treasury week is read from — it is the day balances are
+ * struck against — and after twenty identical columns the eye needs somewhere
+ * to stop. Shading it does both jobs at once: it marks the day AND divides
+ * the weeks, without a rule heavy enough to cut the row in half.
+ */
+function dayColumnClass(
+  labels: DayLabel[],
+  bands: { from: number; span: number }[],
+): (dayIdx: number) => string {
+  const edges = new Set(bands.map((b) => b.from + b.span - 1));
+  // The last column of the horizon closes nothing — the grid's own edge is
+  // already there.
+  edges.delete(labels.length - 1);
+  return (dayIdx: number) => {
+    const friday = labels[dayIdx]?.dow === 'Fri';
+    return `${friday ? ' day-friday' : ''}${edges.has(dayIdx) ? ' week-edge' : ''}`;
+  };
 }
 
 /**
@@ -747,6 +780,8 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  const bands = props.weekBands ? weekBandsOf(dayLabels) : [];
+  const columnClass = dayColumnClass(dayLabels, bands);
 
   const computedRows: {
     label: string;
@@ -778,13 +813,33 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   return (
     <table className="forecast-grid" data-rows="categories">
       <thead>
+        {/* The weeks, over the dates they cover — the unit a forecast is
+            actually discussed in. Drawn as separate boxes, exactly like the
+            section bands in the other orientation. */}
+        {bands.length > 1 && (
+          <tr className="band-row">
+            <th className="row-label-h band-spacer" aria-hidden="true" />
+            {bands.map((band) => (
+              <th
+                key={band.from}
+                colSpan={band.span}
+                className="day-h week-band"
+                title={`ISO week ${band.isoWeek} · ${band.range}`}
+              >
+                {band.label}
+                <span className="week-band-range">{band.range}</span>
+              </th>
+            ))}
+            <th className="band-spacer" aria-hidden="true" />
+          </tr>
+        )}
         <tr className="label-row">
           <th className="row-label-h">Cash Flow Category</th>
           {/* The date IS the column's name. A "D1…Dn" index above it added a
               line of text to every header for something no one refers to — a
               forecast is discussed as "Friday the 14th", never as "D5". */}
           {dayLabels.map((dl, i) => (
-            <th key={i} className="day-h">
+            <th key={i} className={`day-h${columnClass(i)}`}>
               {dl.dm}
               {/* On a monthly template the weekday line reads "July" under
                   "Jul 26" — the same word twice, in two sizes. */}
@@ -804,7 +859,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
           <tr className="column-totals-row">
             <td className="row-label total">Column Total</td>
             {dayLabels.map((_dl, d) => (
-              <td key={d} className="cell total-cell">
+              <td key={d} className={`cell total-cell${columnClass(d)}`}>
                 {fmt(dayNet(numCats, values, d))}
               </td>
             ))}
@@ -828,7 +883,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
                 return (
                   <td
                     key={d}
-                    className={`cell ${row.kind}-cell${row.signed ? netClass(v) : ''}`}
+                    className={`cell ${row.kind}-cell${row.signed ? netClass(v) : ''}${columnClass(d)}`}
                   >
                     {fmt(v)}
                   </td>
@@ -847,7 +902,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
           <tr>
             <td className="row-label">Comments</td>
             {dayLabels.map((_dl, d) => (
-              <td key={d} className="cell comment-cell">
+              <td key={d} className={`cell comment-cell${columnClass(d)}`}>
                 {editable ? (
                   <input
                     type="text"
@@ -890,6 +945,10 @@ function GroupRows({
   } = props;
   const numDays = dayLabels.length;
   const totalScale = scales.totals;
+  const columnClass = dayColumnClass(
+    dayLabels,
+    props.weekBands ? weekBandsOf(dayLabels) : [],
+  );
   // Rows added under an intercompany section name a legal entity; everywhere
   // else the submitter names them.
   const intercompany = sectionIsIntercompany(categories, group.idxs);
@@ -997,7 +1056,9 @@ function GroupRows({
             return (
               <td
                 key={d}
-                className={`cell subtotal-cell${collapsed ? '' : ' section-open-total'}`}
+                className={`cell subtotal-cell${
+                  collapsed ? '' : ' section-open-total'
+                }${columnClass(d)}`}
                 style={collapsed ? fill(v, bandScale(scales.byGroup, groupIndex)) : undefined}
               >
                 {fmt(v)}
@@ -1051,6 +1112,7 @@ function GroupRows({
                   dayIdx={d}
                   props={props}
                   scale={bandScale(scales.byCat, catIdx)}
+                  extraClass={columnClass(d).trim()}
                 />
               ))}
               {(() => {
@@ -1164,6 +1226,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   // a single total column — so the body renders this list, not `categories`.
   const isCollapsed = (gi: number) =>
     Boolean(groups[gi].label) && Boolean(onToggleGroup) && (collapsedGroups?.has(gi) ?? false);
+  // Where each week starts, so a run of day rows can be given its own line —
+  // and never on the first row, where the header is already the divider.
+  const bandStart = useMemo(() => {
+    const out = new Map<number, { label: string; range: string }>();
+    if (!props.weekBands) return out;
+    for (const band of weekBandsOf(dayLabels)) {
+      if (band.from === 0) continue;
+      out.set(band.from, { label: band.label, range: band.range });
+    }
+    return out;
+  }, [props.weekBands, dayLabels]);
   const columns = useMemo(() => {
     const out: { gi: number; catIdx: number | null; band: string; end: boolean }[] = [];
     groups.forEach((g, gi) => {
@@ -1179,6 +1252,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, collapsedGroups, onToggleGroup]);
+  /** Every column right of the date label — what a full-width row spans. */
+  const bodyColumns = columns.length + (showComments ? 1 : 0) + 1 + (hasBalance ? 1 : 0);
 
   return (
     <table className="forecast-grid" data-rows="days">
@@ -1329,7 +1404,19 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           </tr>
         )}
         {dayLabels.map((dl, dayIdx) => (
-          <tr key={dayIdx}>
+          <Fragment key={dayIdx}>
+          {/* With the dates down the rows, a week is a run of rows — so it is
+              announced by a line of its own rather than by a band overhead. */}
+          {bandStart.get(dayIdx) && (
+            <tr className="week-divider">
+              <td className="row-label">
+                {bandStart.get(dayIdx)?.label}
+                <span className="week-band-range">{bandStart.get(dayIdx)?.range}</span>
+              </td>
+              <td colSpan={bodyColumns} />
+            </tr>
+          )}
+          <tr className={dl.dow === 'Fri' ? 'row-friday' : undefined}>
             <td className="row-label">
               {dl.dow} · {dl.dm}
             </td>
@@ -1395,6 +1482,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               );
             })()}
           </tr>
+          </Fragment>
         ))}
         {showColumnTotals && (
           <tr className="column-totals-row">
