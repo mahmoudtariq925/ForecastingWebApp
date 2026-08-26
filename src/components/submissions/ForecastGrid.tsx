@@ -152,19 +152,15 @@ export interface ForecastGridProps {
  * per-category scale is per category, per country, per forecast.)
  */
 interface GridScales {
-  /** Line-item / subtotal cells, indexed by category. */
+  /** Line-item cells, indexed by category. */
   byCat: HeatScale[];
-  /** Collapsed section rows, indexed by group. */
-  byGroup: HeatScale[];
-  /** Trailing Total column / Net row. */
+  /** The trailing Total column, for the lines that are typed into. */
   totals: HeatScale;
-  /** Running-total (closing balance) column. */
-  balances: HeatScale;
 }
 
 /** Recompute the colour extremes from the cells currently on screen. */
 function useGridScales(props: ForecastGridProps): GridScales {
-  const { categories, values, startingBalance, dayLabels, heatmapMode = 'row' } = props;
+  const { categories, values, dayLabels, heatmapMode = 'row' } = props;
   const heatmap = heatmapMode !== 'off';
   const heatmapScope = heatmapMode;
   const numDays = dayLabels.length;
@@ -181,57 +177,35 @@ function useGridScales(props: ForecastGridProps): GridScales {
   const catScales = useHeatScales(() => {
     if (!heatmap) return [];
     const rows = Array.from({ length: numCats }, (_v, c) =>
-      categories[c]?.customRowId !== undefined
+      // Neither a subtotal (computed, never shaded) nor a row the submitter
+      // added (read as a breakdown of the section above it) takes a band.
+      categories[c]?.customRowId !== undefined || categories[c]?.subtotal
         ? []
-        : Array.from({ length: numDays }, (_x, d) =>
-            categories[c]?.subtotal
-              ? subtotalValue(categories, values, c, d)
-              : catValue(values, c, d),
-          ),
+        : Array.from({ length: numDays }, (_x, d) => catValue(values, c, d)),
     );
     if (heatmapScope === 'row') return rows;
     const all = rows.flat();
     return rows.map((band) => (band.length === 0 ? [] : all));
   }, [heatmap, heatmapScope, categories, values, numDays, numCats]);
 
-  // A collapsed section stands in for its line items, so it takes a band of
-  // its own rather than borrowing one of theirs.
-  const groupScales = useHeatScales(() => {
-    if (!heatmap) return [];
-    return categoryGroups(categories).map((g) =>
-      Array.from({ length: numDays }, (_x, d) => groupValue(categories, values, g.idxs, d)),
-    );
-  }, [heatmap, categories, values, numDays]);
-
+  // The trailing Total column, over the lines that carry one — a subtotal's
+  // total is a subtotal, so it is neither shaded nor part of the scale.
   const totalScale = useHeatScale(() => {
     if (!heatmap) return [];
     const out: number[] = [];
     for (let c = 0; c < numCats; c++) {
-      out.push(
-        categories[c]?.subtotal
-          ? subtotalTotal(categories, values, c, numDays)
-          : catTotal(values, c, numDays),
-      );
+      if (categories[c]?.subtotal) continue;
+      out.push(catTotal(values, c, numDays));
     }
-    for (let d = 0; d < numDays; d++) out.push(dayNet(numCats, values, d));
     return out;
   }, [heatmap, categories, values, numDays, numCats]);
-
-  const balanceScale = useHeatScale(() => {
-    if (!heatmap || startingBalance === null) return [];
-    const out: number[] = [];
-    for (let d = 0; d < numDays; d++) {
-      out.push(runningBalance(numCats, values, startingBalance, d));
-    }
-    return out;
-  }, [heatmap, values, numCats, numDays, startingBalance]);
 
   return useMemo(
     () =>
       heatmap
-        ? { byCat: catScales, byGroup: groupScales, totals: totalScale, balances: balanceScale }
-        : { byCat: [], byGroup: [], totals: NEUTRAL_SCALE, balances: NEUTRAL_SCALE },
-    [heatmap, catScales, groupScales, totalScale, balanceScale],
+        ? { byCat: catScales, totals: totalScale }
+        : { byCat: [], totals: NEUTRAL_SCALE },
+    [heatmap, catScales, totalScale],
   );
 }
 
@@ -492,16 +466,15 @@ function EditableCell({
         : ' cell-dimmed'
     : '';
 
-  // Computed subtotal rows are never editable — the app derives them.
+  // Computed subtotal rows are never editable — the app derives them — and
+  // never shaded. Conditional formatting says "this figure stands out among
+  // the ones like it"; a subtotal is not one of the figures, it is what they
+  // add up to, and colouring it puts the loudest cell of a section on the one
+  // line nobody typed.
   if (categories[catIdx]?.subtotal) {
     const sub = subtotalValue(categories, values, catIdx, dayIdx);
     return (
-      <td
-        className={`cell subtotal-cell ${extraClass}${focus}`.trim()}
-        style={fill(sub, scale)}
-      >
-        {fmt(sub)}
-      </td>
+      <td className={`cell subtotal-cell ${extraClass}${focus}`.trim()}>{fmt(sub)}</td>
     );
   }
 
@@ -1059,7 +1032,6 @@ function GroupRows({
                 className={`cell subtotal-cell${
                   collapsed ? '' : ' section-open-total'
                 }${columnClass(d)}`}
-                style={collapsed ? fill(v, bandScale(scales.byGroup, groupIndex)) : undefined}
               >
                 {fmt(v)}
               </td>
@@ -1070,9 +1042,7 @@ function GroupRows({
             return (
               <td
                 className={`cell row-total-cell${collapsed ? '' : ' section-open-total'}`}
-                style={
-                  collapsed ? { fontWeight: 600, ...(fill(t, totalScale) ?? {}) } : undefined
-                }
+                style={collapsed ? { fontWeight: 600 } : undefined}
               >
                 {t.toLocaleString()}
               </td>
@@ -1122,7 +1092,10 @@ function GroupRows({
                 return (
                   <td
                     className="cell row-total-cell"
-                    style={{ fontWeight: 600, ...(fill(rowTotal, totalScale) ?? {}) }}
+                    style={{
+                      fontWeight: 600,
+                      ...(isSubtotal ? {} : (fill(rowTotal, totalScale) ?? {})),
+                    }}
                   >
                     {rowTotal.toLocaleString()}
                   </td>
@@ -1428,7 +1401,6 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     <td
                       key={`g${col.gi}`}
                       className={`cell subtotal-cell group-end${col.band}`}
-                      style={fill(v, bandScale(scales.byGroup, col.gi))}
                     >
                       {fmt(v)}
                     </td>
@@ -1464,17 +1436,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               const net = dayNet(numCats, values, dayIdx);
               return (
                 <>
-                  <td
-                    className={`cell subtotal-cell${netClass(net)}`}
-                    style={fill(net, scales.totals)}
-                  >
-                    {fmt(net)}
-                  </td>
+                  <td className={`cell subtotal-cell${netClass(net)}`}>{fmt(net)}</td>
                   {hasBalance && (
-                    <td
-                      className="cell running-total-cell"
-                      style={fill(runningBalance(numCats, values, startingBalance, dayIdx), scales.balances)}
-                    >
+                    <td className="cell running-total-cell">
                       {runningBalance(numCats, values, startingBalance, dayIdx).toLocaleString()}
                     </td>
                   )}

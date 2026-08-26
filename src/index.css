@@ -5843,3 +5843,18 @@ thead th,
 .forecast-grid tr.row-friday > td {
   border-bottom: 1px solid var(--border-strong);
 }
+
+/* ---- The outlook chart on the forecast screen ---------------------------
+   A trend is read from its SHAPE, and a line stretched across the full width
+   of a wide screen has almost no shape left in it: twenty days spread over
+   1,300px turn every rise and fall into a shallow ramp. The plot is capped
+   at a width where the eye can take the whole line in at once, and given
+   more height to move in — the panel around it stays full width, because the
+   controls and the legend belong with the box, not with the plot. */
+.forecast-outlook .chart-container {
+  max-width: 760px;
+  /* Centred rather than left-hugging: the panel's header, its series checks
+     and its legend all span the full width, and a plot pinned to one side of
+     them reads as a chart that failed to load the rest of itself. */
+  margin-inline: auto;
+}

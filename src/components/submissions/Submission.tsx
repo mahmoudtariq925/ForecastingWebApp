@@ -2364,7 +2364,7 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className="panel chart-panel" data-tour="forecast-chart">
+        <div className="panel chart-panel forecast-outlook" data-tour="forecast-chart">
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
@@ -2472,7 +2472,11 @@ function SubmissionEditor({
                   labels={dayLabels.map((dl) => dl.dm)}
                   series={[...overlaySeries, ...chartSeries]}
                   unit="k"
-                  height={200}
+                  // Taller than it is wide-ish: the outlook is read for the
+                  // SHAPE of the week, and a line stretched the width of the
+                  // page flattens every move in it. The width is capped in
+                  // CSS (`.forecast-outlook`); the height is here.
+                  height={264}
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.
