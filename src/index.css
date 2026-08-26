@@ -5765,3 +5765,81 @@ thead th,
 .forecast-grid tr.section-row td.row-label {
   white-space: nowrap;
 }
+
+/* ---- The weeks of the horizon -------------------------------------------
+   Twenty date columns in a row give the eye nothing to count by, and a
+   forecast is discussed a week at a time — "what does week 3 look like".
+   So the weeks are drawn over the dates: a band per week with the dates it
+   covers, a rule where one week ends, and the week's last working day shaded.
+   Friday earns the shading twice over: it is the day a treasury week is read
+   from, and it is where the eye needs somewhere to stop. */
+.forecast-grid thead tr.band-row th.week-band {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border-left: 3px solid var(--bg);
+}
+.forecast-grid thead tr.band-row th.week-band:first-of-type {
+  border-left: none;
+}
+/* The dates the week covers, beside its name rather than under it: the band
+   strip is one line tall (the label strip is stuck to the bottom of it), and
+   a second line would be clipped by the row below. */
+.week-band-range {
+  margin-left: 8px;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+/* The week's last working day. A tint rather than a rule: a border heavy
+   enough to divide twenty columns also cuts every row in half, and the fill
+   sits behind the digits the way the heat map does — which still outranks it,
+   since a big number is worth more than a weekday. */
+.forecast-grid th.day-h.day-friday,
+.forecast-grid td.cell.day-friday:not(.variance-flag):not(.comment-requested) {
+  background: var(--n-50);
+}
+.forecast-grid tr.band-b > td.cell.day-friday:not(.variance-flag):not(.comment-requested) {
+  background: var(--n-100);
+}
+.forecast-grid th.day-h.week-edge,
+.forecast-grid td.week-edge {
+  border-right: 1px solid var(--border-strong);
+}
+
+/* Dates down the rows: a week is a run of rows, so it says so on a line of
+   its own — and Friday's row carries the same tint its column would. */
+.forecast-grid tr.week-divider > td {
+  background: var(--bg);
+  border-bottom: none;
+  padding: 0;
+  height: 7px;
+}
+.forecast-grid tr.week-divider > td.row-label {
+  padding: 3px 12px;
+  background: var(--bg-elev-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.forecast-grid tr.row-friday > td.row-label {
+  font-weight: 700;
+}
+.forecast-grid tr.row-friday > td.cell:not(.variance-flag):not(.comment-requested):not(.band-b) {
+  background: var(--n-50);
+}
+.forecast-grid tr.row-friday > td.cell.band-b:not(.variance-flag):not(.comment-requested) {
+  background: var(--n-100);
+}
+/* The week's last row closes it, the way the week-edge rule closes a column —
+   including the last week, which has no divider after it. */
+.forecast-grid tr.row-friday > td {
+  border-bottom: 1px solid var(--border-strong);
+}
