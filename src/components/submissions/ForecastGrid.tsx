@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { TemplateLayout } from '../../types';
 import { sectionIsIntercompany, type EntityOption, type GridCategory } from '../../data/customRows';
-import type { DayLabel } from '../../data/periods';
+import { weekBandsOf, type DayLabel } from '../../data/periods';
 import {
   catTotal,
   catValue,
@@ -69,7 +69,7 @@ export interface ForecastGridProps {
    * one gesture that makes a forecast the submitter's own rather than the
    * template's.
    */
-  onAddRow?: (section: string) => void;
+  onAddRow?: (section: string, parent?: string) => void;
   /** Rename one of those rows (free-text sections only). */
   onRenameRow?: (rowId: string, label: string) => void;
   /** Point one at a legal entity (intercompany sections). */
@@ -116,6 +116,16 @@ export interface ForecastGridProps {
    * screen offers the choice rather than deciding for everyone.
    */
   heatmapMode?: 'row' | 'grid' | 'off';
+  /**
+   * Draw the horizon's WEEKS over its dates: a band per week, a rule where
+   * one week ends, and the last working day of each shaded.
+   *
+   * Twenty date columns in a row give the eye nothing to count by, and a
+   * forecast is discussed a week at a time ("what does week 3 look like"). The
+   * grid that a template is AUTHORED in has no weeks to show — a template is
+   * a shape, not a horizon — so this is the forecast screen's alone.
+   */
+  weekBands?: boolean;
   /** Extra pinned row/column summing every line item per period. */
   showColumnTotals?: boolean;
   /**
@@ -142,19 +152,15 @@ export interface ForecastGridProps {
  * per-category scale is per category, per country, per forecast.)
  */
 interface GridScales {
-  /** Line-item / subtotal cells, indexed by category. */
+  /** Line-item cells, indexed by category. */
   byCat: HeatScale[];
-  /** Collapsed section rows, indexed by group. */
-  byGroup: HeatScale[];
-  /** Trailing Total column / Net row. */
+  /** The trailing Total column, for the lines that are typed into. */
   totals: HeatScale;
-  /** Running-total (closing balance) column. */
-  balances: HeatScale;
 }
 
 /** Recompute the colour extremes from the cells currently on screen. */
 function useGridScales(props: ForecastGridProps): GridScales {
-  const { categories, values, startingBalance, dayLabels, heatmapMode = 'row' } = props;
+  const { categories, values, dayLabels, heatmapMode = 'row' } = props;
   const heatmap = heatmapMode !== 'off';
   const heatmapScope = heatmapMode;
   const numDays = dayLabels.length;
@@ -171,57 +177,35 @@ function useGridScales(props: ForecastGridProps): GridScales {
   const catScales = useHeatScales(() => {
     if (!heatmap) return [];
     const rows = Array.from({ length: numCats }, (_v, c) =>
-      categories[c]?.customRowId !== undefined
+      // Neither a subtotal (computed, never shaded) nor a row the submitter
+      // added (read as a breakdown of the section above it) takes a band.
+      categories[c]?.customRowId !== undefined || categories[c]?.subtotal
         ? []
-        : Array.from({ length: numDays }, (_x, d) =>
-            categories[c]?.subtotal
-              ? subtotalValue(categories, values, c, d)
-              : catValue(values, c, d),
-          ),
+        : Array.from({ length: numDays }, (_x, d) => catValue(values, c, d)),
     );
     if (heatmapScope === 'row') return rows;
     const all = rows.flat();
     return rows.map((band) => (band.length === 0 ? [] : all));
   }, [heatmap, heatmapScope, categories, values, numDays, numCats]);
 
-  // A collapsed section stands in for its line items, so it takes a band of
-  // its own rather than borrowing one of theirs.
-  const groupScales = useHeatScales(() => {
-    if (!heatmap) return [];
-    return categoryGroups(categories).map((g) =>
-      Array.from({ length: numDays }, (_x, d) => groupValue(categories, values, g.idxs, d)),
-    );
-  }, [heatmap, categories, values, numDays]);
-
+  // The trailing Total column, over the lines that carry one — a subtotal's
+  // total is a subtotal, so it is neither shaded nor part of the scale.
   const totalScale = useHeatScale(() => {
     if (!heatmap) return [];
     const out: number[] = [];
     for (let c = 0; c < numCats; c++) {
-      out.push(
-        categories[c]?.subtotal
-          ? subtotalTotal(categories, values, c, numDays)
-          : catTotal(values, c, numDays),
-      );
+      if (categories[c]?.subtotal) continue;
+      out.push(catTotal(values, c, numDays));
     }
-    for (let d = 0; d < numDays; d++) out.push(dayNet(numCats, values, d));
     return out;
   }, [heatmap, categories, values, numDays, numCats]);
-
-  const balanceScale = useHeatScale(() => {
-    if (!heatmap || startingBalance === null) return [];
-    const out: number[] = [];
-    for (let d = 0; d < numDays; d++) {
-      out.push(runningBalance(numCats, values, startingBalance, d));
-    }
-    return out;
-  }, [heatmap, values, numCats, numDays, startingBalance]);
 
   return useMemo(
     () =>
       heatmap
-        ? { byCat: catScales, byGroup: groupScales, totals: totalScale, balances: balanceScale }
-        : { byCat: [], byGroup: [], totals: NEUTRAL_SCALE, balances: NEUTRAL_SCALE },
-    [heatmap, catScales, groupScales, totalScale, balanceScale],
+        ? { byCat: catScales, totals: totalScale }
+        : { byCat: [], totals: NEUTRAL_SCALE },
+    [heatmap, catScales, totalScale],
   );
 }
 
@@ -258,38 +242,59 @@ function SectionQuestions({ count }: { count: number }) {
   );
 }
 
-/**
- * Whether the reader may add rows to this section — and, under an
- * intercompany section, whether they can be given an entity to name.
- */
-function canAddTo(props: ForecastGridProps, group: CategoryGroup): boolean {
-  return Boolean(props.onAddRow) && props.editable && Boolean(group.label);
+/** Whether the reader may add rows to this forecast at all. */
+function canAddRows(props: ForecastGridProps): boolean {
+  return Boolean(props.onAddRow) && props.editable;
 }
 
-/** The `+` that turns a section header into a place rows can be added. */
+/**
+ * Whether a SECTION header carries the `+` itself.
+ *
+ * Normally it does not: a row breaks down a LINE, so the `+` belongs on the
+ * line — under Receivables for a customer, under Payables for a supplier, and
+ * a section holding both cannot answer "which of these is this row part of?"
+ * from one button at the top. A section with no lines of its own is the
+ * exception; without this it would be the one place a row could never be
+ * added.
+ */
+function sectionTakesAddButton(
+  props: ForecastGridProps,
+  group: CategoryGroup,
+): boolean {
+  if (!canAddRows(props) || !group.label) return false;
+  return !group.idxs.some(
+    (i) => !props.categories[i]?.subtotal && props.categories[i]?.customRowId === undefined,
+  );
+}
+
+/** The `+` that makes a line — or a section with none — a place rows go. */
 function AddRowButton({
   section,
+  parent,
   intercompany,
   onAddRow,
 }: {
   section: string;
+  /** The line the row will break down; omitted for a section-level `+`. */
+  parent?: string;
   intercompany: boolean;
-  onAddRow: (section: string) => void;
+  onAddRow: (section: string, parent?: string) => void;
 }) {
+  const under = parent ?? section;
   return (
     <button
       type="button"
       className="section-add-row"
       title={
         intercompany
-          ? `Add a counterparty row to ${section} — rows here are legal entities`
-          : `Add a row to ${section} — name it whatever this section is made of`
+          ? `Add a counterparty under ${under} — rows here name a group company`
+          : `Add a row under ${under} — name it whatever this line is made of`
       }
-      aria-label={`Add a row to ${section}`}
+      aria-label={`Add a row under ${under}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => {
         e.stopPropagation();
-        onAddRow(section);
+        onAddRow(section, parent);
       }}
     >
       +
@@ -307,15 +312,7 @@ function AddRowButton({
  * MIRRORED row is neither: it is another entity's statement, shown with where
  * it came from and nothing to edit.
  */
-function RowName({
-  catIdx,
-  props,
-  intercompany,
-}: {
-  catIdx: number;
-  props: ForecastGridProps;
-  intercompany: boolean;
-}) {
+function RowName({ catIdx, props }: { catIdx: number; props: ForecastGridProps }) {
   const { categories, editable, entityOptions = [], onRenameRow, onSetRowEntity, onRemoveRow } =
     props;
   const cat = categories[catIdx];
@@ -333,9 +330,10 @@ function RowName({
       <span className="custom-row-mark" aria-hidden="true">
         ↳
       </span>
-      {canEdit && intercompany && onSetRowEntity ? (
+      {canEdit && cat.intercompany === true && onSetRowEntity ? (
         <select
           className="row-entity-select"
+          data-row-id={rowId}
           value={cat.entityName ?? ''}
           aria-label="Counterparty legal entity"
           title={cat.entityName ?? 'Pick the legal entity this row is about'}
@@ -351,6 +349,7 @@ function RowName({
       ) : canEdit && onRenameRow ? (
         <input
           className="row-name-input"
+          data-row-id={rowId}
           value={cat.customLabel ?? ''}
           placeholder="Name this row…"
           aria-label="Row name"
@@ -394,6 +393,29 @@ function RowName({
 function fill(value: number, scale: HeatScale): { background: string } | undefined {
   const background = heatColor(value, scale);
   return background ? { background } : undefined;
+}
+
+/**
+ * The extra classes a date column carries: the last working day of a week,
+ * and the week's closing edge.
+ *
+ * Friday is where a treasury week is read from — it is the day balances are
+ * struck against — and after twenty identical columns the eye needs somewhere
+ * to stop. Shading it does both jobs at once: it marks the day AND divides
+ * the weeks, without a rule heavy enough to cut the row in half.
+ */
+function dayColumnClass(
+  labels: DayLabel[],
+  bands: { from: number; span: number }[],
+): (dayIdx: number) => string {
+  const edges = new Set(bands.map((b) => b.from + b.span - 1));
+  // The last column of the horizon closes nothing — the grid's own edge is
+  // already there.
+  edges.delete(labels.length - 1);
+  return (dayIdx: number) => {
+    const friday = labels[dayIdx]?.dow === 'Fri';
+    return `${friday ? ' day-friday' : ''}${edges.has(dayIdx) ? ' week-edge' : ''}`;
+  };
 }
 
 /**
@@ -459,16 +481,15 @@ function EditableCell({
         : ' cell-dimmed'
     : '';
 
-  // Computed subtotal rows are never editable — the app derives them.
+  // Computed subtotal rows are never editable — the app derives them — and
+  // never shaded. Conditional formatting says "this figure stands out among
+  // the ones like it"; a subtotal is not one of the figures, it is what they
+  // add up to, and colouring it puts the loudest cell of a section on the one
+  // line nobody typed.
   if (categories[catIdx]?.subtotal) {
     const sub = subtotalValue(categories, values, catIdx, dayIdx);
     return (
-      <td
-        className={`cell subtotal-cell ${extraClass}${focus}`.trim()}
-        style={fill(sub, scale)}
-      >
-        {fmt(sub)}
-      </td>
+      <td className={`cell subtotal-cell ${extraClass}${focus}`.trim()}>{fmt(sub)}</td>
     );
   }
 
@@ -747,6 +768,8 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   const numDays = dayLabels.length;
   const numCats = categories.length;
   const groups = categoryGroups(categories);
+  const bands = props.weekBands ? weekBandsOf(dayLabels) : [];
+  const columnClass = dayColumnClass(dayLabels, bands);
 
   const computedRows: {
     label: string;
@@ -778,13 +801,33 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
   return (
     <table className="forecast-grid" data-rows="categories">
       <thead>
+        {/* The weeks, over the dates they cover — the unit a forecast is
+            actually discussed in. Drawn as separate boxes, exactly like the
+            section bands in the other orientation. */}
+        {bands.length > 1 && (
+          <tr className="band-row">
+            <th className="row-label-h band-spacer" aria-hidden="true" />
+            {bands.map((band) => (
+              <th
+                key={band.from}
+                colSpan={band.span}
+                className="day-h week-band"
+                title={`ISO week ${band.isoWeek} · ${band.range}`}
+              >
+                {band.label}
+                <span className="week-band-range">{band.range}</span>
+              </th>
+            ))}
+            <th className="band-spacer" aria-hidden="true" />
+          </tr>
+        )}
         <tr className="label-row">
           <th className="row-label-h">Cash Flow Category</th>
           {/* The date IS the column's name. A "D1…Dn" index above it added a
               line of text to every header for something no one refers to — a
               forecast is discussed as "Friday the 14th", never as "D5". */}
           {dayLabels.map((dl, i) => (
-            <th key={i} className="day-h">
+            <th key={i} className={`day-h${columnClass(i)}`}>
               {dl.dm}
               {/* On a monthly template the weekday line reads "July" under
                   "Jul 26" — the same word twice, in two sizes. */}
@@ -804,7 +847,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
           <tr className="column-totals-row">
             <td className="row-label total">Column Total</td>
             {dayLabels.map((_dl, d) => (
-              <td key={d} className="cell total-cell">
+              <td key={d} className={`cell total-cell${columnClass(d)}`}>
                 {fmt(dayNet(numCats, values, d))}
               </td>
             ))}
@@ -828,7 +871,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
                 return (
                   <td
                     key={d}
-                    className={`cell ${row.kind}-cell${row.signed ? netClass(v) : ''}`}
+                    className={`cell ${row.kind}-cell${row.signed ? netClass(v) : ''}${columnClass(d)}`}
                   >
                     {fmt(v)}
                   </td>
@@ -847,7 +890,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
           <tr>
             <td className="row-label">Comments</td>
             {dayLabels.map((_dl, d) => (
-              <td key={d} className="cell comment-cell">
+              <td key={d} className={`cell comment-cell${columnClass(d)}`}>
                 {editable ? (
                   <input
                     type="text"
@@ -890,10 +933,14 @@ function GroupRows({
   } = props;
   const numDays = dayLabels.length;
   const totalScale = scales.totals;
+  const columnClass = dayColumnClass(
+    dayLabels,
+    props.weekBands ? weekBandsOf(dayLabels) : [],
+  );
   // Rows added under an intercompany section name a legal entity; everywhere
   // else the submitter names them.
   const intercompany = sectionIsIntercompany(categories, group.idxs);
-  const addable = canAddTo(props, group);
+
   // Only a named section can collapse — loose line items have nothing to
   // collapse into.
   const collapsible = Boolean(group.label) && Boolean(onToggleGroup);
@@ -973,15 +1020,15 @@ function GroupRows({
                 <SectionQuestions count={questions} />
               </>
             )}
-            {addable && group.label && (
+            {sectionTakesAddButton(props, group) && group.label && (
               <AddRowButton
                 section={group.label}
                 intercompany={intercompany}
-                onAddRow={(section) => {
+                onAddRow={(section, parent) => {
                   // Adding to a folded section would put the new row out of
                   // sight, so the section opens with it.
                   if (collapsed) onToggleGroup?.(groupIndex);
-                  onAddRow?.(section);
+                  onAddRow?.(section, parent);
                 }}
               />
             )}
@@ -997,8 +1044,9 @@ function GroupRows({
             return (
               <td
                 key={d}
-                className={`cell subtotal-cell${collapsed ? '' : ' section-open-total'}`}
-                style={collapsed ? fill(v, bandScale(scales.byGroup, groupIndex)) : undefined}
+                className={`cell subtotal-cell${
+                  collapsed ? '' : ' section-open-total'
+                }${columnClass(d)}`}
               >
                 {fmt(v)}
               </td>
@@ -1009,9 +1057,7 @@ function GroupRows({
             return (
               <td
                 className={`cell row-total-cell${collapsed ? '' : ' section-open-total'}`}
-                style={
-                  collapsed ? { fontWeight: 600, ...(fill(t, totalScale) ?? {}) } : undefined
-                }
+                style={collapsed ? { fontWeight: 600 } : undefined}
               >
                 {t.toLocaleString()}
               </td>
@@ -1026,10 +1072,21 @@ function GroupRows({
           // The section's own rows end where its computed total begins, and
           // that is where "add a row" belongs — under the rows it will join,
           // above the figure it will change.
-          const lastInput =
-            !isSubtotal &&
-            (position === group.idxs.length - 1 ||
-              categories[group.idxs[position + 1]]?.subtotal === true);
+          const next = categories[group.idxs[position + 1]];
+          const parentLabel = custom
+            ? categories[catIdx].parentLabel
+            : categories[catIdx].label;
+          /**
+           * The last line of one line's block: this row is a row somebody
+           * added, and nothing under the same line follows it. That is where
+           * "add another" belongs — under the rows it will join.
+           */
+          const endOfBlock =
+            custom &&
+            parentLabel !== undefined &&
+            (next === undefined ||
+              next.customRowId === undefined ||
+              next.parentLabel !== parentLabel);
           return (
             <Fragment key={catIdx}>
             <tr
@@ -1042,7 +1099,18 @@ function GroupRows({
                   custom ? ' row-label-custom' : ''
                 }`}
               >
-                <RowName catIdx={catIdx} props={props} intercompany={intercompany} />
+                <RowName catIdx={catIdx} props={props} />
+                {/* A row breaks down a LINE, so the `+` sits on the line —
+                    one under Receivables, another under Payables, and each
+                    adds to its own. */}
+                {!isSubtotal && !custom && canAddRows(props) && (
+                  <AddRowButton
+                    section={group.label ?? ''}
+                    parent={categories[catIdx].label}
+                    intercompany={categories[catIdx].intercompany === true}
+                    onAddRow={(section, parent) => onAddRow?.(section, parent)}
+                  />
+                )}
               </td>
               {dayLabels.map((_dl, d) => (
                 <EditableCell
@@ -1051,6 +1119,7 @@ function GroupRows({
                   dayIdx={d}
                   props={props}
                   scale={bandScale(scales.byCat, catIdx)}
+                  extraClass={columnClass(d).trim()}
                 />
               ))}
               {(() => {
@@ -1060,17 +1129,24 @@ function GroupRows({
                 return (
                   <td
                     className="cell row-total-cell"
-                    style={{ fontWeight: 600, ...(fill(rowTotal, totalScale) ?? {}) }}
+                    style={{
+                      fontWeight: 600,
+                      ...(isSubtotal ? {} : (fill(rowTotal, totalScale) ?? {})),
+                    }}
                   >
                     {rowTotal.toLocaleString()}
                   </td>
                 );
               })()}
             </tr>
-            {lastInput && addable && group.label && (
+            {/* Only under a line that already HAS rows: an invitation under
+                every line of the template would be as many of them as there
+                are lines, and the `+` on the line is the way in. */}
+            {endOfBlock && canAddRows(props) && (
               <AddRowLine
-                section={group.label}
-                intercompany={intercompany}
+                section={group.label ?? ''}
+                parent={parentLabel}
+                intercompany={categories[catIdx].intercompany === true}
                 columns={numDays + 1}
                 band={band}
                 onAddRow={onAddRow}
@@ -1079,8 +1155,8 @@ function GroupRows({
             </Fragment>
           );
         })}
-      {/* A section with nothing in it yet still has to be fillable. */}
-      {!collapsed && addable && group.label && group.idxs.length === 0 && (
+      {/* A section with no lines of its own still has to be fillable. */}
+      {!collapsed && sectionTakesAddButton(props, group) && group.label && (
         <AddRowLine
           section={group.label}
           intercompany={intercompany}
@@ -1096,16 +1172,19 @@ function GroupRows({
 /** The "add a row" line that closes an expanded section. */
 function AddRowLine({
   section,
+  parent,
   intercompany,
   columns,
   band,
   onAddRow,
 }: {
   section: string;
+  /** The line these rows break down; omitted for a section with no lines. */
+  parent?: string;
   intercompany: boolean;
   columns: number;
   band: string;
-  onAddRow?: (section: string) => void;
+  onAddRow?: (section: string, parent?: string) => void;
 }) {
   return (
     <tr className={`add-row-line${band}`}>
@@ -1113,11 +1192,11 @@ function AddRowLine({
         <button
           type="button"
           className="add-row-btn"
-          onClick={() => onAddRow?.(section)}
+          onClick={() => onAddRow?.(section, parent)}
           title={
             intercompany
-              ? 'Add a counterparty — the amount lands in their forecast too'
-              : 'Add a row of your own to this section'
+              ? `Add a counterparty under ${parent ?? section} — the amount lands in their forecast too`
+              : `Add another row under ${parent ?? section}`
           }
         >
           + {intercompany ? 'Add counterparty' : 'Add row'}
@@ -1164,6 +1243,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
   // a single total column — so the body renders this list, not `categories`.
   const isCollapsed = (gi: number) =>
     Boolean(groups[gi].label) && Boolean(onToggleGroup) && (collapsedGroups?.has(gi) ?? false);
+  // Where each week starts, so a run of day rows can be given its own line —
+  // and never on the first row, where the header is already the divider.
+  const bandStart = useMemo(() => {
+    const out = new Map<number, { label: string; range: string }>();
+    if (!props.weekBands) return out;
+    for (const band of weekBandsOf(dayLabels)) {
+      if (band.from === 0) continue;
+      out.set(band.from, { label: band.label, range: band.range });
+    }
+    return out;
+  }, [props.weekBands, dayLabels]);
   const columns = useMemo(() => {
     const out: { gi: number; catIdx: number | null; band: string; end: boolean }[] = [];
     groups.forEach((g, gi) => {
@@ -1179,6 +1269,8 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, collapsedGroups, onToggleGroup]);
+  /** Every column right of the date label — what a full-width row spans. */
+  const bodyColumns = columns.length + (showComments ? 1 : 0) + 1 + (hasBalance ? 1 : 0);
 
   return (
     <table className="forecast-grid" data-rows="days">
@@ -1241,13 +1333,13 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     <SectionQuestions count={cellsInGroup(g.idxs, requested)} />
                   </>
                 )}
-                {canAddTo(props, g) && (
+                {sectionTakesAddButton(props, g) && (
                   <AddRowButton
                     section={g.label}
                     intercompany={sectionIsIntercompany(categories, g.idxs)}
-                    onAddRow={(section) => {
+                    onAddRow={(section, parent) => {
                       if (isCollapsed(gi)) onToggleGroup?.(gi);
-                      onAddRow?.(section);
+                      onAddRow?.(section, parent);
                     }}
                   />
                 )}
@@ -1298,11 +1390,17 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                   categories[col.catIdx].customRowId !== undefined ? ' day-h-custom' : ''
                 }`}
               >
-                <RowName
-                  catIdx={col.catIdx}
-                  props={props}
-                  intercompany={sectionIsIntercompany(categories, groups[col.gi].idxs)}
-                />
+                <RowName catIdx={col.catIdx} props={props} />
+                {categories[col.catIdx].customRowId === undefined &&
+                  categories[col.catIdx].subtotal !== true &&
+                  canAddRows(props) && (
+                    <AddRowButton
+                      section={groups[col.gi].label ?? ''}
+                      parent={categories[col.catIdx].label}
+                      intercompany={categories[col.catIdx].intercompany === true}
+                      onAddRow={(section, parent) => onAddRow?.(section, parent)}
+                    />
+                  )}
               </th>
             ),
           )}
@@ -1329,7 +1427,19 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           </tr>
         )}
         {dayLabels.map((dl, dayIdx) => (
-          <tr key={dayIdx}>
+          <Fragment key={dayIdx}>
+          {/* With the dates down the rows, a week is a run of rows — so it is
+              announced by a line of its own rather than by a band overhead. */}
+          {bandStart.get(dayIdx) && (
+            <tr className="week-divider">
+              <td className="row-label">
+                {bandStart.get(dayIdx)?.label}
+                <span className="week-band-range">{bandStart.get(dayIdx)?.range}</span>
+              </td>
+              <td colSpan={bodyColumns} />
+            </tr>
+          )}
+          <tr className={dl.dow === 'Fri' ? 'row-friday' : undefined}>
             <td className="row-label">
               {dl.dow} · {dl.dm}
             </td>
@@ -1341,7 +1451,6 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                     <td
                       key={`g${col.gi}`}
                       className={`cell subtotal-cell group-end${col.band}`}
-                      style={fill(v, bandScale(scales.byGroup, col.gi))}
                     >
                       {fmt(v)}
                     </td>
@@ -1377,17 +1486,9 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               const net = dayNet(numCats, values, dayIdx);
               return (
                 <>
-                  <td
-                    className={`cell subtotal-cell${netClass(net)}`}
-                    style={fill(net, scales.totals)}
-                  >
-                    {fmt(net)}
-                  </td>
+                  <td className={`cell subtotal-cell${netClass(net)}`}>{fmt(net)}</td>
                   {hasBalance && (
-                    <td
-                      className="cell running-total-cell"
-                      style={fill(runningBalance(numCats, values, startingBalance, dayIdx), scales.balances)}
-                    >
+                    <td className="cell running-total-cell">
                       {runningBalance(numCats, values, startingBalance, dayIdx).toLocaleString()}
                     </td>
                   )}
@@ -1395,6 +1496,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
               );
             })()}
           </tr>
+          </Fragment>
         ))}
         {showColumnTotals && (
           <tr className="column-totals-row">

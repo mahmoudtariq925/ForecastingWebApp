@@ -16,7 +16,7 @@ import type {
   Submission,
   User,
 } from '../types';
-import { buildStandardTemplate } from '../data/mockData';
+import { buildStandardTemplate, STANDARD_TEMPLATE_ID } from '../data/mockData';
 import { IS_LIVE } from '../data/dataSource';
 
 // The static demo and the live instance are served from the SAME browser
@@ -246,6 +246,110 @@ function migrateTemplate(legacy: LegacyTemplate): ForecastTemplate {
   };
 }
 
+/**
+ * The SEEDED standard template belongs to the app, not to the browser that
+ * happens to hold a copy of it.
+ *
+ * Every template is stored on first use and read back from storage forever
+ * after, which is right for one somebody authored — and wrong for the demo
+ * template the code ships. A release that changes its lines left every
+ * returning browser on the old shape: the app would be new, the forecast it
+ * drew would be last month's, and the two disagreed about which lines were
+ * intercompany. So the stored copy is compared with the shipped one and
+ * brought forward when they differ.
+ *
+ * A shape change moves the lines, and a cell is addressed by WHERE its line
+ * sits (`${catIdx}-${dayIdx}`), so every stored figure, flag and comment for
+ * that template is re-keyed with it — matched by LABEL, which is what makes a
+ * line the same line. Anything on a line the new shape no longer has goes with
+ * the line; the rows a submitter added themselves sit after the template's own
+ * and are shifted by the difference.
+ */
+function templateShape(template: ForecastTemplate): string {
+  return template.categories
+    .map(
+      (c) =>
+        `${c.label.trim().toLowerCase()}|${(c.group ?? '').trim().toLowerCase()}|${
+          c.subtotal ? 's' : ''
+        }${c.intercompany ? 'i' : ''}`,
+    )
+    .join(';');
+}
+
+/** Old category index → new one, by label; null where the line is gone. */
+function categoryRemap(from: ForecastTemplate, to: ForecastTemplate): (number | null)[] {
+  const taken = new Set<number>();
+  return from.categories.map((cat) => {
+    const key = cat.label.trim().toLowerCase();
+    const at = to.categories.findIndex(
+      (c, i) => !taken.has(i) && c.label.trim().toLowerCase() === key,
+    );
+    if (at < 0) return null;
+    taken.add(at);
+    return at;
+  });
+}
+
+/** Move every `${catIdx}-${dayIdx}` key of one submission onto a new shape. */
+function remapSubmission(
+  sub: Submission,
+  remap: (number | null)[],
+  fromCats: number,
+  toCats: number,
+): Submission {
+  const moveKey = (key: string): string | null => {
+    const dash = key.indexOf('-');
+    const catIdx = Number(key.slice(0, dash));
+    if (!Number.isFinite(catIdx)) return null;
+    // Rows the submitter added sit after the template's own lines and keep
+    // their order — only the offset in front of them changes.
+    if (catIdx >= fromCats) return `${toCats + (catIdx - fromCats)}${key.slice(dash)}`;
+    const next = remap[catIdx];
+    return next === null || next === undefined ? null : `${next}${key.slice(dash)}`;
+  };
+  const moveRecord = <T,>(record: Record<string, T> | undefined): Record<string, T> => {
+    const out: Record<string, T> = {};
+    for (const [key, value] of Object.entries(record ?? {})) {
+      const next = moveKey(key);
+      if (next !== null) out[next] = value;
+    }
+    return out;
+  };
+  return {
+    ...sub,
+    values: moveRecord(sub.values),
+    flags: (sub.flags ?? []).map(moveKey).filter((k): k is string => k !== null),
+    resolvedFlags: (sub.resolvedFlags ?? [])
+      .map(moveKey)
+      .filter((k): k is string => k !== null),
+    comments: moveRecord(sub.comments),
+    commentRequests: moveRecord(sub.commentRequests),
+  };
+}
+
+/**
+ * Bring a stored copy of the seeded template up to the shipped one, carrying
+ * every forecast written against it across. Returns the template to use.
+ */
+function refreshStandardTemplate(stored: ForecastTemplate): ForecastTemplate {
+  const shipped = buildStandardTemplate();
+  if (templateShape(stored) === templateShape(shipped)) return stored;
+  const remap = categoryRemap(stored, shipped);
+  const fromCats = stored.categories.length;
+  const toCats = shipped.categories.length;
+  for (const sub of listSubmissions()) {
+    if (sub.templateId !== shipped.id) continue;
+    saveSubmission(remapSubmission(sub, remap, fromCats, toCats));
+  }
+  // Whatever the entity assignments and description have become locally is
+  // the user's; only the SHAPE is the app's to replace.
+  return {
+    ...stored,
+    categories: shipped.categories,
+    layout: stored.layout,
+  };
+}
+
 /** Marks that the template store has been seeded, so an empty list can mean
  * "the user removed them all" rather than "this browser is new". */
 const TEMPLATES_SEEDED = 'templatesSeeded';
@@ -277,7 +381,18 @@ export function loadTemplates(): ForecastTemplate[] {
     saveData('templates', migrated);
     return migrated;
   }
-  return stored as ForecastTemplate[];
+  const templates = stored as ForecastTemplate[];
+  // The seeded template's shape belongs to the app: bring a stored copy of it
+  // forward when a release has changed its lines.
+  const standardAt = templates.findIndex((t) => t.id === STANDARD_TEMPLATE_ID);
+  if (standardAt >= 0) {
+    const refreshed = refreshStandardTemplate(templates[standardAt]);
+    if (refreshed !== templates[standardAt]) {
+      templates[standardAt] = refreshed;
+      saveData('templates', templates);
+    }
+  }
+  return templates;
 }
 
 export function saveTemplates(templates: ForecastTemplate[]): void {

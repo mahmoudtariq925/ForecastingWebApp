@@ -139,44 +139,113 @@ export interface CategoryGroup {
 }
 
 /**
- * The sections of a forecast, in template order — section rows in the
+ * A line as the GRID holds it: a template category, or one of the rows a
+ * submitter added under one. The extra fields are optional, so a plain
+ * `TemplateCategory[]` is still a valid argument.
+ */
+type GridLine = TemplateCategory & {
+  /** Set on a row the submitter added. */
+  customRowId?: string;
+  /** The label of the line that row breaks down, if any. */
+  parentLabel?: string;
+};
+
+/**
+ * The sections of a forecast, in reading order — section rows in the
  * days-across layout, header bands in the grouped one.
  *
  * A NAMED section gathers every line that carries its label, wherever the
  * line sits in the array. That is what lets a submitter's own rows be
  * APPENDED to the categories (which keeps every existing cell key meaning
- * what it meant) and still render inside the section they were added under.
- * Unnamed lines keep their consecutive runs — they have no name to be
- * gathered by.
+ * what it meant) and still render where they belong.
  *
- * A section's computed subtotal always sorts to the end of it, so a row added
- * to a section lands above its total rather than below it.
+ * And where they belong is UNDER THE LINE THEY BREAK DOWN: "Customer A" is
+ * part of Receivables, not something loose at the foot of Trade AR & AP, and
+ * a section holding both receivables and payables cannot put every added row
+ * in one pile at the bottom and still be read. So each line is followed by
+ * its own rows; rows belonging to no line (or to one the template no longer
+ * has) fall to the end of the section, and the computed subtotal after them,
+ * so it stays what everything above it adds up to.
  */
-export function categoryGroups(categories: TemplateCategory[]): CategoryGroup[] {
+export function categoryGroups(categories: readonly GridLine[]): CategoryGroup[] {
   const out: CategoryGroup[] = [];
   const byLabel = new Map<string, CategoryGroup>();
+  /** Which group holds the line of a given label — where its rows go. */
+  const groupOfLine = new Map<string, CategoryGroup>();
+  const key = (label: string | undefined) => (label ?? '').trim().toLowerCase();
+
+  // The TEMPLATE's own lines first: they decide what the sections are, and a
+  // row can only be placed once the line it belongs to has one.
   categories.forEach((cat, i) => {
+    if (cat.customRowId !== undefined) return;
+    let group: CategoryGroup;
     if (cat.group) {
-      const key = cat.group.trim().toLowerCase();
-      let group = byLabel.get(key);
-      if (!group) {
+      const existing = byLabel.get(key(cat.group));
+      if (existing) group = existing;
+      else {
         group = { label: cat.group, idxs: [] };
-        byLabel.set(key, group);
+        byLabel.set(key(cat.group), group);
         out.push(group);
       }
-      group.idxs.push(i);
-      return;
+    } else {
+      const last = out[out.length - 1];
+      if (last && last.label === undefined) group = last;
+      else {
+        group = { label: undefined, idxs: [] };
+        out.push(group);
+      }
     }
-    const last = out[out.length - 1];
-    if (last && last.label === undefined) last.idxs.push(i);
-    else out.push({ label: undefined, idxs: [i] });
+    group.idxs.push(i);
+    if (!cat.subtotal && !groupOfLine.has(key(cat.label))) groupOfLine.set(key(cat.label), group);
   });
+
+  // Then the rows somebody added: into the group holding the line they break
+  // down — which is how a row under a line that belongs to no section (CAPEX,
+  // say) lands beside it rather than in a group of its own at the end.
+  for (let i = 0; i < categories.length; i++) {
+    const cat = categories[i];
+    if (cat.customRowId === undefined) continue;
+    const target =
+      (cat.parentLabel !== undefined ? groupOfLine.get(key(cat.parentLabel)) : undefined) ??
+      (cat.group ? byLabel.get(key(cat.group)) : undefined);
+    if (target) {
+      target.idxs.push(i);
+      continue;
+    }
+    // Nothing to belong to: its own group, at the end, rather than dropped.
+    const last = out[out.length - 1];
+    if (last && last.label === undefined && cat.group === undefined) last.idxs.push(i);
+    else out.push({ label: cat.group, idxs: [i] });
+  }
+
   for (const group of out) {
-    const items = group.idxs.filter((i) => !categories[i]?.subtotal);
-    const totals = group.idxs.filter((i) => categories[i]?.subtotal);
-    group.idxs = [...items, ...totals];
+    group.idxs = orderSectionLines(categories, group.idxs);
   }
   return out;
+}
+
+/** One section's lines: each template line, then the rows added under it. */
+function orderSectionLines(categories: readonly GridLine[], idxs: number[]): number[] {
+  const lines = idxs.filter((i) => !categories[i]?.subtotal && !categories[i]?.customRowId);
+  const rows = idxs.filter((i) => categories[i]?.customRowId !== undefined);
+  const totals = idxs.filter((i) => categories[i]?.subtotal);
+  const key = (label: string | undefined) => (label ?? '').trim().toLowerCase();
+  const parents = new Set(lines.map((i) => key(categories[i].label)));
+
+  const out: number[] = [];
+  for (const line of lines) {
+    out.push(line);
+    for (const row of rows) {
+      if (key(categories[row].parentLabel) === key(categories[line].label)) out.push(row);
+    }
+  }
+  // Rows belonging to the section itself, and any orphaned by a template edit
+  // that renamed or removed the line they were under.
+  for (const row of rows) {
+    const parent = categories[row].parentLabel;
+    if (parent === undefined || !parents.has(key(parent))) out.push(row);
+  }
+  return [...out, ...totals];
 }
 
 /**

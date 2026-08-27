@@ -1227,23 +1227,24 @@ function SubmissionEditor({
   /** The legal entities an intercompany row may name. */
   const entityChoices = useMemo(() => entityOptions(entity), [entity]);
 
-  /** Add a row to a section, ready to be named. */
-  const addRow = (section: string) => {
+  /** Add a row under a line — or under the section, where it has no lines. */
+  const addRow = (section: string, parent?: string) => {
     if (!canEditRows) return;
     pushUndo();
     lastEditedCell.current = null;
-    const nextRows = [...rows, makeCustomRow(section)];
+    const row = makeCustomRow(section, parent);
+    const nextRows = [...rows, row];
     setRows(nextRows);
     // A new row holds no figures, so nothing about the forecast's numbers has
     // changed yet and an already-submitted forecast stays where it is.
     persist({ customRows: nextRows });
     // Put the cursor in the new row's name — an unnamed row is the one thing
-    // it must not be left as.
+    // it must not be left as. Found by the row's OWN id: rows sit under the
+    // line they break down, so the newest one is rarely the last on screen.
     requestAnimationFrame(() => {
-      const inputs = document.querySelectorAll<HTMLElement>(
-        '.forecast-grid .row-name-input, .forecast-grid .row-entity-select',
-      );
-      inputs[inputs.length - 1]?.focus();
+      document
+        .querySelector<HTMLElement>(`.forecast-grid [data-row-id="${row.id}"]`)
+        ?.focus();
     });
   };
 
@@ -2364,7 +2365,7 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className="panel chart-panel" data-tour="forecast-chart">
+        <div className="panel chart-panel forecast-outlook" data-tour="forecast-chart">
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
@@ -2472,7 +2473,11 @@ function SubmissionEditor({
                   labels={dayLabels.map((dl) => dl.dm)}
                   series={[...overlaySeries, ...chartSeries]}
                   unit="k"
-                  height={200}
+                  // Taller than it is wide-ish: the outlook is read for the
+                  // SHAPE of the week, and a line stretched the width of the
+                  // page flattens every move in it. The width is capped in
+                  // CSS (`.forecast-outlook`); the height is here.
+                  height={264}
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.
@@ -2566,6 +2571,9 @@ function SubmissionEditor({
                 onRemoveRow={canEditRows ? (id) => void removeRow(id) : undefined}
                 entityOptions={entityChoices}
                 heatmapMode={heatMode}
+                // The forecast screen alone: a horizon has weeks, a template
+                // has only a shape, so the builder's preview shows none.
+                weekBands
                 showColumnTotals={template.columnTotals === true}
               />
             </div>
