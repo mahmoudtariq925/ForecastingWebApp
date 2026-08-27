@@ -272,9 +272,6 @@ export function ForecastPreviewModal({
             ))}
             <div className="forecast-grid-wrap preview-grid">
               <ForecastGrid
-                // Same forecast, same weeks — this dialog is a reading of the
-                // submission screen's grid, not of the template behind it.
-                weekBands
                 categories={gridCats}
                 layout={template.layout}
                 dayLabels={dayLabels}
