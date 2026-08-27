@@ -210,15 +210,28 @@
      and the BANDS inside a card (toolbars, table headers). The page used to
      be the same cream as those bands, so a card's own toolbar merged with the
      background behind the card and every screen read as one continuous
-     surface. The page is a shade deeper than the palette cream — mixed
-     toward the taupe, so it stays in the family — and cards keep white. */
-  --bg: #f1eae2;
+     surface.
+
+     The page is the palette taupe laid over white — in the family, but
+     running about a quarter of the cream's red-over-blue, so it reads as a
+     neutral canvas rather than as beige. Cards keep white, and the gap
+     between the two is what draws every edge in the app. This is one value
+     for every screen: the forecast page proved it out and the rest of the app
+     follows it, so moving between screens is not a change of ground. */
+  --bg: #edeae6;
   --bg-elev: var(--jde-white);
-  --bg-elev-2: var(--jde-cream);
+  /* The band inside a card — a toolbar, a table head, a card's own title
+     strip. It was the palette cream, which against a white card read as a
+     tan fill rather than as a shade; near-white makes it a step, not a
+     block. */
+  --bg-elev-2: #fafaf8;
   --bg-sunken: var(--n-100);
   --sidebar-bg: var(--jde-white);
   --border: #e0d5ce;
   --border-strong: var(--jde-taupe);
+  /* The edge of a card, as one value. A card's border IS its boundary, so it
+     is a tone you can see rather than a hairline you have to look for. */
+  --card-edge: #e3dbd5;
 
   /* ---- Text ---- */
   --text: var(--jde-black);
@@ -666,14 +679,18 @@ textarea {
 }
 
 /* === TOP BAR === */
+/* The top bar is CHROME, not canvas: white, with a real rule under it, so it
+   reads as a fixed edge above the page rather than as more page. In the
+   canvas colour it ran straight into the first card below it and the two read
+   as one tall header. */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 13px 22px;
   min-height: var(--header-h);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  border-bottom: 1px solid var(--card-edge);
+  background: var(--bg-elev);
 }
 .page-title-wrap h1 {
   font-family: var(--serif);
@@ -4229,10 +4246,19 @@ tbody td {
 .panel,
 .kpi-card {
   background: var(--bg-elev);
+  /* One card, everywhere. The border carries the boundary and the shadow only
+     has to say which of the two surfaces is on top — both tinted with the
+     brand brown, because a neutral black shadow over a warm canvas reads as
+     dirt rather than as depth. */
+  border-color: var(--card-edge);
+  box-shadow:
+    0 1px 2px rgba(87, 48, 39, 0.05),
+    0 10px 24px -14px rgba(87, 48, 39, 0.22);
 }
 .panel-header,
 .grid-toolbar {
-  background: var(--n-25);
+  background: var(--bg-elev);
+  border-bottom-color: var(--card-edge);
 }
 
 /* Sticky header rows must be opaque — a translucent band let the numbers
@@ -5919,51 +5945,26 @@ thead th,
    sections or thirty gets the same treatment.
    ========================================================================== */
 
-/* ---- The shell ----------------------------------------------------------
-   Two earlier attempts at this and both failed the same way, from opposite
-   ends. #FAFAF8 under white cards left a percent and a half between the two,
-   so nothing on the screen had an edge. #F0EEEC had the separation but read
-   FADED — a grey that close to white looks less like a canvas than like a
-   white that has gone off, and with hairline borders and light secondary text
-   on top of it the whole screen came out washed.
+/* ---- What this page no longer owns ---------------------------------------
+   The shell was worked out here, over three attempts. #FAFAF8 cards on a
+   #FAFAF8 page left a percent and a half between them, so nothing had an
+   edge. #F0EEEC had the separation but read FADED — a grey that close to
+   white looks less like a canvas than like a white gone off — and hairline
+   borders on top of it finished the job.
 
-   Neither problem was really the grey. What a page like this needs is three
-   things held apart on purpose:
+   What came out of it is three surfaces held apart on purpose: white CHROME
+   with a real rule under it, a CANVAS with enough depth to be a surface
+   rather than an off-white, and pure white CARDS on a border you can see.
+   None of that is scoped to this page any more — it lives on `:root` and in
+   the app-wide `.topbar` / `.panel` rules, so every screen stands on the same
+   ground and moving between them is not a change of footing.
 
-     CHROME   the top bar, in white, with a real rule under it. It is the
-              app's furniture and it should read as a fixed edge, not as more
-              canvas.
-     CANVAS   a proper neutral with some depth in it — enough that it is
-              obviously a surface and not an off-white. It stays in the
-              palette's family (it is the taupe over white) but takes far less
-              red over blue than the cream it replaced, so it reads neutral
-              rather than beige.
-     CARDS    pure white, a border you can actually see, a soft cast shadow,
-              12px corners.
-
-   And the cure for "faded" is contrast in the CONTENT, not another grey:
-   secondary text steps down to a tone that can be read at a glance rather
-   than squinted at, and card titles carry real weight. */
+   What is left below is what actually belongs to this page: the grid, the
+   outlook, the summary cards and the toggles. */
 .view.forecast-entry {
-  --bg: #edeae6;
-  --bg-elev-2: #fafaf8;
   --border: rgba(197, 182, 175, 0.45);
   --border-strong: rgba(197, 182, 175, 0.75);
-  /* Secondary text was the single biggest source of the washed-out look:
-     every label, caption and axis figure on the screen sat at a tone chosen
-     against a cream page. */
-  --text-muted: #6b5750;
-  --text-dim: #3a2c27;
   background: var(--bg);
-}
-/* The card edge, as one value: solid rather than a translucent hairline,
-   because on a card the border IS the boundary and it has to hold. */
-.view.forecast-entry {
-  --card-edge: #e3dbd5;
-}
-.forecast-entry > .topbar {
-  background: var(--jde-white);
-  border-bottom: 1px solid var(--card-edge);
 }
 /* A locked field (a read-only forecast's opening balance) took the palette
    cream, which is the one fill this screen no longer uses anywhere. */
@@ -5974,19 +5975,10 @@ thead th,
 }
 
 /* ---- Cards --------------------------------------------------------------
-   The border does the work of saying where a card ends; the shadow only has
-   to say which of the two surfaces is on top. Both are tinted with the brand
-   brown — a neutral black shadow over a warm canvas reads as dirt. */
-.forecast-entry .panel {
-  background: var(--jde-white);
-  border: 1px solid var(--card-edge);
-  border-radius: 12px;
-  box-shadow:
-    0 1px 2px rgba(87, 48, 39, 0.05),
-    0 10px 24px -14px rgba(87, 48, 39, 0.22);
-}
-/* Cards need air between them for the canvas to show through and do its job,
-   and the page needs air around them for the same reason. */
+   The card itself — white, the shared `--card-edge` border, 12px, a shadow
+   tinted with the brand brown — is now the app-wide `.panel`. All this page
+   adds is room: it stacks four or five cards down one screen, and they need
+   the canvas visible between them to read as separate boxes. */
 .forecast-entry .content-compact .panel {
   margin-bottom: 14px;
 }
@@ -6017,21 +6009,16 @@ thead th,
 .forecast-entry .forecast-summary-id .text-muted {
   color: var(--text-muted);
 }
-/* The labels standing in front of the toolbar controls, and the caption under
-   a card title: same job, same weight, and dark enough to be read. */
-.forecast-entry .toggle-field-label {
-  color: #6b5750;
-}
-/* The chart's own text sits on white and was set for a cream ground. */
+/* The chart's own text sits on white and was set against a cream ground: the
+   axis figures and the series names are the parts of a chart you have to READ,
+   and they were the faintest thing on the card. */
 .forecast-entry .chart-svg .chart-axis-label,
 .forecast-entry .chart-svg .chart-slot-value {
-  fill: #4a3a34;
+  fill: #3a2c27;
 }
-.forecast-entry .series-check {
-  color: #4a3a34;
-}
+.forecast-entry .series-check,
 .forecast-entry .chart-legend {
-  color: #6b5750;
+  color: #4a3a34;
 }
 
 /* ---- The top summary: four stat cards -----------------------------------
@@ -6280,8 +6267,11 @@ thead th,
    width the plot actually wants is around 750px, so that is what it gets:
    the controls rail takes 236 of the card, the card stops at 1,040, and the
    plot has the rest. Shut, the card is the full-width slim row it always was
-   — `:has()` keys the cap to the body the toggle renders. */
-.forecast-entry .forecast-outlook:has(.outlook-body) {
+   — the toggle puts `outlook-open` on the card and the cap hangs off that.
+   It WAS a `:has(.outlook-body)` rule, which any browser without :has()
+   support drops on the floor, taking the cap with it and leaving the plot
+   stretched across the whole page. A class cannot be dropped. */
+.forecast-entry .forecast-outlook.outlook-open {
   max-width: 1040px;
 }
 .forecast-entry .forecast-outlook .outlook-body {

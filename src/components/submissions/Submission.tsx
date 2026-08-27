@@ -15,8 +15,6 @@ import {
   dayInflows,
   dayNet,
   dayOutflows,
-  groupIsEmpty,
-  hasAnyValue,
   parseCellNumber,
   runningBalance,
   type GridValues,
@@ -628,39 +626,22 @@ function SubmissionEditor({
     [gridCats],
   );
   /**
-   * Sections that hold no figures at all, and have nothing waiting on anyone.
+   * Every section starts FOLDED, whoever opens the forecast and whatever state
+   * it is in.
    *
-   * A section of empty rows still costs its full height on the screen, and on
-   * a template with a dozen of them the numbers that DO exist end up spread
-   * over two screens of nothing. These start folded to a single line so the
-   * forecast opens on its actual contents — one click reopens any of them,
-   * and a section holding a question or a flagged cell is never folded away,
-   * because that is the one thing worth scrolling to.
+   * This used to depend on who you were — a reviewer got the folded shape, a
+   * submitter got every line open — and on which sections happened to be empty
+   * when the forecast was loaded. Both readings were defensible and neither
+   * survived contact with a real template: a dozen sections and a hundred line
+   * items open on a wall of numbers, with the figures that summarise it (the
+   * section totals) scrolled off the bottom of the screen. Folded, the whole
+   * forecast fits at once and the section you actually want is one click away.
+   *
+   * Nothing about this is a lock: Expand All sits in the toolbar beside it,
+   * every band opens on its own, and none of the folding touches a figure.
    */
-  const emptySections = useMemo(() => {
-    // Read against the forecast AS STORED, rows and all: a section whose only
-    // figures are on rows the submitter added is not an empty section.
-    const opened = gridCategories(template, customRowsOf(initial));
-    const groups = categoryGroups(opened);
-    if (!hasAnyValue(initial.values)) return [];
-    const marked = new Set([...initial.flags, ...Object.keys(initial.commentRequests ?? {})]);
-    return sections.filter((gi) => {
-      const g = groups[gi];
-      if (!g) return false;
-      if (!groupIsEmpty(opened, initial.values, g.idxs, numPeriods)) return false;
-      return !g.idxs.some((c) => {
-        for (let d = 0; d < numPeriods; d++) if (marked.has(cellKey(c, d))) return true;
-        return false;
-      });
-    });
-    // Computed from the forecast as it was OPENED: a section the submitter is
-    // in the middle of typing into must not fold itself back up.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template, sections, numPeriods]);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(() =>
-    readOnly || canRequestComments || handedOver
-      ? new Set(sections)
-      : new Set(emptySections),
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(
+    () => new Set(sections),
   );
   /**
    * Open or fold every section at once.
@@ -2369,7 +2350,15 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className="panel chart-panel forecast-outlook" data-tour="forecast-chart">
+        <div
+          /* `outlook-open` carries the width cap for the expanded card. This
+             used to be a `:has(.outlook-body)` rule, which is silently DROPPED
+             by any browser without :has() support — and a dropped cap is a plot
+             stretched across the whole page, which is the one thing it must
+             not be. A class cannot be dropped. */
+          className={`panel chart-panel forecast-outlook${chartOpen ? ' outlook-open' : ''}`}
+          data-tour="forecast-chart"
+        >
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
