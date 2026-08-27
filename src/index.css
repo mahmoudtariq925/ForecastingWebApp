@@ -5920,19 +5920,33 @@ thead th,
    ========================================================================== */
 
 /* ---- The ground ---------------------------------------------------------
-   Four tokens carry most of the tone shift, so the rules that already read
-   them (panels, sticky header bands, dividers) follow without being
-   restated. Everything tinted is a tint of #C5B6AF — no new hue enters. */
+   Two surfaces, and they have to be TELLABLE APART. A near-white page under
+   white cards was the first attempt and it failed the only job the page has:
+   at #FAFAF8 against #FFFFFF there is a percent and a half between the card
+   and what it sits on, so the toolbars, the outlook and the grid dissolved
+   into one continuous sheet and the screen read as having no boxes at all.
+
+   The page is a light warm grey — #C5B6AF laid over white at about a fifth,
+   so it stays in the palette's family — and it is decidedly not the cream it
+   replaced: that one ran 15 points of red over blue and read as beige, this
+   runs 4 and reads as grey with the warmth left in. Cards stay pure white.
+   The gap between the two is what draws every edge on the screen.
+
+   Four tokens carry the shift, so the rules that already read them (panels,
+   sticky header bands, dividers) follow without being restated. */
 .view.forecast-entry {
-  --bg: #fafaf8;
+  --bg: #f0eeec;
   --bg-elev-2: #fafaf8;
   --border: rgba(197, 182, 175, 0.45);
   --border-strong: rgba(197, 182, 175, 0.75);
   background: var(--bg);
 }
+/* The top bar belongs to the PAGE, not to the first card under it. In white
+   it was indistinguishable from the toolbar card below and the two ran
+   together into one tall header. */
 .forecast-entry > .topbar {
-  background: var(--jde-white);
-  border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+  background: var(--bg);
+  border-bottom: 1px solid rgba(197, 182, 175, 0.5);
 }
 /* A locked field (a read-only forecast's opening balance) took the palette
    cream, which is the one fill this screen no longer uses anywhere. */
@@ -5943,14 +5957,24 @@ thead th,
 }
 
 /* ---- Cards --------------------------------------------------------------
-   White, a hairline of taupe, 8px, and a shadow you have to look for. The
-   app-wide panel carries a 12px radius and a lifted shadow; on a screen that
-   is mostly one very large table those read as furniture. */
+   White, a taupe edge, 8px, and a shadow that actually casts. The app-wide
+   panel carries a 12px radius and a lifted shadow, which reads as furniture
+   on a screen that is mostly one very large table; but the near-invisible
+   hairline that replaced it left the cards with no edge at all. This is the
+   middle: the border does the work, and the shadow only has to say which of
+   the two surfaces is on top. Tinted with the brand brown — a neutral black
+   shadow over a warm page reads as dirt. */
 .forecast-entry .panel {
   background: var(--jde-white);
-  border: 1px solid rgba(197, 182, 175, 0.55);
+  border: 1px solid rgba(197, 182, 175, 0.7);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 1px 2px rgba(87, 48, 39, 0.05),
+    0 2px 8px -3px rgba(87, 48, 39, 0.07);
+}
+/* Cards need air between them for the page to show through and do its job. */
+.forecast-entry .content-compact .panel {
+  margin-bottom: 12px;
 }
 /* The strips inside a card — toolbars, the outlook's toggle row, the summary
    head — used to be cream, which is the one fill this restyle removes. */
@@ -5983,9 +6007,9 @@ thead th,
   gap: 4px;
   padding: 8px 14px;
   background: var(--jde-white);
-  border: 1px solid rgba(197, 182, 175, 0.55);
+  border: 1px solid rgba(197, 182, 175, 0.7);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(87, 48, 39, 0.05);
 }
 .forecast-entry .forecast-stat-label {
   font-size: 11px;
@@ -6205,18 +6229,78 @@ thead th,
    Collapsed it is the one slim row it always was. Open, it is a contained
    panel under that row rather than a band across the page: a week's shape
    reads at 600px and disappears at 1,300. */
-/* Open, the card itself narrows to the plot rather than leaving two thirds of
-   a full-width band empty beside it. `:has()` keys this off the body the
-   toggle renders, so the shut state stays the slim full-width row it was. */
-.forecast-entry .forecast-outlook:has(.outlook-body) {
-  max-width: 620px;
-}
+/* Open, the card is a two-column panel. Capping the plot at 600px and leaving
+   the rest of the card empty traded one problem for another: the chart came
+   out too small to read a week off and looked stranded in its own box. The
+   controls take that width instead — they are a list of checkboxes and read
+   better stacked than strung across a strip — and the plot takes everything
+   left over, at a height where the line has somewhere to move. Nothing on the
+   card is empty and nothing on it is small. */
 .forecast-entry .forecast-outlook .outlook-body {
-  max-width: 620px;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: stretch;
 }
-.forecast-entry .forecast-outlook .outlook-body .chart-controls {
+.forecast-entry .forecast-outlook .outlook-controls {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(197, 182, 175, 0.45);
   background: #fafaf8;
+}
+/* Stacked in a rail, the two control blocks are sections of one list: the
+   series to plot, then the cycles to lay over them. */
+.forecast-entry .forecast-outlook .outlook-controls .chart-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+  padding: 12px 14px;
+  background: transparent;
   border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+}
+.forecast-entry .forecast-outlook .outlook-controls .chart-controls:last-child {
+  border-bottom: none;
+}
+/* The two selects are given `margin-left: auto` inline for the old row
+   layout; in a column that pushes nothing, so they simply fill the rail. */
+.forecast-entry .forecast-outlook .outlook-controls .form-select {
+  width: 100%;
+  margin-top: 3px;
+}
+.forecast-entry .forecast-outlook .outlook-controls .grid-info {
+  margin-bottom: 1px;
+}
+/* The plot: the whole remaining column, and taller than the card it used to
+   sit in was in total. Its height comes from the `height` prop as an inline
+   style (the SVG's viewBox is drawn to the same number, so the two must not
+   disagree); all this does is stop the old width cap from squeezing it back
+   into a strip. */
+.forecast-entry .forecast-outlook .chart-container {
+  max-width: none;
+  max-height: none;
+  margin-inline: 0;
+  padding: 14px 18px 6px;
+}
+/* Narrow viewports have no width to give a rail, so it goes back to strips
+   above the plot — the same blocks, stacked the other way. */
+@media (max-width: 1080px) {
+  .forecast-entry .forecast-outlook .outlook-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .forecast-entry .forecast-outlook .outlook-controls {
+    border-right: none;
+    border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+  }
+  .forecast-entry .forecast-outlook .outlook-controls .chart-controls {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+  }
+  .forecast-entry .forecast-outlook .outlook-controls .form-select {
+    width: auto;
+    margin-top: 0;
+  }
 }
 .forecast-entry .forecast-outlook .chart-container {
   max-width: none;
