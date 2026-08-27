@@ -2429,7 +2429,7 @@ function SubmissionEditor({
                   </label>
                   <select
                     className="form-select"
-                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                    style={{ padding: '5px 10px' }}
                     value={balanceStyle}
                     onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
                     aria-label="Balance line style"
@@ -2462,7 +2462,7 @@ function SubmissionEditor({
                   ))}
                   <select
                     className="form-select"
-                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                    style={{ padding: '5px 10px' }}
                     value={compareMetric}
                     onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
                     aria-label="Comparison metric"
