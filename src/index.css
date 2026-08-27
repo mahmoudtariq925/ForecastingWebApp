@@ -5884,3 +5884,361 @@ thead th,
   display: block;
   margin: 3px auto 0;
 }
+
+/* ==========================================================================
+   FORECAST ENTRY — the screen's own visual treatment.
+   --------------------------------------------------------------------------
+   This block restyles ONE view. The forecast grid, the toolbars, the
+   segmented toggles and the outlook chart all share their class names with
+   other screens (the template builder draws a `.forecast-grid` too, treasury's
+   overview has a `.seg-toggle`), so every rule here hangs off `.forecast-entry`
+   — the class the submission view puts on its own root — rather than off those
+   shared names. Nothing outside this view moves.
+
+   What changes is the GROUND and the RHYTHM, not the type and not the
+   meaning of any colour:
+
+   - The page drops from cream to near-white, and the tan fills that used to
+     block in section bands and header strips become white with a thin taupe
+     rule. Taupe stays, but as a line rather than a field.
+   - Rows get room: 13px figures on ~36px rows instead of 12px on ~28px.
+   - Structural shading is one tone, not several: sections carry a 3px
+     light-blue edge, and the alternating bands are #FFFFFF / #FAFAF8.
+
+   What does NOT change, deliberately: the font stack (Poppins for words,
+   JetBrains Mono for figures, exactly as before), and every value-driven
+   colour. Conditional formatting paints its cells from an inline style
+   computed in `heatmap.ts`, and the net sign colours come from
+   `.net-positive` / `.net-negative`; neither is touched or overridden here,
+   and no rule below colours a number by its sign.
+
+   Section and row styling is written against ROW TYPES — `.section-row`,
+   `.subtotal-row`, `.custom-row`, `.band-a` / `.band-b`, `.column-totals-row`
+   — which `ForecastGrid` derives from whichever template is loaded. No
+   section name appears anywhere in this block, so a template with three
+   sections or thirty gets the same treatment.
+   ========================================================================== */
+
+/* ---- The ground ---------------------------------------------------------
+   Four tokens carry most of the tone shift, so the rules that already read
+   them (panels, sticky header bands, dividers) follow without being
+   restated. Everything tinted is a tint of #C5B6AF — no new hue enters. */
+.view.forecast-entry {
+  --bg: #fafaf8;
+  --bg-elev-2: #fafaf8;
+  --border: rgba(197, 182, 175, 0.45);
+  --border-strong: rgba(197, 182, 175, 0.75);
+  background: var(--bg);
+}
+.forecast-entry > .topbar {
+  background: var(--jde-white);
+  border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+}
+/* A locked field (a read-only forecast's opening balance) took the palette
+   cream, which is the one fill this screen no longer uses anywhere. */
+.forecast-entry .form-input:disabled,
+.forecast-entry .form-select:disabled,
+.forecast-entry .form-textarea:disabled {
+  background: #fafaf8;
+}
+
+/* ---- Cards --------------------------------------------------------------
+   White, a hairline of taupe, 8px, and a shadow you have to look for. The
+   app-wide panel carries a 12px radius and a lifted shadow; on a screen that
+   is mostly one very large table those read as furniture. */
+.forecast-entry .panel {
+  background: var(--jde-white);
+  border: 1px solid rgba(197, 182, 175, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+/* The strips inside a card — toolbars, the outlook's toggle row, the summary
+   head — used to be cream, which is the one fill this restyle removes. */
+.forecast-entry .grid-toolbar,
+.forecast-entry .panel-collapse-head,
+.forecast-entry .forecast-summary {
+  background: var(--jde-white);
+  border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+}
+.forecast-entry .panel-collapse-head:hover {
+  background: #fafaf8;
+}
+.forecast-entry .panel-collapse-head strong,
+.forecast-entry .forecast-summary-id strong {
+  color: var(--jde-brown);
+}
+
+/* ---- The top summary: four stat cards -----------------------------------
+   Same four figures, same order, same markup — read as cards rather than as
+   text separated by rules. The values keep whatever colour they already
+   carry, so any conditional formatting on them survives untouched. */
+.forecast-entry .forecast-stats {
+  gap: 10px;
+}
+.forecast-entry .forecast-stat,
+.forecast-entry .forecast-stat:first-child {
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 104px;
+  gap: 4px;
+  padding: 8px 14px;
+  background: var(--jde-white);
+  border: 1px solid rgba(197, 182, 175, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.forecast-entry .forecast-stat-label {
+  font-size: 11px;
+  color: var(--jde-brown);
+}
+.forecast-entry .forecast-stat-value {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+/* ---- Figures and row height ---------------------------------------------
+   13px on ~36px rows. `height` on a `td` is a MINIMUM in table layout, so a
+   row that needs more (a section band, a wrapped label) still takes it. The
+   week divider is a 7px spacer between weeks and is left out. */
+.forecast-entry .forecast-grid {
+  font-size: 13px;
+}
+.forecast-entry .forecast-grid tbody tr:not(.week-divider) > td {
+  height: 36px;
+}
+.forecast-entry .forecast-grid td.cell,
+.forecast-entry .forecast-grid td.cell input {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.forecast-entry .forecast-grid td.cell input {
+  font-weight: 400;
+  padding: 8px 10px;
+}
+.forecast-entry .forecast-grid td.cell.subtotal-cell,
+.forecast-entry .forecast-grid td.cell.total-cell,
+.forecast-entry .forecast-grid td.cell.row-total-cell,
+.forecast-entry .forecast-grid td.cell.running-total-cell {
+  padding: 8px 10px;
+}
+/* Totals and the running/closing balance carry the weight; the lines they
+   sum stay regular, so the eye finds the summary rows without a rule. */
+.forecast-entry .forecast-grid td.cell.subtotal-cell,
+.forecast-entry .forecast-grid td.cell.total-cell,
+.forecast-entry .forecast-grid td.cell.row-total-cell,
+.forecast-entry .forecast-grid td.cell.running-total-cell,
+.forecast-entry .forecast-grid tr.column-totals-row td {
+  font-weight: 500;
+}
+.forecast-entry .forecast-grid td.row-label {
+  font-size: 13px;
+  padding: 8px 12px;
+  color: var(--jde-brown);
+}
+.forecast-entry .forecast-grid td.row-label.indent {
+  font-weight: 400;
+}
+/* Section labels: same size as the lines under them, told apart by weight,
+   the brand brown and the edge on the label cell. */
+.forecast-entry .forecast-grid tr.section-row td.row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--jde-brown);
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+.forecast-entry .forecast-grid tr.section-row td {
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+
+/* ---- Structural shading: one edge, one tone -----------------------------
+   The section band was a solid block of taupe running the width of the
+   forecast, and the day tints under it added two more. What says "new
+   section" now is a 3px light-blue edge on the label cell plus the hairline
+   above the row; the bands themselves are white and #FAFAF8, alternating. */
+.forecast-entry .forecast-grid tr.section-row.band-a > td,
+.forecast-entry .forecast-grid tr.section-row.band-b > td,
+.forecast-entry .forecast-grid tr.section-row > td {
+  background: var(--jde-white);
+  border-top: 1px solid rgba(197, 182, 175, 0.55);
+}
+.forecast-entry .forecast-grid tr.section-row > td.row-label {
+  box-shadow:
+    inset 3px 0 0 var(--jde-blue-light),
+    1px 0 0 var(--border),
+    4px 0 8px -6px rgba(87, 48, 39, 0.18);
+}
+/* A section someone is waiting on an answer in keeps the stronger blue: the
+   accent above is structure, this one is a state, and state outranks it. */
+.forecast-entry .forecast-grid tr.section-row.section-questioned > td.row-label {
+  box-shadow:
+    inset 3px 0 0 var(--jde-blue),
+    1px 0 0 var(--border),
+    4px 0 8px -6px rgba(87, 48, 39, 0.18);
+}
+/* The hairline that puts a section's lines inside it, and the deeper one on
+   a row the submitter added — both in taupe now rather than in the greys. */
+.forecast-entry .forecast-grid td.row-label.indent {
+  box-shadow: inset 3px 0 0 rgba(197, 182, 175, 0.5);
+}
+.forecast-entry .forecast-grid td.row-label.row-label-custom {
+  box-shadow: inset 3px 0 0 rgba(197, 182, 175, 0.85);
+}
+.forecast-entry .forecast-grid tbody tr:not(.section-row):not(.add-row-line):hover > td.row-label {
+  background: rgba(197, 182, 175, 0.16);
+}
+/* Weekends and the week's last working day: the same single tint, so the grid
+   never shows two structural greys at once. Flat rather than translucent —
+   these land on sticky header cells too, and a see-through header lets the
+   rows scroll visibly through the dates. */
+.forecast-entry .forecast-grid thead th.day-h.weekend,
+.forecast-entry .forecast-grid td.cell.weekend,
+.forecast-entry .forecast-grid th.day-h.day-friday,
+.forecast-entry .forecast-grid td.cell.day-friday:not(.variance-flag):not(.comment-requested),
+.forecast-entry .forecast-grid tr.band-b > td.cell.day-friday:not(.variance-flag):not(.comment-requested),
+.forecast-entry
+  .forecast-grid
+  tr.row-friday
+  > td.cell:not(.variance-flag):not(.comment-requested):not(.band-b),
+.forecast-entry .forecast-grid tr.row-friday > td.cell.band-b:not(.variance-flag):not(.comment-requested) {
+  background: #f7f5f4;
+}
+
+/* ---- Header strips ------------------------------------------------------ */
+.forecast-entry .forecast-grid thead th,
+.forecast-entry .forecast-grid thead tr.label-row th,
+.forecast-entry .forecast-grid thead tr.label-row th.total-h,
+.forecast-entry .forecast-grid thead tr.label-row th.row-label-h {
+  background-color: var(--jde-white);
+  color: var(--jde-brown);
+}
+.forecast-entry .forecast-grid thead tr.band-row th.band-spacer {
+  background-color: var(--bg);
+}
+/* The section header in the dates-down-rows layout: the same white ground, the
+   same light-blue edge and the same label treatment its row-wise twin gets —
+   a section reads identically whichever way the grid is turned. */
+.forecast-entry .forecast-grid thead tr.band-row th.section-band.band-a,
+.forecast-entry .forecast-grid thead tr.band-row th.section-band.band-b {
+  background-color: var(--jde-white);
+  color: var(--jde-brown);
+}
+.forecast-entry .forecast-grid thead tr.band-row th.section-band {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.forecast-entry .forecast-grid th.day-h.section-band {
+  border-left: 3px solid var(--jde-blue-light);
+}
+.forecast-entry .forecast-grid th.day-h.section-questioned {
+  box-shadow: inset 3px 0 0 var(--jde-blue);
+}
+/* Totals keep a ground of their own, a shade off white rather than tan. */
+.forecast-entry .forecast-grid td.cell.total-cell,
+.forecast-entry .forecast-grid td.row-label.total,
+.forecast-entry .forecast-grid tr.column-totals-row td {
+  background: #fafaf8;
+}
+
+/* ---- Column separators --------------------------------------------------
+   One weight for every vertical rule on the grid: 1px of taupe at low
+   opacity, whether it closes a week, a section or a column group. */
+.forecast-entry .forecast-grid th.group-end,
+.forecast-entry .forecast-grid td.group-end,
+.forecast-entry .forecast-grid th.day-h.week-edge,
+.forecast-entry .forecast-grid td.week-edge {
+  border-right: 1px solid rgba(197, 182, 175, 0.45);
+}
+.forecast-entry .forecast-grid thead tr.band-row th.week-band {
+  color: var(--jde-brown);
+  border-left: 1px solid rgba(197, 182, 175, 0.45);
+}
+.forecast-entry .forecast-grid thead tr.band-row th.week-band:first-of-type {
+  border-left: none;
+}
+.forecast-entry .forecast-grid tr.subtotal-row > td,
+.forecast-entry .forecast-grid tr.row-friday > td {
+  border-bottom: 1px solid rgba(197, 182, 175, 0.55);
+}
+
+/* ---- Controls -----------------------------------------------------------
+   Same buttons, same places, same jobs. Submit stays the site's solid
+   primary (#573027, the brand brown every other screen's primary action
+   uses); Save Draft becomes a plain outline beside it. */
+.forecast-entry .btn.btn-save-draft {
+  background: var(--jde-white);
+  border-color: rgba(197, 182, 175, 0.8);
+  color: var(--jde-brown);
+}
+.forecast-entry .btn.btn-save-draft:hover:not(:disabled) {
+  background: #fafaf8;
+  border-color: var(--jde-taupe);
+  color: var(--jde-brown);
+}
+/* The three toggles (shading, sections, layout) as one pill each, with the
+   live segment filled in blue rather than in the brown a button would use —
+   these choose a view, they do not commit anything. */
+.forecast-entry .seg-toggle {
+  border-radius: 100px;
+  border-color: rgba(197, 182, 175, 0.8);
+  background: var(--jde-white);
+  box-shadow: none;
+}
+.forecast-entry .seg-toggle button {
+  border-right: none;
+  color: var(--jde-brown);
+}
+.forecast-entry .seg-toggle button:hover {
+  background: rgba(135, 161, 194, 0.18);
+  color: var(--jde-brown);
+}
+.forecast-entry .seg-toggle button.active,
+.forecast-entry .seg-toggle button.active:hover {
+  background: var(--jde-blue);
+  color: var(--jde-white);
+}
+
+/* ---- The Running Balance Outlook ----------------------------------------
+   Collapsed it is the one slim row it always was. Open, it is a contained
+   panel under that row rather than a band across the page: a week's shape
+   reads at 600px and disappears at 1,300. */
+/* Open, the card itself narrows to the plot rather than leaving two thirds of
+   a full-width band empty beside it. `:has()` keys this off the body the
+   toggle renders, so the shut state stays the slim full-width row it was. */
+.forecast-entry .forecast-outlook:has(.outlook-body) {
+  max-width: 620px;
+}
+.forecast-entry .forecast-outlook .outlook-body {
+  max-width: 620px;
+}
+.forecast-entry .forecast-outlook .outlook-body .chart-controls {
+  background: #fafaf8;
+  border-bottom: 1px solid rgba(197, 182, 175, 0.45);
+}
+.forecast-entry .forecast-outlook .chart-container {
+  max-width: none;
+  max-height: 280px;
+  margin-inline: 0;
+}
+/* The plot's own rules come through `var(--border)` on the SVG's `stroke`
+   attributes, so scoping the token here is what lightens the gridlines
+   without reaching into the shared Chart component. */
+.forecast-entry .forecast-outlook .chart-svg {
+  --border: rgba(197, 182, 175, 0.4);
+  --border-strong: rgba(197, 182, 175, 0.85);
+}
+.forecast-entry .forecast-outlook .chart-svg .chart-axis-label {
+  font-size: 12px;
+}
+/* Series strokes (the balance line and any comparison overlay) at 2px. */
+.forecast-entry .forecast-outlook .chart-svg path[fill='none'] {
+  stroke-width: 2px;
+}
+/* The net cash flow bars, carrying more of their own colour — the classed
+   rects are the hover targets and the Friday band, not marks. */
+.forecast-entry .forecast-outlook .chart-svg rect:not([class]) {
+  opacity: 0.62;
+}

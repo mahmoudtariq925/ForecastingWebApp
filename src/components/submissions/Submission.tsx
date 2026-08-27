@@ -200,7 +200,7 @@ export function Submission({
 
   if (!template) {
     return (
-      <div className="view active">
+      <div className="view active forecast-entry">
         <TopBar crumb="Submission" title="Forecast Entry" />
         <div className="content">
           <div className="panel">
@@ -215,7 +215,11 @@ export function Submission({
   }
 
   return (
-    <div className="view active">
+    /* `forecast-entry` scopes this screen's visual treatment (see the block of
+       the same name in index.css). The grid, the toolbars and the outlook all
+       share their class names with other screens, so the restyle hangs off the
+       page root rather than off those names — nothing outside this view moves. */
+    <div className="view active forecast-entry">
       {/* Remount the editor whenever the selection changes so state reloads. */}
       <SubmissionEditor
         key={`${entity}:${week}:${template.id}`}
@@ -2380,8 +2384,11 @@ function SubmissionEditor({
               {hasBalance ? ` · closing ${fmtK(closingBalance)}` : ''}
             </span>
           </button>
+          {/* Expanded, the outlook is a CONTAINED panel rather than a full-width
+              strip: the plot and its controls are capped in CSS
+              (`.outlook-body`) so the shape of the week stays readable. */}
           {chartOpen && (
-            <>
+            <div className="outlook-body">
               <div className="chart-controls">
                 {hasBalance && (
                   <label className="series-check">
@@ -2476,8 +2483,10 @@ function SubmissionEditor({
                   // Taller than it is wide-ish: the outlook is read for the
                   // SHAPE of the week, and a line stretched the width of the
                   // page flattens every move in it. The width is capped in
-                  // CSS (`.forecast-outlook`); the height is here.
-                  height={264}
+                  // CSS (`.outlook-body`); the height is here, sized so the
+                  // plot box lands inside the panel's ~280px cap (the
+                  // container adds 40px for the legend under the plot).
+                  height={236}
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.
@@ -2485,7 +2494,7 @@ function SubmissionEditor({
                   slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
                 />
               )}
-            </>
+            </div>
           )}
         </div>
 
