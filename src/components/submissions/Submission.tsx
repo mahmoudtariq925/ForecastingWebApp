@@ -2566,9 +2566,6 @@ function SubmissionEditor({
                 onRemoveRow={canEditRows ? (id) => void removeRow(id) : undefined}
                 entityOptions={entityChoices}
                 heatmapMode={heatMode}
-                // The forecast screen alone: a horizon has weeks, a template
-                // has only a shape, so the builder's preview shows none.
-                weekBands
                 showColumnTotals={template.columnTotals === true}
               />
             </div>

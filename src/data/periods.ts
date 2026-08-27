@@ -200,7 +200,7 @@ export function dayLabelsForWeek(key: string): DayLabel[] {
 // keep the classic four-week / 20-working-day horizon, so every existing
 // screen and stored submission behaves exactly as before.
 // ---------------------------------------------------------------------------
-import type { ForecastTemplate, PeriodGranularity, TemplatePeriods } from '../types';
+import type { ForecastTemplate, TemplatePeriods } from '../types';
 
 /** The period config a template uses, defaulted to the standard horizon. */
 export function periodsOf(template?: Pick<ForecastTemplate, 'periods'> | null): TemplatePeriods {
@@ -253,83 +253,6 @@ export function templateDates(
     out.push(d);
   }
   return out;
-}
-
-/**
- * One week of a daily horizon: which periods it covers, and what to call it.
- *
- * A four-week forecast is read a week at a time — "what does the second week
- * look like" — but twenty date columns in a row give the eye nothing to count
- * by, so the weeks are drawn as bands over the dates they contain.
- */
-export interface WeekBand {
-  /** "Week 1" … numbered from the start of the horizon, not the calendar. */
-  label: string;
-  /** Index of the band's first period. */
-  from: number;
-  /** How many periods it covers — short at the ends of a shifted horizon. */
-  span: number;
-  /** The dates it covers, e.g. "24 – 28 Aug". */
-  range: string;
-  /** ISO week number, for the title attribute. */
-  isoWeek: number;
-}
-
-/**
- * Group a horizon's periods into calendar weeks.
- *
- * Grouped by the Monday each date belongs to rather than by counting five at
- * a time: a horizon can start mid-week, and a public holiday leaves a week
- * with four working days in it. Only a DAILY horizon has weeks to group —
- * weekly and monthly periods are already their own bands, so they get none.
- */
-export function weekBandsOf(
-  labels: DayLabel[],
-  granularity: PeriodGranularity = 'day',
-): WeekBand[] {
-  if (granularity !== 'day') return [];
-  const bands: (WeekBand & { monday: string })[] = [];
-  labels.forEach((label, i) => {
-    const date = fromKey(label.iso);
-    if (Number.isNaN(date.getTime())) return;
-    const monday = new Date(date);
-    // getDay(): 0 = Sunday, so a Sunday belongs to the week that started six
-    // days earlier rather than the one about to start.
-    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-    const key = toIso(monday);
-    const last = bands[bands.length - 1];
-    if (last && last.monday === key) {
-      last.span += 1;
-      last.range = rangeLabel(fromKey(labels[last.from].iso), date);
-      return;
-    }
-    bands.push({
-      monday: key,
-      label: `Week ${bands.length + 1}`,
-      from: i,
-      span: 1,
-      range: rangeLabel(date, date),
-      isoWeek: isoWeekNumber(date),
-    });
-  });
-  return bands.map((band) => ({
-    label: band.label,
-    from: band.from,
-    span: band.span,
-    range: band.range,
-    isoWeek: band.isoWeek,
-  }));
-}
-
-/** "24 – 28 Aug", or "28 Aug – 1 Sep" when the week crosses a month. */
-function rangeLabel(from: Date, to: Date): string {
-  const month = (d: Date) => MONTHS[d.getMonth()].slice(0, 3);
-  if (from.getMonth() === to.getMonth() && from.getDate() === to.getDate()) {
-    return `${from.getDate()} ${month(from)}`;
-  }
-  return from.getMonth() === to.getMonth()
-    ? `${from.getDate()} – ${to.getDate()} ${month(to)}`
-    : `${from.getDate()} ${month(from)} – ${to.getDate()} ${month(to)}`;
 }
 
 /** Column headers for a template's forecast periods. */
