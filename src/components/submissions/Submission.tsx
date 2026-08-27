@@ -2384,92 +2384,96 @@ function SubmissionEditor({
               {hasBalance ? ` · closing ${fmtK(closingBalance)}` : ''}
             </span>
           </button>
-          {/* Expanded, the outlook is a CONTAINED panel rather than a full-width
-              strip: the plot and its controls are capped in CSS
-              (`.outlook-body`) so the shape of the week stays readable. */}
+          {/* Open, the outlook is a two-column panel: the series and comparison
+              controls stand in a rail on the left, the plot takes everything
+              left over. Capping the plot instead left two thirds of a
+              full-width card empty beside a chart too small to read a week
+              off. The columns are laid out in CSS (`.outlook-body`). */}
           {chartOpen && (
             <div className="outlook-body">
-              <div className="chart-controls">
-                {hasBalance && (
+              <div className="outlook-controls">
+                <div className="chart-controls">
+                  {hasBalance && (
+                    <label className="series-check">
+                      <input
+                        type="checkbox"
+                        checked={chartOptions.balance}
+                        onChange={() => toggleChartOption('balance')}
+                      />
+                      Running Balance
+                    </label>
+                  )}
                   <label className="series-check">
                     <input
                       type="checkbox"
-                      checked={chartOptions.balance}
-                      onChange={() => toggleChartOption('balance')}
+                      checked={chartOptions.net}
+                      onChange={() => toggleChartOption('net')}
                     />
-                    Running Balance
+                    Net Cash Flow
                   </label>
-                )}
-                <label className="series-check">
-                  <input
-                    type="checkbox"
-                    checked={chartOptions.net}
-                    onChange={() => toggleChartOption('net')}
-                  />
-                  Net Cash Flow
-                </label>
-                <label className="series-check">
-                  <input
-                    type="checkbox"
-                    checked={chartOptions.inflows}
-                    onChange={() => toggleChartOption('inflows')}
-                  />
-                  Inflows
-                </label>
-                <label className="series-check">
-                  <input
-                    type="checkbox"
-                    checked={chartOptions.outflows}
-                    onChange={() => toggleChartOption('outflows')}
-                  />
-                  Outflows
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
-                  value={balanceStyle}
-                  onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
-                  aria-label="Balance line style"
-                >
-                  <option value="solid">Balance · solid line</option>
-                  <option value="dashed">Balance · dashed line</option>
-                  <option value="area">Balance · area</option>
-                </select>
-              </div>
-              {/* Overlay earlier cycles on the same axes, so this week's shape
-                  can be read against the ones it replaced. */}
-              <div className="chart-controls compare-controls" data-tour="compare-cycles">
-                <span className="grid-info">
-                  <strong>Compare with</strong>
-                </span>
-                {priorWeekOptions.map((o) => (
-                  <label
-                    key={o.week}
-                    className={`series-check${o.saved ? '' : ' text-muted'}`}
-                    title={o.saved ? 'Saved forecast' : 'No saved forecast for this week'}
-                  >
+                  <label className="series-check">
                     <input
                       type="checkbox"
-                      checked={compareWeeks.includes(o.week)}
-                      onChange={() => toggleCompareWeek(o.week)}
+                      checked={chartOptions.inflows}
+                      onChange={() => toggleChartOption('inflows')}
                     />
-                    {o.label}
-                    {o.saved ? ' ●' : ''}
+                    Inflows
                   </label>
-                ))}
-                <select
-                  className="form-select"
-                  style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
-                  value={compareMetric}
-                  onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
-                  aria-label="Comparison metric"
-                >
-                  {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
-                    <option key={m} value={m}>
-                      Compare · {COMPARE_LABELS[m]}
-                    </option>
+                  <label className="series-check">
+                    <input
+                      type="checkbox"
+                      checked={chartOptions.outflows}
+                      onChange={() => toggleChartOption('outflows')}
+                    />
+                    Outflows
+                  </label>
+                  <select
+                    className="form-select"
+                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                    value={balanceStyle}
+                    onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
+                    aria-label="Balance line style"
+                  >
+                    <option value="solid">Balance · solid line</option>
+                    <option value="dashed">Balance · dashed line</option>
+                    <option value="area">Balance · area</option>
+                  </select>
+                </div>
+                {/* Overlay earlier cycles on the same axes, so this week's shape
+                    can be read against the ones it replaced. */}
+                <div className="chart-controls compare-controls" data-tour="compare-cycles">
+                  <span className="grid-info">
+                    <strong>Compare with</strong>
+                  </span>
+                  {priorWeekOptions.map((o) => (
+                    <label
+                      key={o.week}
+                      className={`series-check${o.saved ? '' : ' text-muted'}`}
+                      title={o.saved ? 'Saved forecast' : 'No saved forecast for this week'}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={compareWeeks.includes(o.week)}
+                        onChange={() => toggleCompareWeek(o.week)}
+                      />
+                      {o.label}
+                      {o.saved ? ' ●' : ''}
+                    </label>
                   ))}
-                </select>
+                  <select
+                    className="form-select"
+                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
+                    value={compareMetric}
+                    onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
+                    aria-label="Comparison metric"
+                  >
+                    {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
+                      <option key={m} value={m}>
+                        Compare · {COMPARE_LABELS[m]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               {chartSeries.length + overlaySeries.length === 0 ? (
                 <div className="empty-state" style={{ padding: '30px 20px' }}>
@@ -2480,13 +2484,12 @@ function SubmissionEditor({
                   labels={dayLabels.map((dl) => dl.dm)}
                   series={[...overlaySeries, ...chartSeries]}
                   unit="k"
-                  // Taller than it is wide-ish: the outlook is read for the
-                  // SHAPE of the week, and a line stretched the width of the
-                  // page flattens every move in it. The width is capped in
-                  // CSS (`.outlook-body`); the height is here, sized so the
-                  // plot box lands inside the panel's ~280px cap (the
-                  // container adds 40px for the legend under the plot).
-                  height={236}
+                  // The outlook is read for the SHAPE of the week, which
+                  // needs room in BOTH directions: the controls rail takes the
+                  // width that used to flatten the line, and the plot gets the
+                  // height. Width comes from the grid column (see
+                  // `.outlook-body`); the height is here.
+                  height={300}
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.
