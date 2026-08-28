@@ -22,6 +22,14 @@ export const CHART_COLORS = {
   muted: '#9a8880',
 } as const;
 
+/**
+ * Colours for earlier cycles laid over a chart. Light accents — an overlay has
+ * to be legible without competing with the current cycle's line — and none of
+ * them may BE one of the series colours above: an overlay shares its measure,
+ * and often its mark, with the live series it is read against.
+ */
+export const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#8a72a8'] as const;
+
 export interface ChartSeries {
   label: string;
   /** One value per x slot; null renders a gap. */
@@ -71,6 +79,15 @@ interface ChartProps {
    */
   emphasis?: boolean[];
   /**
+   * Label ONLY the marked slots on the x axis, plus the first one.
+   *
+   * With the week edges marked, a label every nth slot in between falls on
+   * whatever day the arithmetic lands on — a Tuesday here, a Wednesday there —
+   * and reads as a date someone chose to point at. The horizon's first day and
+   * its week edges are the ones being pointed at.
+   */
+  markedLabelsOnly?: boolean;
+  /**
    * A number printed above the column, per slot; null leaves the slot bare.
    *
    * Used for the week-end figures on the marked slots: a Friday's net is the
@@ -114,6 +131,7 @@ export function Chart({
   onPointDoubleClick,
   activeIndexes,
   emphasis,
+  markedLabelsOnly = false,
   slotValues,
 }: ChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -239,6 +257,17 @@ export function Chart({
   // a stepped label and a forced emphasis label (Fridays) could touch once the
   // wider Poppins glyphs were in, which read as one smudged date.
   const labelStep = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(plotW / 78))));
+  // Which slots print their date. A marked slot always does — it is the one
+  // being looked for. The rest depends on whether the marks are carrying the
+  // axis: if they are, only the horizon's first day joins them; if not, every
+  // nth slot does, minus any that would land beside a marked one, since two
+  // dates a few pixels apart run together and read as one.
+  const marked = markedLabelsOnly && (emphasis?.some(Boolean) ?? false);
+  const showsLabel = (i: number): boolean => {
+    if (emphasis?.[i]) return true;
+    if (marked) return i === 0 && !emphasis?.[1];
+    return i % labelStep === 0 && !emphasis?.[i - 1] && !emphasis?.[i + 1];
+  };
 
   return (
     <div className="chart-container" style={{ height: height + 40 }}>
@@ -412,13 +441,9 @@ export function Chart({
             </rect>
           ))}
 
-        {/* x labels — a marked slot (Friday) always gets one, whatever the
-            thinning step, since it is the label you are looking for. A stepped
-            label that lands right beside a marked one is dropped instead: two
-            dates a few pixels apart run together and read as one. */}
+        {/* x labels — see `showsLabel`. */}
         {labels.map((label, i) =>
-          emphasis?.[i] ||
-          (i % labelStep === 0 && !emphasis?.[i - 1] && !emphasis?.[i + 1]) ? (
+          showsLabel(i) ? (
             <text
               key={i}
               x={x(i)}

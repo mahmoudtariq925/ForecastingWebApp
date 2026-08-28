@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
+import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from '../submissions/ForecastGrid';
 import { categoryGroups } from '../submissions/gridMath';
 import { CycleProgressModal } from './CycleProgressModal';
@@ -85,12 +85,6 @@ interface PreviewTarget {
 
 /** How many prior cycles can be overlaid — beyond four there is no overlap. */
 const COMPARE_DEPTH = 4;
-
-/** Distinct from the live series so an overlay is never read as this cycle;
- *  warm enough to sit in the same family as the design tokens. */
-// The palette's light accents, which is exactly what they are for: an
-// overlay has to be legible without competing with this cycle's line.
-const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#23599c'];
 
 /**
  * A running total of a series, carrying gaps through: once a prior forecast's

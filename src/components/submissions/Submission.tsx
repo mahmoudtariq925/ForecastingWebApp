@@ -6,7 +6,7 @@ import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { ActionMenu } from '../common/ActionMenu';
 import { QuestionStrip } from './QuestionStrip';
-import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
+import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
 import {
@@ -413,12 +413,6 @@ const COMPARE_LABELS: Record<CompareMetric, string> = {
   inflows: 'Inflows',
   outflows: 'Outflows',
 };
-
-/** Distinct from the live series' colours so an overlay is never mistaken for
- *  this week's line; warm enough to sit with the design tokens. */
-// The palette's light accents, which is exactly what they are for: an
-// overlay has to be legible without competing with this cycle's line.
-const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#23599c'];
 
 function SubmissionEditor({
   entity,
@@ -1743,21 +1737,72 @@ function SubmissionEditor({
   const totalNet = netByDay.reduce((a, b) => a + b, 0);
   const closingBalance = balanceByDay[numDays - 1] ?? startingBalance ?? 0;
 
+  // ---- This week's series, and the mark each one is drawn in --------------
+  // Two rules decide the marks, and both are about reading the chart rather
+  // than about what is on it.
+  //
+  // 1. The measure being compared with earlier cycles is drawn as a LINE.
+  //    The prior weeks are dashed lines of that one measure, and a bar and a
+  //    dashed line are not two things the eye can put side by side: the
+  //    comparison was being asked for in one language and answered in
+  //    another.
+  // 2. Net cash flow is inflows PLUS outflows, so it cannot stand in the same
+  //    stacked column as them — the same money would be counted twice, once
+  //    gross and once net. Wherever the gross flows are shown it is their
+  //    resultant, drawn as a line over the columns exactly as the dashboard's
+  //    outlook draws it.
+  /** Which measure, if any, the prior-cycle overlays are being read against. */
+  const comparedMetric: CompareMetric | null = compareWeeks.length > 0 ? compareMetric : null;
+  /** True while a gross flow is standing in the day's column as a bar. */
+  const grossBars =
+    (chartOptions.inflows && comparedMetric !== 'inflows') ||
+    (chartOptions.outflows && comparedMetric !== 'outflows');
+  /** A compared series carries its week, so the legend reads as one set. */
+  const comparedLabel = comparedMetric
+    ? `${weekLabelShort(week)} · ${COMPARE_LABELS[comparedMetric]}`
+    : null;
+  const seriesLabel = (m: CompareMetric, plain: string) =>
+    comparedLabel && comparedMetric === m ? comparedLabel : plain;
+
   const chartSeries: ChartSeries[] = [];
   if (chartOptions.inflows)
-    chartSeries.push({ label: 'Inflows', values: inflowByDay, color: CHART_COLORS.green, kind: 'bar' });
+    chartSeries.push({
+      label: seriesLabel('inflows', 'Inflows'),
+      values: inflowByDay,
+      color: CHART_COLORS.green,
+      kind: comparedMetric === 'inflows' ? 'line' : 'bar',
+    });
   if (chartOptions.outflows)
-    chartSeries.push({ label: 'Outflows', values: outflowByDay, color: CHART_COLORS.red, kind: 'bar' });
+    chartSeries.push({
+      label: seriesLabel('outflows', 'Outflows'),
+      values: outflowByDay,
+      color: CHART_COLORS.red,
+      kind: comparedMetric === 'outflows' ? 'line' : 'bar',
+    });
   if (chartOptions.net)
-    chartSeries.push({ label: 'Net Cash Flow', values: netByDay, color: CHART_COLORS.blue, kind: 'bar' });
+    chartSeries.push({
+      label: seriesLabel('net', 'Net Cash Flow'),
+      values: netByDay,
+      color: CHART_COLORS.blue,
+      kind: comparedMetric === 'net' || grossBars ? 'line' : 'bar',
+    });
   if (chartOptions.balance && hasBalance)
     chartSeries.push({
-      label: 'Running Balance',
+      label: seriesLabel('balance', 'Running Balance'),
       values: balanceByDay,
       color: CHART_COLORS.accent,
       kind: balanceStyle === 'area' ? 'area' : 'line',
       dashed: balanceStyle === 'dashed',
     });
+
+  /** The compared measure sits with the weeks it is read against, so the
+   *  legend shows the three (or five) as one set rather than split by
+   *  whatever else is on the chart. */
+  const plotSeries: ChartSeries[] = comparedLabel
+    ? [...chartSeries].sort(
+        (a, b) => Number(b.label === comparedLabel) - Number(a.label === comparedLabel),
+      )
+    : chartSeries;
 
   const toggleChartOption = (key: keyof ChartOptions) =>
     setChartOptions((o) => ({ ...o, [key]: !o[key] }));
@@ -1814,10 +1859,28 @@ function SubmissionEditor({
     [compareWeeks, compareMetric, entity, template, numPeriods],
   );
 
-  const toggleCompareWeek = (key: string) =>
+  /**
+   * Comparing a measure means nothing without this week's own reading of it
+   * to compare against, so choosing one puts it on the chart. The checkbox
+   * still owns it from there — unticking it drops both the series and the
+   * counterpart, which is a reader saying they only want the earlier weeks.
+   */
+  const showComparedMetric = (m: CompareMetric) => {
+    if (m === 'balance' && !hasBalance) return;
+    setChartOptions((o) => (o[m] ? o : { ...o, [m]: true }));
+  };
+
+  const toggleCompareWeek = (key: string) => {
+    if (!compareWeeks.includes(key)) showComparedMetric(compareMetric);
     setCompareWeeks((prev) =>
       prev.includes(key) ? prev.filter((w) => w !== key) : [...prev, key],
     );
+  };
+
+  const changeCompareMetric = (m: CompareMetric) => {
+    if (compareWeeks.length > 0) showComparedMetric(m);
+    setCompareMetric(m);
+  };
 
   const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
@@ -2465,7 +2528,7 @@ function SubmissionEditor({
                   <select
                     className="form-select"
                     value={compareMetric}
-                    onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
+                    onChange={(e) => changeCompareMetric(e.target.value as CompareMetric)}
                     aria-label="Comparison metric"
                   >
                     {(Object.keys(COMPARE_LABELS) as CompareMetric[]).map((m) => (
@@ -2476,14 +2539,14 @@ function SubmissionEditor({
                   </select>
                 </div>
               </div>
-              {chartSeries.length + overlaySeries.length === 0 ? (
+              {plotSeries.length + overlaySeries.length === 0 ? (
                 <div className="empty-state" style={{ padding: '30px 20px' }}>
                   <p>Select at least one series to plot.</p>
                 </div>
               ) : (
                 <Chart
                   labels={dayLabels.map((dl) => dl.dm)}
-                  series={[...overlaySeries, ...chartSeries]}
+                  series={[...overlaySeries, ...plotSeries]}
                   unit="k"
                   // The outlook is read for the SHAPE of the week, which
                   // needs room in BOTH directions and, more than that, needs
@@ -2492,10 +2555,18 @@ function SubmissionEditor({
                   // leaves the plot about as tall against it as the
                   // dashboard's outlook, where a week has a shape.
                   height={320}
+                  // One column per day, inflows up and outflows down from the
+                  // baseline — the day's gross movement as a single column,
+                  // the way the dashboard's outlook draws it. Side by side,
+                  // two half-width bars made the same day look like two.
+                  stacked
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.
                   emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
+                  // ...which also makes them the dates worth printing, with
+                  // the day the horizon opens on.
+                  markedLabelsOnly
                   slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
                 />
               )}
