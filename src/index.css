@@ -2021,11 +2021,17 @@ td.num {
 }
 /* ============================================================
    Page modes.
-   Entering a forecast, walking the guided submit flow and answering questions
-   are three different jobs on one screen. Only a banner used to say which,
-   so the flow could start with the page looking exactly as it did before it.
-   The mode colours the page edge, tints the ground under the panels and
+   Entering a forecast, explaining a variance and answering a question are
+   three different jobs on one screen. Only a banner used to say which, so a
+   flow could start with the page looking exactly as it did before it.
+   The mode changes the GROUND the panels sit on, colours the page edge and
    names itself in a ribbon that stays put while the page scrolls.
+
+   The tint used to be a 5% wash, which on a cream page is a difference you
+   have to be told about to see. It is now the page's own colour: the panels
+   stay white, so the work is untouched and everything around it has changed.
+   That is only bearable because a mode is now a job actually in hand — the
+   dock is open on a cell — rather than a standing state of the forecast.
    ============================================================ */
 .content.page-mode {
   position: relative;
@@ -2033,11 +2039,11 @@ td.num {
   box-shadow: inset 0 3px 0 var(--mode-line);
 }
 .content.page-submitting {
-  --mode-tint: rgba(138, 81, 17, 0.05);
+  --mode-tint: #f2e3cf;
   --mode-line: var(--amber);
 }
 .content.page-answering {
-  --mode-tint: rgba(35, 89, 156, 0.05);
+  --mode-tint: #dfe7f2;
   --mode-line: var(--blue);
 }
 .page-mode-ribbon {
@@ -3900,6 +3906,58 @@ tr.entity-row:focus-visible {
 }
 .comment-dock .form-textarea {
   min-height: 96px;
+}
+/* The question and everything said after it. Capped and scrolling: a long
+   thread must not push the reply box out of the dock, which is the one thing
+   the dock is open for. */
+.comment-dock-thread {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--n-50);
+}
+.comment-dock-thread .thread {
+  gap: 8px;
+  margin: 0;
+}
+/* A 320px rail has no room to indent a conversation, so the bubbles take the
+   width and the role colour carries who said what. */
+.comment-dock-thread .bubble {
+  max-width: 100%;
+}
+.comment-dock-thread .bubble-text {
+  font-size: 12.5px;
+}
+.comment-dock-thread .bubble-time {
+  display: none;
+}
+/* The figure, beside the reason for it. */
+.comment-dock-value {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.comment-dock-value .form-input {
+  width: 100%;
+  padding: 6px 10px;
+}
+.comment-dock-note {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+/* Answering carries the blue the page takes on for it, so the dock and the
+   ground under it are plainly the same job. */
+.comment-dock.dock-answering {
+  border-left-color: var(--blue);
+  border-right-color: var(--blue);
+}
+.comment-dock.dock-answering .comment-dock-head h4 {
+  color: var(--blue);
 }
 .comment-dock-actions {
   display: flex;

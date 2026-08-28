@@ -22,6 +22,7 @@ import {
   type GridValues,
 } from './gridMath';
 import { QuestionThread } from '../review/QuestionThread';
+import { clearFlowState, loadFlowState, saveFlowState } from '../../data/flowState';
 import { listEntities, seedUsers } from '../../data/appData';
 import { activeWeekKey, isCycleOpenForEntity } from '../../data/cycleService';
 import {
@@ -550,16 +551,44 @@ function SubmissionEditor({
    */
   const canSubmit = isSubmitterView && !handedOver && cycleOpen;
 
-  const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
-  const [commentDraft, setCommentDraft] = useState('');
-  /** The cell's number while the answer dialog holds it, as typed. */
-  const [valueDraft, setValueDraft] = useState('');
   /**
-   * The guided commentary flow that runs on submit: the flagged cell being
-   * explained right now, with the commentary dock beside the grid — on the
-   * left when the cell sits in the right half of the view, so the cell and
-   * the box are never on top of each other.
+   * Whatever was being written here when the screen was last left, so leaving
+   * it is not the same as abandoning it: a submitter checks a figure on the
+   * dashboard, reads the rest of a thread on Questions, and comes back to the
+   * cell and the half-written sentence they left. Read once, at mount — the
+   * editor remounts for each forecast, so this belongs to this one.
    */
+  const resumed = useRef(loadFlowState(entity, week, template.id));
+  /** A cell the grid still has — a template edited since then may not. */
+  const resumableCell = (key: string): boolean => {
+    const [c, d] = key.split('-').map(Number);
+    return (
+      Number.isInteger(c) &&
+      Number.isInteger(d) &&
+      c >= 0 &&
+      c < gridCats.length &&
+      d >= 0 &&
+      d < numPeriods
+    );
+  };
+  const resumable =
+    resumed.current && resumableCell(resumed.current.key) ? resumed.current : null;
+
+  const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
+  /**
+   * The cell's number as typed in the dock beside the grid. "That figure was
+   * wrong" is one of the answers, so the number travels with the box asking
+   * for one rather than being left in a cell the reader has to go back to.
+   */
+  const [valueDraft, setValueDraft] = useState(resumable?.valueDraft ?? '');
+  /**
+   * Whether that figure has been typed into. The grid stays live under the
+   * dock — the whole point of explaining a cell beside its neighbours — so a
+   * figure the dock merely SHOWED must not be written back over an edit made
+   * in the cell itself. Untouched, the dock saves the commentary and leaves
+   * the number to the grid.
+   */
+  const [valueDirty, setValueDirty] = useState(resumable?.valueDirty ?? false);
   /**
    * The commentary dock: which cell it is on, which side of the grid it sits
    * on, and WHY it is open.
@@ -574,8 +603,8 @@ function SubmissionEditor({
     key: string;
     side: 'left' | 'right';
     mode: 'submitting' | 'single';
-  } | null>(null);
-  const [flowDraft, setFlowDraft] = useState('');
+  } | null>(resumable ? { key: resumable.key, side: 'right', mode: resumable.mode } : null);
+  const [flowDraft, setFlowDraft] = useState(resumable?.draft ?? '');
   /**
    * Cells still needing a number, spotlit after a submit attempt. null = not
    * validating; an empty set never happens (nothing to point at → submit).
@@ -1080,31 +1109,26 @@ function SubmissionEditor({
   };
 
   /**
-   * A click on a cell. WHICH surface opens is decided by what the cell is:
+   * A click on a cell. WHICH surface opens is decided by WHOSE forecast it is,
+   * not by what happens to be on the cell.
    *
-   * - A cell somebody ASKED ABOUT opens the dialog, always. It is a
-   *   conversation — the question, the thread, the figure and the reply box —
-   *   and none of that fits in the dock beside the grid.
-   * - A cell that is merely flagged is EXPLAINED, so it belongs to the guided
-   *   flow: the dock, walking one variance at a time. Opening a dialog for it
-   *   was the same job in a second place, which is why one cell raised a box
-   *   and the next one raised the sidebar.
+   * The submitter works their own forecast in the dock beside the grid.
+   * Explaining a variance and answering a question are the same act on the
+   * same cell, and doing one in a sidebar and the other in a dialog meant a
+   * click on one flagged cell raised a box over the grid and the next one
+   * raised the sidebar. The dock carries the question, its thread and the
+   * figure when the cell has been asked about, so closing that dialog to the
+   * submitter costs them nothing.
    *
-   * Readers (treasury, approvers, viewers) always get the dialog: they are
-   * asking about the cell or reading it, and the flow is the submitter's.
+   * Readers (treasury, approvers, viewers) get the dialog: they are asking
+   * about the cell or reading it, and the dock is where the work is done.
    */
   const openVariance = (catIdx: number, dayIdx: number) => {
     const key = cellKey(catIdx, dayIdx);
-    const asked = Boolean(commentRequests[key]);
-    if (!asked && isSubmitterView && canSubmit) {
+    if (isSubmitterView) {
       focusFlowCell(key, commentFlow?.mode ?? 'single');
       return;
     }
-    setCommentDraft(comments[key] ?? '');
-    // The dialog is the only way into a cell that has a question on it, so it
-    // carries the number too: "that figure was wrong" is a legitimate answer,
-    // and it must not mean closing the dialog to hunt for the cell again.
-    setValueDraft(values[key] === undefined ? '' : String(values[key]));
     setVarianceCell({
       key,
       label: gridCats[catIdx]?.label ?? '',
@@ -1140,7 +1164,11 @@ function SubmissionEditor({
    * visit — and never when a deep link has already chosen a cell.
    */
   useEffect(() => {
-    if (!isSubmitterView || focusCell || focusedOnce.current) return;
+    // An open dock is work in hand — a flow resumed from the last visit, or a
+    // cell being explained right now. A question that arrived meanwhile waits
+    // its turn rather than taking the cell out from under a half-written
+    // sentence; the strip above the grid still says it is there.
+    if (!isSubmitterView || focusCell || focusedOnce.current || commentFlow) return;
     const unseen = unseenRequestKeys(initial);
     if (unseen.length === 0) return;
     const [c, d] = unseen[0].split('-').map(Number);
@@ -1157,20 +1185,31 @@ function SubmissionEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, isSubmitterView, focusCell]);
 
-  const saveComment = () => {
-    if (!varianceCell) return;
-    const key = varianceCell.key;
-    const nextComments = { ...comments, [key]: commentDraft.trim() };
-    if (!commentDraft.trim()) delete nextComments[key];
+  /**
+   * Save what has been said about one cell — and, if the figure was corrected
+   * alongside it, the new number. Both halves of the same answer go in one
+   * write and one undo, and on a cell somebody asked about the words join the
+   * thread rather than sitting beside it.
+   *
+   * `typedValue` is null when the figure was not touched, which is not the
+   * same as "unchanged": the grid is live under the dock, so writing back a
+   * number the dock only displayed would undo an edit made in the cell.
+   *
+   * Returns what was written, for a caller that has to act on it in the same
+   * tick — the guided walk submits on the last explanation, and React has not
+   * applied the state by then.
+   */
+  const commitCellAnswer = (key: string, text: string, typedValue: string | null): Snapshot => {
+    const answer = text.trim();
+    const nextComments = { ...comments, [key]: answer };
+    if (!answer) delete nextComments[key];
     setComments(nextComments);
 
-    // A corrected figure saves with the explanation of it, in one step and
-    // one undo — the two halves of the same answer.
     let nextValues = values;
     let nextFlags = flags;
     let withdrawn: Snapshot = {};
-    if (canEditCells) {
-      const typed = valueDraft.trim();
+    if (canEditCells && typedValue !== null) {
+      const typed = typedValue.trim();
       const parsed = typed === '' ? null : parseCellNumber(typed);
       const changed = (values[key] ?? null) !== parsed;
       if (changed && (typed === '' || parsed !== null)) {
@@ -1193,21 +1232,17 @@ function SubmissionEditor({
 
     // The answer joins the thread, so whoever asked reads the reply against
     // the question rather than as loose commentary.
-    const nextRequests = answerCommentRequest(
-      commentRequests,
-      key,
-      commentDraft.trim(),
-      currentUser().name,
-    );
+    const nextRequests = answerCommentRequest(commentRequests, key, answer, currentUser().name);
     setCommentRequests(nextRequests);
-    persist({
+    const snap: Snapshot = {
       values: nextValues,
       flags: nextFlags,
       comments: nextComments,
       commentRequests: nextRequests,
       ...withdrawn,
-    });
-    setVarianceCell(null);
+    };
+    persist(snap);
+    return snap;
   };
 
   // ---- The submitter's own rows ------------------------------------------
@@ -1443,8 +1478,6 @@ function SubmissionEditor({
     () => new Set(answeredRequests.map((r) => r.key)),
     [answeredRequests],
   );
-  /** Questions are waiting on THIS user — the page takes on that job. */
-  const answering = isSubmitterView && openRequests.length > 0;
 
   /**
    * Editable cells with no number in them yet. Subtotals are computed and
@@ -1513,24 +1546,24 @@ function SubmissionEditor({
     });
   };
 
-  /** Move the flow to a cell: expand, scroll it into view, then dock the
-   * commentary box on whichever side keeps the cell visible. */
-  const focusFlowCell = (key: string, mode?: 'submitting' | 'single') => {
+  /**
+   * Bring a cell into view and put the dock on whichever side keeps it there:
+   * on the left when the cell sits in the right half of the grid, so the cell
+   * and the box are never on top of each other.
+   */
+  const placeFlowDock = (key: string) => {
     expandSectionOf(key);
-    setFlowDraft(comments[key] ?? '');
-    setCommentFlow((prev) => ({
-      key,
-      side: prev?.side ?? 'right',
-      mode: mode ?? prev?.mode ?? 'single',
-    }));
     // Two frames: one for the section to expand, one for the dock to mount
     // (it narrows the grid before anything is measured).
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         const [c, d] = key.split('-').map(Number);
-        const cell = document
-          .querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`)
-          ?.closest('td');
+        const cell =
+          document
+            .querySelector(`.forecast-grid input[data-cat="${c}"][data-day="${d}"]`)
+            ?.closest('td') ??
+          // A cell with a question on it is a button, not an input.
+          document.querySelector(`.forecast-grid td[data-cat="${c}"][data-day="${d}"]`);
         const wrap = document.querySelector('.forecast-grid-wrap');
         if (!cell || !wrap) return;
         cell.scrollIntoView({ block: 'center', inline: 'center' });
@@ -1540,14 +1573,58 @@ function SubmissionEditor({
           cellRect.left + cellRect.width / 2 > wrapRect.left + wrapRect.width / 2
             ? 'left'
             : 'right';
-        setCommentFlow((prev) => ({ key, side, mode: mode ?? prev?.mode ?? 'single' }));
+        setCommentFlow((prev) => (prev && prev.key === key ? { ...prev, side } : prev));
       }),
     );
   };
 
+  /** Move the flow to a cell, with whatever has already been written on it. */
+  const focusFlowCell = (key: string, mode?: 'submitting' | 'single') => {
+    setFlowDraft(comments[key] ?? '');
+    setValueDraft(values[key] === undefined ? '' : String(values[key]));
+    setValueDirty(false);
+    setCommentFlow((prev) => ({
+      key,
+      side: prev?.side ?? 'right',
+      mode: mode ?? prev?.mode ?? 'single',
+    }));
+    placeFlowDock(key);
+  };
+
+  // A resumed flow is already in state; the grid just has to be brought to it.
+  useEffect(() => {
+    if (resumable) placeFlowDock(resumable.key);
+    // Once, on mount: `resumable` is read from storage at mount and never changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Keep the in-progress flow where leaving the screen cannot take it. Saved
+   * as it is typed rather than on the way out, because there is no way out to
+   * hook: the screen is simply unmounted when another one is chosen.
+   */
+  useEffect(() => {
+    if (!commentFlow) {
+      clearFlowState();
+      return;
+    }
+    saveFlowState({
+      entity,
+      week,
+      templateId: template.id,
+      key: commentFlow.key,
+      mode: commentFlow.mode,
+      draft: flowDraft,
+      valueDraft,
+      valueDirty,
+    });
+  }, [commentFlow, flowDraft, valueDraft, valueDirty, entity, week, template.id]);
+
   const cancelFlow = () => {
     setCommentFlow(null);
     setFlowDraft('');
+    setValueDraft('');
+    setValueDirty(false);
   };
 
   /**
@@ -1595,33 +1672,26 @@ function SubmissionEditor({
     });
   };
 
-  /** Save the docked commentary and walk on to the next flagged cell —
-   * or submit, when this was the last one. */
+  /**
+   * Save what is in the dock and walk on to the next flagged cell — or
+   * submit, when this was the last one.
+   *
+   * On a cell somebody asked about, what is written here IS the answer: it
+   * joins the thread rather than sitting beside it, and a figure corrected in
+   * the same box goes with it.
+   */
   const saveFlowComment = () => {
     if (!commentFlow) return;
-    const text = flowDraft.trim();
-    if (!text) return;
-    const nextComments = { ...comments, [commentFlow.key]: text };
-    setComments(nextComments);
-    // On a cell somebody asked about, the commentary IS the answer — it joins
-    // the thread rather than sitting beside it.
-    const nextRequests = answerCommentRequest(
-      commentRequests,
-      commentFlow.key,
-      text,
-      currentUser().name,
-    );
-    setCommentRequests(nextRequests);
-    persist({ comments: nextComments, commentRequests: nextRequests });
+    if (!flowDraft.trim()) return;
+    const snap = commitCellAnswer(commentFlow.key, flowDraft, valueDirty ? valueDraft : null);
     // One cell, explained: that is the whole job. Only the guided walk goes on
     // to the next variance and, when there are none left, submits.
     if (commentFlow.mode === 'single') {
       cancelFlow();
       return;
     }
-    const remaining = orderedUncommented(nextComments);
-    if (remaining.length === 0)
-      void finishSubmit({ comments: nextComments, commentRequests: nextRequests });
+    const remaining = orderedUncommented(snap.comments ?? comments);
+    if (remaining.length === 0) void finishSubmit(snap);
     else focusFlowCell(remaining[0], 'submitting');
   };
 
@@ -1911,7 +1981,6 @@ function SubmissionEditor({
 
   /** The question on the cell the dialog is showing, answered or not. */
   const cellRequest = varianceCell ? commentRequests[varianceCell.key] : undefined;
-  const cellQuestionOpen = isOpenQuestion(cellRequest);
 
   const varianceDelta =
     varianceCell && varianceCell.prior !== null
@@ -1942,14 +2011,26 @@ function SubmissionEditor({
   const flowRemaining = commentFlow ? orderedUncommented().length : 0;
   /** The guided walk through every variance, as opposed to one clicked cell. */
   const flowSubmitting = commentFlow?.mode === 'submitting';
+  /** The conversation on the cell in the dock, if it was asked about. */
+  const flowRequest = commentFlow ? commentRequests[commentFlow.key] : undefined;
+  /** Answering beats explaining: a question is somebody waiting on a reply. */
+  const flowAnswering = isOpenQuestion(flowRequest);
+  /**
+   * Which job the PAGE is in, which is not always what the cell needs. A
+   * question met half way through the submit walk is answered in the dock and
+   * says so there — but the walk is still what is being done, and a page that
+   * changed colour under a reader every second cell would be telling them
+   * about the cell rather than about the job.
+   */
+  const pageMode = !commentFlow ? null : flowAnswering && !flowSubmitting ? 'answering' : 'submitting';
 
   const commentDock = commentFlow && flowCell && (
     <aside
-      className={`comment-dock dock-${commentFlow.side}`}
-      aria-label="Explain this variance"
+      className={`comment-dock dock-${commentFlow.side}${flowAnswering ? ' dock-answering' : ''}`}
+      aria-label={flowAnswering ? 'Answer the question on this cell' : 'Explain this variance'}
     >
       <div className="comment-dock-head">
-        <h4>Explain variance</h4>
+        <h4>{flowAnswering ? 'Answer the question' : 'Explain variance'}</h4>
         {flowSubmitting && <span className="comment-dock-count">{flowRemaining} left</span>}
         <button className="close-btn" onClick={cancelFlow} aria-label="Stop and keep editing">
           ×
@@ -1966,15 +2047,59 @@ function SubmissionEditor({
           {flowDelta === null ? 'new period' : `${flowDelta > 0 ? '+' : ''}${flowDelta.toFixed(1)}%`}
         </span>
       </div>
-      {/* A cell that was asked about is answered in the dialog, where the whole
-          thread is — the dock only ever carries plain variance commentary. */}
+      {/* The whole conversation about this cell, not just the last thing said:
+          an answer three exchanges in makes no sense without the question it
+          came from. It used to be reachable only through a dialog, which is
+          why answering and explaining were two different screens. */}
+      {flowRequest && (
+        <div className="comment-dock-thread">
+          <QuestionThread
+            messages={threadOf(
+              flowRequest,
+              comments[commentFlow.key] ?? '',
+              listEntities().find((e) => e.name === entity)?.submitter ?? 'Submitter',
+            )}
+            viewerRole="submitter"
+          />
+        </div>
+      )}
+      {/* The figure itself, because "that number was wrong" is one of the
+          answers — and correcting it here keeps the new number and the reason
+          for it in one save and one undo. */}
+      {canEditCells && (
+        <div className="comment-dock-value">
+          <label className="form-label" htmlFor="flow-cell-value">
+            Forecast value (€k)
+          </label>
+          <input
+            id="flow-cell-value"
+            className="form-input"
+            inputMode="decimal"
+            placeholder="e.g. -1,250"
+            value={valueDraft}
+            onChange={(e) => {
+              setValueDraft(e.target.value);
+              setValueDirty(true);
+            }}
+          />
+          {handedOver && (
+            <span className="comment-dock-note">
+              Changing it withdraws the forecast from approval — resubmit when you are done.
+            </span>
+          )}
+        </div>
+      )}
       <textarea
         className="form-textarea"
         autoFocus
-        placeholder="What drives this change vs last week?"
+        placeholder={
+          flowAnswering
+            ? 'Your reply to the question above…'
+            : 'What drives this change vs last week?'
+        }
         value={flowDraft}
         onChange={(e) => setFlowDraft(e.target.value)}
-        aria-label="Commentary"
+        aria-label={flowAnswering ? 'Your reply' : 'Commentary'}
       />
       <div className="comment-dock-actions">
         <button
@@ -1982,7 +2107,15 @@ function SubmissionEditor({
           disabled={!flowDraft.trim()}
           onClick={saveFlowComment}
         >
-          {!flowSubmitting ? 'Save' : flowRemaining > 1 ? 'Save · Next' : 'Save · Submit'}
+          {flowAnswering
+            ? flowSubmitting && flowRemaining > 1
+              ? 'Send · Next'
+              : 'Send Answer'
+            : !flowSubmitting
+              ? 'Save'
+              : flowRemaining > 1
+                ? 'Save · Next'
+                : 'Save · Submit'}
         </button>
         {flowSubmitting && (
           <button
@@ -2010,9 +2143,11 @@ function SubmissionEditor({
         )}
       </div>
       <div className="comment-dock-progress">
-        {flowSubmitting
-          ? 'Click any flagged cell to explain that one instead'
-          : 'Explaining one cell — the forecast is not being submitted'}
+        {flowAnswering
+          ? `Answering ${flowRequest?.from ?? 'a question'} — the reply joins the thread on this cell`
+          : flowSubmitting
+            ? 'Click any flagged cell to explain that one instead'
+            : 'Explaining one cell — the forecast is not being submitted'}
       </div>
     </aside>
   );
@@ -2057,17 +2192,15 @@ function SubmissionEditor({
           so the guided flow could run with the page looking exactly as it did
           a moment before. The mode tints the page edge and the panels. */}
       <div
-        className={`content content-compact${
-          commentFlow ? ' page-mode page-submitting' : answering ? ' page-mode page-answering' : ''
-        }`}
+        className={`content content-compact${pageMode ? ` page-mode page-${pageMode}` : ''}`}
       >
-        {(commentFlow || answering) && (
+        {commentFlow && (
           <div className="page-mode-ribbon" aria-hidden="true">
-            {commentFlow
-              ? flowSubmitting
-                ? 'Submitting · explaining variances'
-                : 'Explaining a variance'
-              : 'Answering questions'}
+            {flowSubmitting
+              ? 'Submitting · explaining variances'
+              : flowAnswering
+                ? 'Answering a question'
+                : 'Explaining a variance'}
           </div>
         )}
         {needInput && (
@@ -2668,9 +2801,11 @@ function SubmissionEditor({
 
       </div>
 
-      {/* Treasury and approvers ASK about a cell; the submitter EXPLAINS it.
-          Two different jobs, so two dialogs — and the asking one is shared
-          with the preview dialog and Comments Review. */}
+      {/* Two readers, two dialogs — and neither of them is the submitter, who
+          works their own forecast in the dock beside the grid. Treasury and
+          approvers ASK about a cell (the asking dialog is shared with the
+          preview dialog and Comments Review); everybody else who can open a
+          cell is reading it. */}
       {canRequestComments && askTarget && varianceCell ? (
         <RequestCommentaryModal
           target={askTarget}
@@ -2683,21 +2818,12 @@ function SubmissionEditor({
       ) : (
         <Modal
           open={varianceCell !== null}
-          title={
-            readOnly ? 'Variance Detail' : cellQuestionOpen ? 'Answer the question' : 'Explain Variance'
-          }
+          title="Variance Detail"
           onClose={() => setVarianceCell(null)}
           footer={
-            <>
-              <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
-                {readOnly ? 'Close' : 'Cancel'}
-              </button>
-              {!readOnly && (
-                <button className="btn btn-primary" onClick={saveComment}>
-                  {cellQuestionOpen ? 'Send Answer' : 'Save'}
-                </button>
-              )}
-            </>
+            <button className="btn btn-ghost" onClick={() => setVarianceCell(null)}>
+              Close
+            </button>
           }
         >
           {varianceCell && (
@@ -2736,60 +2862,18 @@ function SubmissionEditor({
                     comments[varianceCell.key] ?? '',
                     listEntities().find((e) => e.name === entity)?.submitter ?? 'Submitter',
                   )}
-                  viewerRole={isSubmitterView ? 'submitter' : null}
+                  viewerRole={null}
                 />
-              )}
-              {/* The figure itself, because "that number was wrong" is one of
-                  the answers — and on a cell with a question the dialog is the
-                  only way in, so leaving it out would lock the number away. */}
-              {canEditCells && (
-                <div className="form-group">
-                  <label className="form-label" htmlFor="cell-value">
-                    Forecast value (€ thousands)
-                  </label>
-                  <input
-                    id="cell-value"
-                    className="form-input"
-                    style={{ width: 200 }}
-                    inputMode="decimal"
-                    placeholder="e.g. -1,250"
-                    value={valueDraft}
-                    onChange={(e) => setValueDraft(e.target.value)}
-                  />
-                  <span className="text-muted" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                    Inflows positive, outflows negative. Saving keeps this and the commentary
-                    together, and one undo reverses both.
-                    {handedOver
-                      ? ' Changing it withdraws the forecast from approval — resubmit when you are done.'
-                      : ''}
-                  </span>
-                </div>
               )}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  {readOnly
-                    ? 'Commentary'
-                    : cellRequest
-                      ? 'Your reply (required)'
-                      : 'Commentary (required)'}
-                </label>
+                <label className="form-label">Commentary</label>
                 <textarea
                   className="form-textarea"
-                  placeholder={
-                    readOnly
-                      ? 'No commentary provided yet.'
-                      : 'Explain the driver behind this variance...'
-                  }
-                  value={commentDraft}
-                  disabled={readOnly}
-                  onChange={(e) => setCommentDraft(e.target.value)}
+                  placeholder="No commentary provided yet."
+                  value={comments[varianceCell.key] ?? ''}
+                  disabled
+                  readOnly
                 />
-                {handedOver && (
-                  <span className="text-muted" style={{ fontSize: 12 }}>
-                    This forecast is with your approver; replying to a question does not take it
-                    off their desk.
-                  </span>
-                )}
               </div>
             </>
           )}
