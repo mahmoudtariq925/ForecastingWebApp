@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Modal } from '../common/Modal';
 import { StatusPill } from '../common/StatusPill';
-import { Chart, CHART_COLORS, type ChartSeries } from '../common/Chart';
+import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { customRowsOf, gridCategories } from '../../data/customRows';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
@@ -22,9 +22,6 @@ import { loadTemplates } from '../../storage/localStorage';
 
 /** How many prior cycles can be overlaid — beyond four there is no overlap. */
 const COMPARE_DEPTH = 4;
-
-/** Distinct from the live series so an overlay is never read as this cycle. */
-const OVERLAY_COLORS = ['#87a1c2', '#92b771', '#c5b6af', '#23599c'];
 
 interface ForecastPreviewModalProps {
   open: boolean;
@@ -145,8 +142,17 @@ export function ForecastPreviewModal({
   const answered = Object.entries(requests).filter(([key, r]) => r.answeredAt && submission?.comments?.[key]?.trim());
   const hasBalance = submission?.startingBalance != null;
   const netByDay = dayLabels.map((_dl, d) => dayNet(numCats, values, d));
+  // While earlier cycles are laid over it, this week's net is drawn in the
+  // same mark they are — dashed lines against a bar chart are not a
+  // comparison the eye can make. Alone, it is the week's columns again.
+  const comparing = compareWeeks.length > 0;
   const series: ChartSeries[] = [
-    { label: 'Net Cash Flow', values: netByDay, color: CHART_COLORS.blue, kind: 'bar' },
+    {
+      label: comparing ? `${weekLabelShort(week)} · Net Cash Flow` : 'Net Cash Flow',
+      values: netByDay,
+      color: CHART_COLORS.blue,
+      kind: comparing ? 'line' : 'bar',
+    },
     ...(hasBalance
       ? [
           {
@@ -200,7 +206,7 @@ export function ForecastPreviewModal({
       const past = peekSubmission(entity, key, template);
       const back = compareOptions.findIndex((o) => o.week === key) + 1;
       return {
-        label: `${weekLabelShort(key)} · net`,
+        label: `${weekLabelShort(key)} · Net Cash Flow`,
         values: dayLabels.map((_dl, d) => {
           const from = d + back * step;
           return from >= dayLabels.length ? null : dayNet(numCats, past.values, from);
@@ -316,6 +322,9 @@ export function ForecastPreviewModal({
                 unit="k"
                 height={280}
                 emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
+                // The week edges and the day the horizon opens on carry the
+                // axis; a date every nth day in between is one nobody chose.
+                markedLabelsOnly
                 slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
               />
             </div>
