@@ -2369,7 +2369,10 @@ function SubmissionEditor({
 
         {/* The outlook sits ABOVE the numbers: the shape of the week is what
             you check a figure against, and it folds away when it is not. */}
-        <div className="panel chart-panel forecast-outlook" data-tour="forecast-chart">
+        <div
+          className={`panel chart-panel forecast-outlook${chartOpen ? ' is-open' : ''}`}
+          data-tour="forecast-chart"
+        >
           <button
             className="panel-collapse-head"
             aria-expanded={chartOpen}
@@ -2429,7 +2432,6 @@ function SubmissionEditor({
                   </label>
                   <select
                     className="form-select"
-                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
                     value={balanceStyle}
                     onChange={(e) => setBalanceStyle(e.target.value as 'solid' | 'dashed' | 'area')}
                     aria-label="Balance line style"
@@ -2462,7 +2464,6 @@ function SubmissionEditor({
                   ))}
                   <select
                     className="form-select"
-                    style={{ width: 'auto', marginLeft: 'auto', padding: '5px 10px' }}
                     value={compareMetric}
                     onChange={(e) => setCompareMetric(e.target.value as CompareMetric)}
                     aria-label="Comparison metric"
@@ -2485,11 +2486,12 @@ function SubmissionEditor({
                   series={[...overlaySeries, ...chartSeries]}
                   unit="k"
                   // The outlook is read for the SHAPE of the week, which
-                  // needs room in BOTH directions: the controls rail takes the
-                  // width that used to flatten the line, and the plot gets the
-                  // height. Width comes from the grid column (see
-                  // `.outlook-body`); the height is here.
-                  height={300}
+                  // needs room in BOTH directions and, more than that, needs
+                  // the two in proportion: the card caps the width (see
+                  // `.forecast-outlook.is-open`) and this is the height that
+                  // leaves the plot about as tall against it as the
+                  // dashboard's outlook, where a week has a shape.
+                  height={320}
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
                   // and carrying the week's net so it is read, not estimated.

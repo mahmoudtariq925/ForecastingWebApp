@@ -103,7 +103,7 @@ function fmtAxis(v: number): string {
 
 const fmtVal = (v: number, unit: string) => `${Math.round(v).toLocaleString()}${unit}`;
 
-/** Measures its container width and redraws the SVG on resize. */
+/** Measures the box the plot is drawn into and redraws the SVG on resize. */
 export function Chart({
   labels,
   series,
@@ -116,15 +116,26 @@ export function Chart({
   emphasis,
   slotValues,
 }: ChartProps) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(600);
+  const svgRef = useRef<SVGSVGElement>(null);
+  // The box the plot is actually drawn into, measured rather than assumed.
+  // The viewBox is written in these same numbers, so one unit is one pixel
+  // and nothing in the chart is scaled non-uniformly: guessing either side
+  // of it (the container's width minus a hardcoded padding, the `height`
+  // prop minus nothing) left the SVG stretched horizontally and squashed
+  // vertically by whatever the difference happened to be.
+  const [box, setBox] = useState({ w: 600, h: height });
   // Pending single click, held for a moment in case a double click follows.
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const el = ref.current;
+    const el = svgRef.current;
     if (!el) return;
-    const update = () => setWidth(Math.max(el.clientWidth - 40, 240));
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      // A chart inside a folded panel measures zero; the floors keep it
+      // drawable until it is opened and measured for real.
+      setBox({ w: Math.max(Math.round(r.width), 240), h: Math.max(Math.round(r.height), 120) });
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -161,8 +172,8 @@ export function Chart({
   };
 
   const n = labels.length;
-  const w = width;
-  const h = height;
+  const w = box.w;
+  const h = box.h;
   const plotW = w - PAD_L - PAD_R;
   const plotH = h - PAD_T - PAD_B;
 
@@ -230,8 +241,8 @@ export function Chart({
   const labelStep = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(plotW / 78))));
 
   return (
-    <div className="chart-container" ref={ref} style={{ height: height + 40 }}>
-      <svg className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+    <div className="chart-container" style={{ height: height + 40 }}>
+      <svg ref={svgRef} className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         {/* Marked slots (Fridays on a daily horizon) get a standing band, so
             the week-to-week reference points are findable without counting
             columns. Drawn first — everything else sits on top of it. */}

@@ -5844,21 +5844,6 @@ thead th,
   border-bottom: 1px solid var(--border-strong);
 }
 
-/* ---- The outlook chart on the forecast screen ---------------------------
-   A trend is read from its SHAPE, and a line stretched across the full width
-   of a wide screen has almost no shape left in it: twenty days spread over
-   1,300px turn every rise and fall into a shallow ramp. The plot is capped
-   at a width where the eye can take the whole line in at once, and given
-   more height to move in — the panel around it stays full width, because the
-   controls and the legend belong with the box, not with the plot. */
-.forecast-outlook .chart-container {
-  max-width: 760px;
-  /* Centred rather than left-hugging: the panel's header, its series checks
-     and its legend all span the full width, and a plot pinned to one side of
-     them reads as a chart that failed to load the rest of itself. */
-  margin-inline: auto;
-}
-
 /* The `+` on a LINE, not just on a section: a row breaks down a line, so one
    sits after Receivables and another after Payables. Faint at rest — ten of
    them at full strength would compete with the labels they follow — and full
@@ -6229,16 +6214,25 @@ thead th,
    Collapsed it is the one slim row it always was. Open, it is a contained
    panel under that row rather than a band across the page: a week's shape
    reads at 600px and disappears at 1,300. */
-/* Open, the card is a two-column panel. Capping the plot at 600px and leaving
-   the rest of the card empty traded one problem for another: the chart came
-   out too small to read a week off and looked stranded in its own box. The
-   controls take that width instead — they are a list of checkboxes and read
-   better stacked than strung across a strip — and the plot takes everything
-   left over, at a height where the line has somewhere to move. Nothing on the
-   card is empty and nothing on it is small. */
+/* Open, the card is a two-column panel: the controls in a rail — they are a
+   list of checkboxes and read better stacked than strung across a strip — and
+   the plot beside them. What the card does NOT do is grow with the window.
+   A plot handed the whole width of a wide screen is six times wider than it
+   is tall, and at that shape a week of running balance is a horizontal line
+   with a slight tilt: the rises and falls are all there, flattened into the
+   width. Capped, the open card holds the plot at roughly the proportions of
+   the dashboard's outlook, where the same twenty days have a shape. The cap
+   only bites on a wide screen — on a laptop the card was never that wide —
+   and it is on the OPEN card alone, so the collapsed row still spans the
+   page like every other panel on the screen. */
+.forecast-entry .forecast-outlook.is-open {
+  max-width: 1120px;
+}
 .forecast-entry .forecast-outlook .outlook-body {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  /* Wide enough for the rail's own widest control ("Compare · Running
+     Balance") to sit inside it rather than push out of it. */
+  grid-template-columns: 250px minmax(0, 1fr);
   align-items: stretch;
 }
 .forecast-entry .forecast-outlook .outlook-controls {
@@ -6261,24 +6255,26 @@ thead th,
 .forecast-entry .forecast-outlook .outlook-controls .chart-controls:last-child {
   border-bottom: none;
 }
-/* The two selects are given `margin-left: auto` inline for the old row
-   layout; in a column that pushes nothing, so they simply fill the rail. */
+/* The two selects fill the rail. Sized to their own text instead, the
+   comparison one ("Compare · Net Cash Flow") came out wider than the rail
+   holding it and hung over the divider into the plot. */
 .forecast-entry .forecast-outlook .outlook-controls .form-select {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 3px;
+  padding: 5px 10px;
 }
 .forecast-entry .forecast-outlook .outlook-controls .grid-info {
   margin-bottom: 1px;
 }
-/* The plot: the whole remaining column, and taller than the card it used to
-   sit in was in total. Its height comes from the `height` prop as an inline
-   style (the SVG's viewBox is drawn to the same number, so the two must not
-   disagree); all this does is stop the old width cap from squeezing it back
-   into a strip. */
+/* The plot: the whole remaining column of a card that no longer grows past
+   the width a week can be read at. Its height comes from the `height` prop
+   as an inline style and the SVG measures the box it lands in, so nothing
+   here may cap either dimension — a stale `max-height` left over from an
+   earlier one-column card did, and every mark and label in the plot was
+   squashed to four fifths of its height to fit inside it. */
 .forecast-entry .forecast-outlook .chart-container {
-  max-width: none;
-  max-height: none;
-  margin-inline: 0;
   padding: 14px 18px 6px;
 }
 /* Narrow viewports have no width to give a rail, so it goes back to strips
@@ -6300,12 +6296,8 @@ thead th,
   .forecast-entry .forecast-outlook .outlook-controls .form-select {
     width: auto;
     margin-top: 0;
+    margin-left: auto;
   }
-}
-.forecast-entry .forecast-outlook .chart-container {
-  max-width: none;
-  max-height: 280px;
-  margin-inline: 0;
 }
 /* The plot's own rules come through `var(--border)` on the SVG's `stroke`
    attributes, so scoping the token here is what lightens the gridlines
