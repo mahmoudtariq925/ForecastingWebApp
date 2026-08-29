@@ -428,6 +428,19 @@ export interface Submission {
    * the template and which from the person filling it in.
    */
   customRows?: CustomRow[];
+  /**
+   * What this forecast takes from the other side of the group: whether it
+   * carries intercompany rows mirrored into it at all, and from which
+   * counterparties (empty = every one of them).
+   *
+   * It lives on the forecast rather than in a browser preference because it
+   * decides what the figures ARE: a week whose submitter left two
+   * counterparties out is a different set of numbers, and whoever reads it
+   * afterwards — treasury, an approver, the consolidation — has to be able to
+   * see that. Absent means everything, which is what every forecast written
+   * before this existed meant.
+   */
+  mirrorPrefs?: { enabled: boolean; sources: string[] };
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**

@@ -394,13 +394,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     });
   };
 
-  /** Submit from the preview modal — or, when the forecast still has gaps,
-   * hand over to the Submission screen where the guided fixes live. */
+  /** Submit from the preview modal — or, when a flagged variance is still
+   * unexplained, hand over to the Submission screen where the guided walk
+   * through them lives. */
   const submitNow = async (entity: string) => {
     const template = templateForEntity(loadTemplates(), entity);
     if (!template) return;
-    const gaps = submissionGaps(peekSubmission(entity, week, template), template);
-    if (gaps.emptyCells.length > 0 || gaps.uncommented.length > 0) {
+    const gaps = submissionGaps(peekSubmission(entity, week, template));
+    if (gaps.uncommented.length > 0) {
       setPreview(null);
       onOpenSubmission({ entity, week, templateId: template.id, autoSubmit: true });
       return;

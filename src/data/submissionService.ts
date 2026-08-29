@@ -461,36 +461,26 @@ export function isHandedOver(status: SubmissionStatus): boolean {
   return status === 'submitted' || status === 'approved' || status === 'consolidated';
 }
 
-/** What still blocks a clean submission: unfilled cells and unexplained flags. */
+/** What still blocks a clean submission: flagged cells nobody has explained. */
 export interface SubmissionGaps {
-  emptyCells: string[];
   uncommented: string[];
 }
 
 /**
  * Pre-submit validation, shared by the Submission screen and the checklist's
- * preview modal so both agree on what "ready to submit" means. Subtotal rows
- * are computed and never count; a stored 0 is a real answer.
+ * preview modal so both agree on what "ready to submit" means: a flagged
+ * variance with nothing written against it, and nothing else.
  *
- * Intercompany cells do not count either. They hold a counterparty breakdown
- * rather than a number, and "nothing settled with a group company this
- * period" is the ordinary case — there is nothing to type, and an empty
- * breakdown saves nothing, so every one of them read as an unfilled gap that
- * could not be filled. On the standard template that put forty red cells and
- * a "40 cells still need a number" gate in front of every submission, with
- * "Submit Anyway" the only way past.
+ * An empty cell used to count too, and it was never a gap. A line with
+ * nothing happening on it is a nil — most of a treasury grid on most days —
+ * and intercompany cells hold a counterparty breakdown rather than a number,
+ * so on the standard template every submission met forty red cells and a
+ * "40 cells still need a number" gate with "Submit Anyway" as the way past.
+ * A gate everybody clicks through is not a check; the figures are the
+ * submitter's to state.
  */
-export function submissionGaps(sub: Submission, template: ForecastTemplate): SubmissionGaps {
-  const periods = periodsOf(template).count;
-  const emptyCells: string[] = [];
-  template.categories.forEach((cat, catIdx) => {
-    if (cat.subtotal || cat.intercompany) return;
-    for (let d = 0; d < periods; d++) {
-      if (sub.values[`${catIdx}-${d}`] === undefined) emptyCells.push(`${catIdx}-${d}`);
-    }
-  });
-  const uncommented = sub.flags.filter((k) => !sub.comments?.[k]?.trim());
-  return { emptyCells, uncommented };
+export function submissionGaps(sub: Submission): SubmissionGaps {
+  return { uncommented: sub.flags.filter((k) => !sub.comments?.[k]?.trim()) };
 }
 
 /**

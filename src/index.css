@@ -695,6 +695,20 @@ textarea {
   align-items: center;
   gap: 12px;
 }
+/* The badges in a page header are one family. A status, a lock and the active
+   cycle are three different things to say about the same page, and they were
+   saying them at three different heights — a 22px status pill against a 32px
+   cycle pill reads as two unrelated kinds of object, and no two of them sat on
+   the same line. One height, one radius, one padding; the colour goes on
+   saying which is which. */
+.topbar-actions .status,
+.topbar-actions .view-only-badge,
+.topbar-actions .cycle-pill {
+  min-height: 30px;
+  padding-block: 0;
+  padding-inline: 14px;
+  border-radius: 100px;
+}
 
 .cycle-pill {
   display: flex;
@@ -2483,14 +2497,6 @@ td.num {
 }
 .entity-list-row.row-submitted .entity-list-info > strong {
   color: var(--text-muted);
-}
-
-/* A submitted forecast that its submitter has unlocked: in play, not yet
-   resubmitted. */
-.tag.tag-editing {
-  background: var(--blue-soft);
-  color: var(--blue);
-  border-color: transparent;
 }
 
 /* Line item owners: one row per line, one column per submitter. */
@@ -4503,6 +4509,30 @@ tbody td {
   font-size: 10px;
   color: var(--text-muted);
 }
+/* Who this forecast takes intercompany rows from: one line each, in a box
+   that scrolls rather than a dialog that grows without limit. */
+.mirror-sources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.mirror-sources.is-off {
+  opacity: 0.5;
+}
+.mirror-source-note {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
 .multi-select-panel {
   position: absolute;
   z-index: 50;
@@ -4869,6 +4899,24 @@ tbody td {
 .variance-badge-label {
   font-weight: 500;
   font-size: 11.5px;
+}
+
+/* The same badge, for the other thing a forecast can be quietly missing:
+   the rows its counterparties have mirrored into it. Cool rather than warm —
+   it reports a setting somebody chose, not a variance waiting to be
+   explained — and it comes after the amber rules so its hover survives. */
+.variance-badge.mirror-badge {
+  border-color: rgba(35, 89, 156, 0.35);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.variance-badge.mirror-badge:hover:not(:disabled) {
+  background: rgba(35, 89, 156, 0.16);
+  border-color: var(--blue);
+}
+.variance-badge.mirror-badge:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 /* ==========================================================================
