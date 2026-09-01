@@ -30,8 +30,14 @@ import {
 import {
   consolidatedValues,
   entityStatus,
+  peekSubmission,
   templateForEntity,
 } from '../../data/submissionService';
+import {
+  mirrorMethodsOf,
+  mirrorsIntercompany,
+  type MirrorMethod,
+} from '../../data/intercompanyService';
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadApprovals, loadSettings, loadTemplates, loadUsers } from '../../storage/localStorage';
@@ -72,6 +78,25 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'approved', label: 'Approved' },
   { value: 'submitted', label: 'Awaiting approval' },
+];
+
+/**
+ * Which countries, by how they settle with the rest of the group.
+ *
+ * Read off each entity's own intercompany lines rather than a setting: the
+ * sign of an amount already says which side of a settlement it is, so
+ * "payables" is a country paying group companies this cycle and
+ * "receivables" one being paid by them. A country doing both answers to
+ * either — that is what a shared-service centre looks like.
+ */
+type MirrorFilter = 'all' | 'mirroring' | 'payables' | 'receivables' | 'none';
+
+const MIRROR_OPTIONS: { value: MirrorFilter; label: string }[] = [
+  { value: 'all', label: 'All entities' },
+  { value: 'mirroring', label: 'Intercompany mirroring' },
+  { value: 'payables', label: 'Payables method IC' },
+  { value: 'receivables', label: 'Receivables method IC' },
+  { value: 'none', label: 'No mirroring' },
 ];
 
 /** A country's forecast opened in a dialog from one of the modals above. */
@@ -176,16 +201,60 @@ export function TreasuryOverview({
     [scopedNames, statusByCountry],
   );
 
+  const [mirrorFilter, setMirrorFilter] = useState<MirrorFilter>('all');
+
+  /**
+   * How each country settles intercompany this cycle, read off its own IC
+   * lines. Computed once for the whole scope so the filter, and anything that
+   * later wants to say WHY a country is in or out, read the same answer.
+   */
+  const mirrorByCountry = useMemo(() => {
+    void dataVersion;
+    const templates = loadTemplates();
+    const map = new Map<string, { mirrors: boolean; methods: Set<MirrorMethod> }>();
+    for (const name of scopedNames) {
+      const entityTemplate = templateForEntity(templates, name);
+      if (!entityTemplate) {
+        map.set(name, { mirrors: false, methods: new Set() });
+        continue;
+      }
+      const sub = peekSubmission(name, week, entityTemplate);
+      map.set(name, {
+        mirrors: mirrorsIntercompany(sub, entityTemplate),
+        methods: mirrorMethodsOf(sub, entityTemplate),
+      });
+    }
+    return map;
+  }, [scopedNames, week, dataVersion]);
+
   const countries = useMemo(() => {
     const picked = countryFilter.length > 0 ? countryFilter : scopedNames;
-    if (statusFilter === 'all') return picked;
-    return picked.filter((n) => {
-      const status = statusByCountry.get(n);
-      return statusFilter === 'approved'
-        ? status === 'approved' || status === 'consolidated'
-        : status === 'submitted';
+    const byStatus =
+      statusFilter === 'all'
+        ? picked
+        : picked.filter((n) => {
+            const status = statusByCountry.get(n);
+            return statusFilter === 'approved'
+              ? status === 'approved' || status === 'consolidated'
+              : status === 'submitted';
+          });
+    if (mirrorFilter === 'all') return byStatus;
+    return byStatus.filter((n) => {
+      const m = mirrorByCountry.get(n);
+      if (!m) return false;
+      if (mirrorFilter === 'none') return !m.mirrors;
+      if (mirrorFilter === 'mirroring') return m.mirrors;
+      // An entity that both pays and receives answers to either method.
+      return m.mirrors && m.methods.has(mirrorFilter);
     });
-  }, [countryFilter, scopedNames, statusFilter, statusByCountry]);
+  }, [
+    countryFilter,
+    scopedNames,
+    statusFilter,
+    statusByCountry,
+    mirrorFilter,
+    mirrorByCountry,
+  ]);
 
   const [templateId, setTemplateId] = useState(
     () =>
@@ -444,6 +513,12 @@ export function TreasuryOverview({
 
   return (
     <>
+      {/* The head of the page, in two halves: what is being looked at on the
+          left, what it comes to on the right. The three figures used to run
+          full-width under the filters, which put a row of chrome between the
+          question and its answer and left the filter bar a strip of empty
+          space beside three fields. */}
+      <div className="dashboard-head">
       {/* One filter bar for the whole block: which countries, which template,
           and whichever period the chart has been clicked down to. */}
       <div className="panel filter-panel" data-tour="overview-filters">
@@ -474,6 +549,24 @@ export function TreasuryOverview({
               {allTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* How a country settles with the rest of the group. A select
+              rather than a fifth segmented row: five options at this width
+              would wrap into two lines of chrome above the numbers. */}
+          <div className="filter-field">
+            <span className="filter-field-label">Intercompany</span>
+            <select
+              className="form-select"
+              value={mirrorFilter}
+              onChange={(e) => setMirrorFilter(e.target.value as MirrorFilter)}
+              aria-label="Filter by intercompany settlement"
+            >
+              {MIRROR_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -537,9 +630,12 @@ export function TreasuryOverview({
         </div>
       </div>
 
-      {/* Three numbers, each a door into the detail behind it. */}
-      <div className="kpi-grid kpi-grid-3" data-tour="dashboard-kpis">
+      {/* Three numbers, each a door into the detail behind it — and each in
+          its own colour, so the one being pointed at is found by looking
+          rather than by reading all three. */}
+      <div className="kpi-grid kpi-grid-3 dashboard-stats" data-tour="dashboard-kpis">
         <StatBox
+          hue="received"
           label="Submissions Received"
           value={`${received} / ${countryRows.length}`}
           sub={
@@ -552,6 +648,7 @@ export function TreasuryOverview({
           onOpen={() => setStatModal('received')}
         />
         <StatBox
+          hue="awaiting"
           label="Awaiting Approval"
           value={String(awaiting)}
           sub={awaiting === 0 ? 'Approval queue is clear' : 'Submitted, not yet approved'}
@@ -560,6 +657,7 @@ export function TreasuryOverview({
           onOpen={() => setStatModal('awaiting')}
         />
         <StatBox
+          hue="commentary"
           label="Requires Commentary"
           value={String(openComments)}
           sub={
@@ -575,6 +673,7 @@ export function TreasuryOverview({
           dataTour="stat-attention"
           onOpen={() => setStatModal('attention')}
         />
+      </div>
       </div>
 
       {/* The outlook and the same numbers as a matrix, side by side: the
@@ -770,6 +869,7 @@ function StatBox({
   value,
   sub,
   tone,
+  hue,
   dataTour,
   onOpen,
 }: {
@@ -777,11 +877,17 @@ function StatBox({
   value: string;
   sub: string;
   tone: 'ok' | 'warn';
+  /** Which of the three this is — its standing colour, whatever the tone. */
+  hue: 'received' | 'awaiting' | 'commentary';
   dataTour: string;
   onOpen: () => void;
 }) {
   return (
-    <button className={`kpi-card kpi-clickable tone-${tone}`} data-tour={dataTour} onClick={onOpen}>
+    <button
+      className={`kpi-card kpi-clickable tone-${tone} kpi-hue-${hue}`}
+      data-tour={dataTour}
+      onClick={onOpen}
+    >
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
       <div className="kpi-sub text-dim">{sub}</div>

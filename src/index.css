@@ -4444,10 +4444,80 @@ tbody td {
 /* ==========================================================================
    Merged dashboard: clickable stat boxes and the single outlook chart.
    ========================================================================== */
-/* Full width, like the outlook and the matrix below them — the stat boxes are
-   the top of one block, not a narrower thing sitting above it. */
 .kpi-grid.kpi-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* --- The head of the dashboard, in two halves ----------------------------
+   What is being looked at on the left, what it comes to on the right. The
+   three figures used to run full width UNDER the filters, which put a band of
+   chrome between the question and its answer and left the filter bar with a
+   strip of empty space beside its three fields. Half and half, they read as
+   one header: set the scope, see what it makes.
+
+   Below 1100px there is no second half worth having — three stat boxes at a
+   third of a half are four characters wide — so the two stack. */
+.dashboard-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--panel-gap);
+  align-items: start;
+  margin-bottom: var(--panel-gap);
+}
+.dashboard-head > .filter-panel,
+.dashboard-head > .kpi-grid {
+  margin-bottom: 0;
+}
+/* The boxes fill their half rather than sitting at their natural height, so
+   the two halves square off against each other. */
+.dashboard-head .dashboard-stats {
+  height: 100%;
+}
+.dashboard-head .dashboard-stats .kpi-card {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .dashboard-head {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- One colour each ------------------------------------------------------
+   Three white boxes with three numbers on them are told apart by reading all
+   three. A standing colour per box — the ground, the rule down its edge and
+   its label — makes "the commentary one" a thing you look at rather than a
+   thing you find. The VALUE keeps the tone colour (amber when something is
+   outstanding, green when it is clear), so the identity of the box and the
+   state of its number stay two separate signals. */
+.kpi-card.kpi-hue-received {
+  background: linear-gradient(180deg, rgba(35, 89, 156, 0.07), rgba(35, 89, 156, 0.02));
+  border-color: rgba(35, 89, 156, 0.22);
+}
+.kpi-card.kpi-hue-awaiting {
+  background: linear-gradient(180deg, rgba(176, 122, 30, 0.09), rgba(176, 122, 30, 0.03));
+  border-color: rgba(176, 122, 30, 0.24);
+}
+.kpi-card.kpi-hue-commentary {
+  background: linear-gradient(180deg, rgba(63, 98, 35, 0.08), rgba(63, 98, 35, 0.02));
+  border-color: rgba(63, 98, 35, 0.22);
+}
+.kpi-card.kpi-hue-received::before {
+  background: var(--blue);
+}
+.kpi-card.kpi-hue-awaiting::before {
+  background: var(--amber);
+}
+.kpi-card.kpi-hue-commentary::before {
+  background: var(--green);
+}
+.kpi-card.kpi-hue-received .kpi-label {
+  color: var(--blue);
+}
+.kpi-card.kpi-hue-awaiting .kpi-label {
+  color: var(--amber);
+}
+.kpi-card.kpi-hue-commentary .kpi-label {
+  color: var(--green);
 }
 /* Visible to a screen reader, invisible on screen — used where an icon or a
    symbol carries the meaning of a control. */
