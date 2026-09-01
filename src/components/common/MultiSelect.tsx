@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface MultiSelectProps {
   /** Accessible name for the control (the visible label sits beside it). */
@@ -39,11 +40,32 @@ export function MultiSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /**
+   * Where the panel goes, in viewport coordinates.
+   *
+   * It is rendered into `document.body` rather than beside its button, because
+   * the control is used inside dialogs whose body scrolls and therefore CLIPS.
+   * An absolutely positioned panel adds nothing to that body's scroll height,
+   * so anything past the edge was simply cut off with no way to scroll to it —
+   * the cycle dialog's entity picker showed two of eleven countries and hid
+   * the rest behind the footer. Positioned against the viewport instead, the
+   * list gets the room the screen has rather than the room the dialog has.
+   */
+  const [place, setPlace] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    // The panel is outside the wrapper in the DOM now, so it has to be asked
+    // about separately or every click on an option would close the panel.
     const close = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!wrapRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -53,6 +75,44 @@ export function MultiSelect({
     return () => {
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Measure on open, and again whenever the page moves under it — a fixed
+  // panel does not travel with its button on its own.
+  useEffect(() => {
+    if (!open) {
+      setPlace(null);
+      return;
+    }
+    const measure = () => {
+      const btn = wrapRef.current?.querySelector('.multi-select-btn');
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const vh = document.documentElement.clientHeight;
+      const vw = document.documentElement.clientWidth;
+      const GAP = 4;
+      const MARGIN = 12;
+      const below = vh - r.bottom - GAP - MARGIN;
+      const above = r.top - GAP - MARGIN;
+      // Downward unless upward is genuinely roomier — a panel that flips for
+      // a few pixels reads as a glitch.
+      const up = below < 200 && above > below;
+      const width = Math.min(Math.max(r.width, 200), 320);
+      setPlace({
+        top: up ? Math.max(MARGIN, r.top - GAP - Math.min(above, 320)) : r.bottom + GAP,
+        // Kept on screen when the button sits near the right edge.
+        left: Math.min(Math.max(MARGIN, r.left), Math.max(MARGIN, vw - width - MARGIN)),
+        width,
+        maxHeight: Math.max(120, Math.round(Math.min(up ? above : below, 320))),
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
     };
   }, [open]);
 
@@ -92,40 +152,60 @@ export function MultiSelect({
           ▾
         </span>
       </button>
-      {open && (
-        <div className="multi-select-panel" role="listbox" aria-multiselectable="true">
-          {searchable && (
-            <input
-              className="form-input multi-select-search"
-              autoFocus
-              value={query}
-              placeholder={placeholder}
-              aria-label={`Search ${noun}`}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          )}
-          <div className="multi-select-list">
-            {shown.length === 0 ? (
-              <div className="multi-select-empty">No match</div>
-            ) : (
-              shown.map((option) => (
-                <label className="multi-select-option" key={option}>
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(option)}
-                    onChange={() => toggle(option)}
-                  />
-                  {option}
-                </label>
-              ))
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="multi-select-panel"
+            role="listbox"
+            aria-multiselectable="true"
+            // Hidden for the first paint, before the measurement lands: a panel
+            // that appears in the wrong place and jumps is worse than one that
+            // appears a frame later in the right one.
+            style={
+              place
+                ? {
+                    top: place.top,
+                    left: place.left,
+                    width: place.width,
+                    maxHeight: place.maxHeight,
+                  }
+                : { visibility: 'hidden' }
+            }
+          >
+            {searchable && (
+              <input
+                className="form-input multi-select-search"
+                autoFocus
+                value={query}
+                placeholder={placeholder}
+                aria-label={`Search ${noun}`}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             )}
-          </div>
-          {selected.length > 0 && (
-            <button type="button" className="multi-select-clear" onClick={() => onChange([])}>
-              Clear selection · show {emptyLabel.toLowerCase()}
-            </button>
-          )}
-        </div>
+            <div className="multi-select-list">
+              {shown.length === 0 ? (
+                <div className="multi-select-empty">No match</div>
+              ) : (
+                shown.map((option) => (
+                  <label className="multi-select-option" key={option}>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(option)}
+                      onChange={() => toggle(option)}
+                    />
+                    {option}
+                  </label>
+                ))
+              )}
+            </div>
+            {selected.length > 0 && (
+              <button type="button" className="multi-select-clear" onClick={() => onChange([])}>
+                Clear selection · show {emptyLabel.toLowerCase()}
+              </button>
+            )}
+          </div>,
+        document.body,
       )}
     </div>
   );

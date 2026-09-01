@@ -15,10 +15,20 @@ interface ModalProps {
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** The control a dialog should open ON: what it is asking for, if it asks for
- *  anything. Falling back to the first focusable element put the caret on the
- *  × button of every dialog with a form in it. */
-const FIRST_FIELD = 'textarea:not([disabled]), input:not([disabled]), select:not([disabled])';
+/**
+ * The control a dialog should open ON: what it is asking for, if it asks for
+ * anything. Falling back to the first focusable element put the caret on the
+ * × button of every dialog with a form in it.
+ *
+ * A tickbox is not what a dialog asks for — it is an option ON something the
+ * dialog shows. Counting them here opened the Review & Submit and Review &
+ * Approve dialogs focused on a "Compare with" checkbox under the chart, which
+ * the browser then scrolled into view: the forecast the dialog exists to show
+ * was above the fold before it had been looked at once. Worse the further you
+ * zoom in, which is exactly when it is least recoverable.
+ */
+const FIRST_FIELD =
+  'textarea:not([disabled]), input:not([disabled]):not([type="checkbox"]):not([type="radio"]), select:not([disabled])';
 
 /**
  * Open dialogs, innermost last.
