@@ -1576,6 +1576,76 @@ td.num {
   white-space: nowrap;
 }
 
+/* --------------------------------------------------------------------------
+   HOW THIS WEEK STARTS
+
+   Two cards rather than a sentence and a pair of footer buttons: the choice
+   IS the dialog, so it is what the dialog shows. Each says what it does in
+   three words and what you get in a few more, and clicking one is the answer
+   — there is nothing to confirm afterwards, because it is asked before there
+   is anything on the forecast to lose.
+   -------------------------------------------------------------------------- */
+.start-choice-lead {
+  margin-bottom: 16px;
+  color: var(--text-dim);
+}
+.start-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.start-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 16px;
+  text-align: left;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+.start-option:hover {
+  border-color: var(--accent);
+  background: var(--accent-softer);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.start-option strong {
+  font-size: 14px;
+}
+.start-option .text-muted {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.start-option-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 15px;
+}
+.start-option:hover .start-option-mark {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+@media (max-width: 560px) {
+  .start-choice {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* === TEMPLATE BUILDER (spreadsheet editor) === */
 .sheet-grid td.sheet-gutter,
 .sheet-grid th.sheet-gutter-h {

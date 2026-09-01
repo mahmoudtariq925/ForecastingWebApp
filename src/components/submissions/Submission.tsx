@@ -50,7 +50,9 @@ import {
   isOpenQuestion,
   isVariance,
   loadDraftCheckpoint,
+  hasSeenStartChoice,
   markRequestsSeen,
+  markStartChoiceSeen,
   openQuestionEntries,
   peekSubmission,
   priorValueFor,
@@ -1063,7 +1065,7 @@ function SubmissionEditor({
     });
   };
 
-  const copyPrior = async () => {
+  const copyPrior = async (announce = true) => {
     const prevKey = prevWeekKey(week);
     const stored = loadSubmission(prevKey, entity, template.id);
     const hasStored = stored !== null;
@@ -1099,11 +1101,72 @@ function SubmissionEditor({
     setRestoreVersion((n) => n + 1);
     persist({ values: nextValues, flags: new Set(), customRows: nextRows });
     lastEditedCell.current = null;
+    // Silent when it IS the opening choice: the answer to "start from last
+    // week?" is the grid, not a dialog acknowledging the dialog just closed.
+    if (!announce) return;
     await notify({
       tone: 'success',
       message: hasStored
         ? `Copied your saved ${weekLabel(prevKey)} submission. Edit as needed.`
         : `Loaded prior-week values for ${weekLabel(prevKey)}. Edit as needed.`,
+    });
+  };
+
+  // ---- How this week starts ----------------------------------------------
+  /**
+   * The first time a submitter opens a given week's forecast, it asks what to
+   * start it from: last week's figures, or nothing.
+   *
+   * Once per (entity, week, template) and only ever BEFORE any work exists on
+   * it — which is what makes "start blank" safe to offer as a button rather
+   * than as a confirm. Reopening the forecast never asks again; Copy Prior and
+   * Reset are still there under More for anyone who wants to change their mind
+   * later.
+   */
+  const [startChoice, setStartChoice] = useState(false);
+  const startAskedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const target = `${week}:${entity}:${template.id}`;
+    if (startAskedFor.current === target) return;
+    startAskedFor.current = target;
+    // Only the person who fills it in, only while it is still theirs to fill.
+    if (!canEditCells || !editorActions) return;
+    if (hasSeenStartChoice(week, entity, template.id)) return;
+    setStartChoice(true);
+  }, [week, entity, template.id, canEditCells, editorActions]);
+
+  const answerStartChoice = async (carryOver: boolean) => {
+    markStartChoiceSeen(week, entity, template.id);
+    setStartChoice(false);
+    if (carryOver) {
+      await copyPrior(false);
+      return;
+    }
+    // Start blank: every editable cell cleared, the submitter's own rows and
+    // their figures with them. Mirrored rows stay — they are what other
+    // entities have said about this week, not this forecast's own work.
+    pushUndo();
+    lastEditedCell.current = null;
+    const mirrors = rows.filter((r) => !isOwnRow(r));
+    let nextValues: GridValues = {};
+    mirrors.forEach((row, i) => {
+      nextValues = withRowValues(
+        nextValues,
+        numCats + i,
+        numPeriods,
+        rowValues(template, rows, row.id, values, numPeriods),
+      );
+    });
+    setValues(nextValues);
+    setFlags(new Set());
+    setRows(mirrors);
+    setStartingBalance(null);
+    setRestoreVersion((n) => n + 1);
+    persist({
+      values: nextValues,
+      flags: new Set(),
+      customRows: mirrors,
+      startingBalance: null,
     });
   };
 
@@ -3058,6 +3121,41 @@ function SubmissionEditor({
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {/* How this week starts. Two ways in, asked once, before there is
+          anything on the forecast to lose — which is why neither answer needs
+          a confirm behind it. */}
+      {startChoice && (
+        <Modal
+          open
+          title={`Start ${weekLabelShort(week)}`}
+          onClose={() => void answerStartChoice(false)}
+          footer={null}
+        >
+          <p className="start-choice-lead">How do you want to begin {entity}’s forecast?</p>
+          <div className="start-choice">
+            <button className="start-option" onClick={() => void answerStartChoice(true)}>
+              <span className="start-option-mark" aria-hidden="true">
+                ↻
+              </span>
+              <strong>Carry last week over</strong>
+              <span className="text-muted">
+                {weekLabelShort(prevWeekKey(week))} figures, ready to adjust
+              </span>
+            </button>
+            <button
+              className="start-option"
+              onClick={() => void answerStartChoice(false)}
+            >
+              <span className="start-option-mark" aria-hidden="true">
+                +
+              </span>
+              <strong>Start blank</strong>
+              <span className="text-muted">An empty grid to type into</span>
+            </button>
+          </div>
         </Modal>
       )}
     </>
