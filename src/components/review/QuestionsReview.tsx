@@ -167,7 +167,6 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
     return scopeEntities ? all.filter((g) => scopeEntities.includes(g.entity)) : all;
   }, [version, scopeEntities]);
   const items = useMemo(() => flattenQuestions(groups), [groups]);
-  const totals = useMemo(() => questionTotals(groups), [groups]);
 
   const [search, setSearch] = useState('');
   const [askedBy, setAskedBy] = useState(ALL);
@@ -191,21 +190,17 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
     };
   }, [items]);
 
-  /** How many questions each side of the conversation has open right now. */
-  const counts = useMemo(() => {
-    const open = items.filter((i) => i.state !== 'closed');
-    return {
-      treasury: open.filter((i) => i.role === 'treasury').length,
-      approver: open.filter((i) => i.role === 'approver').length,
-    };
-  }, [items]);
-
-  const filtered = useMemo(() => {
+  /**
+   * Everything the filters keep EXCEPT the who-asked toggle — the set that
+   * toggle is choosing between. Counting its two sides against the fully
+   * filtered list would zero whichever side is not selected, so picking
+   * "Treasury" would report that the approvers had asked nothing.
+   */
+  const scoped = useMemo(() => {
     const q = search.trim().toLowerCase();
     return items.filter((i) => {
       if (regionFilter !== ALL && i.region !== regionFilter) return false;
       if (periodFilter !== ALL && i.period !== periodFilter) return false;
-      if (askedBy !== ALL && i.role !== askedBy) return false;
       if (!q) return true;
       return (
         i.entity.toLowerCase().includes(q) ||
@@ -216,7 +211,28 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
         i.thread.some((m) => m.text.toLowerCase().includes(q))
       );
     });
-  }, [items, search, askedBy, regionFilter, periodFilter]);
+  }, [items, search, regionFilter, periodFilter]);
+
+  /** How many questions each side of the conversation has open right now. */
+  const counts = useMemo(() => {
+    const open = scoped.filter((i) => i.state !== 'closed');
+    return {
+      treasury: open.filter((i) => i.role === 'treasury').length,
+      approver: open.filter((i) => i.role === 'approver').length,
+    };
+  }, [scoped]);
+
+  const filtered = useMemo(
+    () => (askedBy === ALL ? scoped : scoped.filter((i) => i.role === askedBy)),
+    [scoped, askedBy],
+  );
+
+  /**
+   * The headline figures describe the board underneath them, filters and all.
+   * Counting the whole queue instead put "4 awaiting a reply" over a column of
+   * three, with the fourth on a week the period filter had put away.
+   */
+  const totals = useMemo(() => questionTotals(filtered), [filtered]);
 
   /**
    * Each column's cards, and — for a reader who covers the whole group —
@@ -342,7 +358,11 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
             <div className="grid-toolbar-left">
               <input
                 className="form-input"
-                style={{ width: 240 }}
+                // Wide enough for its own placeholder: at 240px the prompt was
+                // cut mid-word ("…line item, questior"), losing the ellipsis
+                // that says there is more to search on. `maxWidth` keeps it
+                // inside the panel when the toolbar wraps on a narrow screen.
+                style={{ width: 280, maxWidth: '100%' }}
                 placeholder="Search country, line item, question…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

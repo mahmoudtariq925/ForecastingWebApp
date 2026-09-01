@@ -243,13 +243,27 @@ export interface QuestionTotals {
   forecasts: number;
 }
 
-export function questionTotals(groups: QuestionGroup[]): QuestionTotals {
-  return {
-    awaiting: groups.reduce((s, g) => s + g.awaiting, 0),
-    answered: groups.reduce((s, g) => s + g.answered, 0),
-    closed: groups.reduce((s, g) => s + g.closed, 0),
-    forecasts: groups.length,
-  };
+/**
+ * The headline counts for a set of cards.
+ *
+ * Deliberately over the ITEMS rather than the groups they were collected in:
+ * the board filters cards (by period, region, who asked, a search), and totals
+ * read off the unfiltered groups described a different board from the one
+ * underneath them — "4 awaiting a reply" over a column holding three, with no
+ * way to reach the fourth. Whatever is counted here is what is on screen.
+ */
+export function questionTotals(items: QuestionItem[]): QuestionTotals {
+  const forecasts = new Set<string>();
+  let awaiting = 0;
+  let answered = 0;
+  let closed = 0;
+  for (const item of items) {
+    forecasts.add(`${item.period}:${item.entity}:${item.templateId}`);
+    if (item.state === 'awaiting') awaiting += 1;
+    else if (item.state === 'answered') answered += 1;
+    else closed += 1;
+  }
+  return { awaiting, answered, closed, forecasts: forecasts.size };
 }
 
 /** "2h" / "3d" / "just now" — how long a question has been sitting. */
