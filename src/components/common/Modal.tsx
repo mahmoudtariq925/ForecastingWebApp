@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { escapeIsClaimed } from './escapeLayer';
 
 interface ModalProps {
   open: boolean;
@@ -79,6 +80,9 @@ export function Modal({ open, title, onClose, children, footer, size = 'default'
       // Only the dialog on top of the stack answers the keyboard.
       if (stack[stack.length - 1] !== self) return;
       if (e.key === 'Escape') {
+        // Something transient is open over this dialog and owns the key —
+        // pass it on rather than swallowing it. See `pushEscapeLayer`.
+        if (escapeIsClaimed()) return;
         e.stopPropagation();
         closeRef.current();
         return;
