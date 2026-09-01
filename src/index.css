@@ -308,8 +308,16 @@
   --panel-gap: 14px;
   /* The height of the app's header row, borders included. The top bar and the
      collapsed rail's brand divider both take it, so the two rules meet as one
-     line across the screen instead of missing each other by a few pixels. */
-  --header-h: 75px;
+     line across the screen instead of missing each other by a few pixels.
+
+     THIS MUST STAY ABOVE THE TOP BAR'S NATURAL CONTENT HEIGHT (crumb + title +
+     26px of padding, about 77.6px today). The bar applies it as a `min-height`
+     floor, so once the content grows past it the floor stops binding, the bar
+     is sized by its content and the rail — which takes the number literally —
+     is left a couple of pixels short. That is the drift this value came back
+     from twice: at 75px the floor had quietly stopped mattering and the two
+     dividers sat 2.6px apart. Raise it before growing the header's type. */
+  --header-h: 80px;
 
   /* ---- Type scale. Values match what the app already renders, so the ramp
          is a name for existing sizes rather than a reflow. ---- */
@@ -2355,39 +2363,6 @@ td.num {
 .question-col-empty {
   font-size: 12px;
   padding: 6px 2px 10px;
-}
-
-/* Countries whose forecast is in but not approved, flagged beside the filter
-   they qualify: the totals include them, and they can still change. */
-.filter-flags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-left: auto;
-  align-self: flex-end;
-  padding-bottom: 2px;
-}
-.filter-flag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-  background: var(--amber-soft);
-  color: var(--amber);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-}
-.filter-flag:hover,
-.filter-flag.on {
-  border-color: var(--amber);
-}
-.filter-flag-mark {
-  font-weight: 700;
 }
 
 /* Regions inside a column: a group-wide reader has eleven countries in one
@@ -4667,6 +4642,12 @@ tbody td {
   padding: 9px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev-2);
+  /* Every other panel gets its corners from `.panel`'s `overflow: hidden`
+     clipping the header. This one sets `overflow: visible` so the country
+     dropdown can open past the box, which leaves the header's own opaque
+     background painting square corners over the panel's rounded top — the
+     one filter on the app that did not look rounded. So it rounds itself. */
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
 }
 .filter-panel-head h3 {
   font-family: var(--serif);
@@ -5497,10 +5478,6 @@ tbody td {
 .cycle-pill .value {
   font-size: 11px;
 }
-.filter-flag,
-.filter-flag-mark {
-  font-size: 11.5px;
-}
 .badge-num,
 .role-tag,
 .question-card-foot,
@@ -5587,8 +5564,6 @@ tbody td {
 .bubble-time,
 .question-card-foot,
 .delta,
-.filter-flag,
-.filter-flag-mark,
 .seg-toggle button,
 .cycle-pill .label,
 .cycle-pill .value {
@@ -5655,8 +5630,6 @@ thead th,
 .matrix-table thead th.num,
 .matrix-table th.matrix-total-h,
 .bubble-time,
-.filter-flag,
-.filter-flag-mark,
 .tour-replay-icon,
 .forecast-grid td.cell .cell-note-btn,
 .section-questions {

@@ -7,7 +7,6 @@ import { AttentionModal } from './AttentionModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
 import { MultiSelect } from '../common/MultiSelect';
-import { countryCode } from '../../data/countryCodes';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities, seedUsers } from '../../data/appData';
 import { useDataVersion } from '../../data/useDataVersion';
@@ -218,16 +217,6 @@ export function TreasuryOverview({
     // overrides is a fresh object per render; its cycle id is the real input.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopedNames, week, cycleId, dataVersion]);
-
-  /**
-   * Countries whose forecast is in but NOT approved — the numbers in the totals
-   * that an approver could still send back. Flagged beside the filter rather
-   * than buried in a modal, because it qualifies everything else on the page.
-   */
-  const unapproved = useMemo(
-    () => scopedNames.filter((n) => statusByCountry.get(n) === 'submitted'),
-    [scopedNames, statusByCountry],
-  );
 
   const [mirrorFilter, setMirrorFilter] = useState<MirrorFilter>('all');
   /**
@@ -648,30 +637,6 @@ export function TreasuryOverview({
               </button>
             </div>
           )}
-          {/* Submitted but not approved: the figures are in the totals above
-              and could still be sent back. Each flag filters the page to that
-              country, which is the next thing you want after seeing it. */}
-          {unapproved.length > 0 && (
-            <div className="filter-flags" title="Submitted, not yet approved">
-              {unapproved.map((name) => (
-                <button
-                  key={name}
-                  className={`filter-flag${countryFilter.includes(name) ? ' on' : ''}`}
-                  title={`${name} — submitted, awaiting approval`}
-                  onClick={() =>
-                    setCountryFilter((prev) =>
-                      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-                    )
-                  }
-                >
-                  <span className="filter-flag-mark" aria-hidden="true">
-                    !
-                  </span>
-                  {countryCode(name)}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -775,7 +740,7 @@ export function TreasuryOverview({
             <span className="panel-unit">{periodLabel ? `${periodLabel} · €k` : '€k'}</span>
           </div>
           {matrix ? (
-            <CountryMatrix matrix={matrix} />
+            <CountryMatrix matrix={matrix} selectedCount={countries.length} />
           ) : (
             <div className="empty-state">
               <div className="ic">▦</div>
