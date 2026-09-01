@@ -4531,20 +4531,40 @@ tbody td {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--panel-gap);
-  align-items: start;
+  /* Stretch, not start: both halves take the row's height, so the two never
+     end on different lines. The row is then whichever side is taller — and
+     the rules below keep that the FILTER, so the boxes fill its height rather
+     than setting one of their own and reading as the bigger thing on a header
+     whose subject is the filter. */
   margin-bottom: var(--panel-gap);
 }
 .dashboard-head > .filter-panel,
 .dashboard-head > .kpi-grid {
   margin-bottom: 0;
 }
-/* The boxes fill their half rather than sitting at their natural height, so
-   the two halves square off against each other. */
-.dashboard-head .dashboard-stats {
-  height: 100%;
-}
 .dashboard-head .dashboard-stats .kpi-card {
   min-width: 0;
+  /* Content centred down the card. Anchored to the top it left the "View →"
+     stranded halfway up a card taller than its own contents. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px 16px;
+}
+/* Tighter than a standalone stat card: three of these sit in half a row
+   beside a filter bar, and at the full size they out-measured it. */
+.dashboard-head .dashboard-stats .kpi-value {
+  font-size: 24px;
+}
+.dashboard-head .dashboard-stats .kpi-label {
+  margin-bottom: 5px;
+}
+.dashboard-head .dashboard-stats .kpi-sub {
+  margin-top: 5px;
+  line-height: 1.3;
+}
+.dashboard-head .dashboard-stats .kpi-card.kpi-clickable .kpi-open {
+  margin-top: 7px;
 }
 @media (max-width: 1100px) {
   .dashboard-head {

@@ -92,7 +92,14 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 type MirrorFilter = 'all' | 'mirroring' | 'payables' | 'receivables' | 'none';
 
 const MIRROR_OPTIONS: { value: MirrorFilter; label: string }[] = [
-  { value: 'all', label: 'All entities' },
+  /**
+   * The unfiltered option. It read "All entities", which said nothing about
+   * WHICH axis it was not filtering on and sat two controls along from
+   * "All countries" — so it looked like a second country selector rather than
+   * like the off position of this one. Named for the axis it belongs to, it
+   * can only mean one thing.
+   */
+  { value: 'all', label: 'Any method' },
   { value: 'mirroring', label: 'Intercompany mirroring' },
   { value: 'payables', label: 'Payables method IC' },
   { value: 'receivables', label: 'Receivables method IC' },
