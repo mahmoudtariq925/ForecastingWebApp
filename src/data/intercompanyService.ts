@@ -700,3 +700,33 @@ export function mirrorPrefsToggling(
   if (kept.length === 0) return { enabled: false, sources: [] };
   return { enabled: true, sources: kept.length === allSources.length ? [] : kept };
 }
+
+/**
+ * A forecast's figures with everything mirrored in from other entities taken
+ * out — only what this entity's own submitter entered.
+ *
+ * A mirrored row is somebody else's statement about you: real money, and part
+ * of the group position, but not part of what YOU forecast. Reading the group
+ * both ways is the point — with the mirrors in, it is what the group expects
+ * to move; with them out, it is what the countries themselves have said,
+ * which is the number to check a submitter's work against.
+ *
+ * Only the figures are stripped, not the rows: callers aggregate by cell key,
+ * and a row with no cells left contributes nothing anyway.
+ */
+export function ownFiguresOnly(
+  sub: Pick<Submission, 'values' | 'customRows'>,
+  template: ForecastTemplate,
+): Record<string, number> {
+  const rows = customRowsOf(sub);
+  const mirrored = new Set<number>();
+  rows.forEach((row, i) => {
+    if (!isOwnRow(row)) mirrored.add(customCatIndex(template, i));
+  });
+  if (mirrored.size === 0) return sub.values ?? {};
+  const out: Record<string, number> = {};
+  for (const [key, v] of Object.entries(sub.values ?? {})) {
+    if (!mirrored.has(Number(key.split('-')[0]))) out[key] = v;
+  }
+  return out;
+}

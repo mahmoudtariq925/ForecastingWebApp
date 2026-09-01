@@ -81,22 +81,50 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 ];
 
 /**
- * Which countries, by how they settle with the rest of the group.
+ * How intercompany is treated on this page.
  *
- * Read off each entity's own intercompany lines rather than a setting: the
- * sign of an amount already says which side of a settlement it is, so
- * "payables" is a country paying group companies this cycle and
- * "receivables" one being paid by them. A country doing both answers to
- * either — that is what a shared-service centre looks like.
+ * Two of these narrow WHICH countries are shown, read off each entity's own
+ * intercompany lines: the sign of an amount already says which side of a
+ * settlement it is, so "payables" is a country paying group companies this
+ * cycle and "receivables" one being paid by them. A country doing both
+ * answers to either — that is what a shared-service centre looks like.
+ *
+ * `off` narrows nothing. It changes WHAT is counted: every country, but only
+ * the figures each one entered itself, with everything mirrored in from a
+ * counterparty left out.
+ *
+ * `all` is not an option anybody picks — it is NOTHING PICKED. The three
+ * buttons each toggle, so pressing the active one lets go of it and the page
+ * returns to showing every country with every figure, mirrored and own alike.
+ * That is why there is no "All" button: an off switch you have to find is a
+ * fourth thing to read, and letting go of the one you pressed is the same
+ * gesture people already use on the status toggle beside it.
+ *
+ * There used to be an "Intercompany mirroring" entry too, and it was exactly
+ * the union of the two method options — an entity mirrors iff it has a
+ * non-zero IC amount, and every one of those is either negative or positive.
+ * An option that can only ever equal "payables OR receivables" is a question
+ * the other two already answer.
  */
-type MirrorFilter = 'all' | 'mirroring' | 'payables' | 'receivables' | 'none';
+type MirrorFilter = 'all' | 'payables' | 'receivables' | 'off';
 
-const MIRROR_OPTIONS: { value: MirrorFilter; label: string }[] = [
-  { value: 'all', label: 'All entities' },
-  { value: 'mirroring', label: 'Intercompany mirroring' },
-  { value: 'payables', label: 'Payables method IC' },
-  { value: 'receivables', label: 'Receivables method IC' },
-  { value: 'none', label: 'No mirroring' },
+const MIRROR_OPTIONS: { value: Exclude<MirrorFilter, 'all'>; label: string; title: string }[] = [
+  {
+    value: 'off',
+    label: 'Mirror off',
+    title:
+      'Every country, counting only the figures each entered itself — nothing mirrored in from a counterparty',
+  },
+  {
+    value: 'payables',
+    label: 'Payables',
+    title: 'Countries paying a group company this cycle',
+  },
+  {
+    value: 'receivables',
+    label: 'Receivables',
+    title: 'Countries being paid by a group company this cycle',
+  },
 ];
 
 /** A country's forecast opened in a dialog from one of the modals above. */
@@ -202,6 +230,12 @@ export function TreasuryOverview({
   );
 
   const [mirrorFilter, setMirrorFilter] = useState<MirrorFilter>('all');
+  /**
+   * Count only what each country entered itself — every figure mirrored in
+   * from a counterparty left out. Not a filter on countries: the page still
+   * covers all of them, it just stops counting other people's statements.
+   */
+  const ownFiguresMode = mirrorFilter === 'off';
 
   /**
    * How each country settles intercompany this cycle, read off its own IC
@@ -238,12 +272,12 @@ export function TreasuryOverview({
               ? status === 'approved' || status === 'consolidated'
               : status === 'submitted';
           });
-    if (mirrorFilter === 'all') return byStatus;
+    // `off` is not a filter on countries — it changes what their figures
+    // count, further down. Every country stays on the page.
+    if (mirrorFilter === 'all' || mirrorFilter === 'off') return byStatus;
     return byStatus.filter((n) => {
       const m = mirrorByCountry.get(n);
       if (!m) return false;
-      if (mirrorFilter === 'none') return !m.mirrors;
-      if (mirrorFilter === 'mirroring') return m.mirrors;
       // An entity that both pays and receives answers to either method.
       return m.mirrors && m.methods.has(mirrorFilter);
     });
@@ -350,7 +384,7 @@ export function TreasuryOverview({
   const outlookSeries: ChartSeries[] = useMemo(() => {
     void dataVersion;
     if (!template) return [];
-    const { values } = consolidatedValues(week, template, countries);
+    const { values } = consolidatedValues(week, template, countries, ownFiguresMode);
     return [
       {
         label: 'Inflows',
@@ -374,7 +408,7 @@ export function TreasuryOverview({
         kind: 'line',
       },
     ];
-  }, [template, week, dayLabels, numCats, countries, dataVersion]);
+  }, [template, week, dayLabels, numCats, countries, ownFiguresMode, dataVersion]);
 
   // Forecast vs forecast, folded into the same axes: each selected cycle adds
   // its cumulative net line, aligned on the calendar days the two share.
@@ -411,7 +445,7 @@ export function TreasuryOverview({
     // horizon ran out — a gap, not a zero.
     const step = rollShift(template);
     return compareWeeks.map((key, i) => {
-      const past = consolidatedValues(key, template, countries);
+      const past = consolidatedValues(key, template, countries, ownFiguresMode);
       const back = compareOptions.findIndex((o) => o.week === key) + 1;
       return {
         label: `${weekLabelShort(key)} · cumulative net`,
@@ -426,23 +460,25 @@ export function TreasuryOverview({
         dashed: true,
       };
     });
-  }, [compareWeeks, template, dayLabels, numCats, numPeriods, compareOptions, countries, dataVersion]);
+  }, [compareWeeks, template, dayLabels, numCats, numPeriods, compareOptions, countries, ownFiguresMode, dataVersion]);
 
   const matrix = useMemo(
     () => {
       void dataVersion;
-      return template ? categoryCountryMatrix(week, template, countries, periods) : null;
+      return template
+        ? categoryCountryMatrix(week, template, countries, periods, ownFiguresMode)
+        : null;
     },
-    [template, week, countries, periods, dataVersion],
+    [template, week, countries, periods, ownFiguresMode, dataVersion],
   );
 
   // The consolidated four-week outlook as a grid, on the same filters.
   const consolidated = useMemo(
     () => {
       void dataVersion;
-      return template ? consolidatedValues(week, template, countries) : null;
+      return template ? consolidatedValues(week, template, countries, ownFiguresMode) : null;
     },
-    [template, week, countries, dataVersion],
+    [template, week, countries, ownFiguresMode, dataVersion],
   );
 
   /**
@@ -553,23 +589,32 @@ export function TreasuryOverview({
               ))}
             </select>
           </div>
-          {/* How a country settles with the rest of the group. A select
-              rather than a fifth segmented row: five options at this width
-              would wrap into two lines of chrome above the numbers. */}
+          {/* How a country settles with the rest of the group. Three options
+              fit a segmented row at this width, so it matches the status
+              toggle beside it rather than being the one select on the bar.
+              One at a time, and pressing the active one lets go of it —
+              which is the off switch, so there is no button for it. */}
           <div className="filter-field">
             <span className="filter-field-label">Intercompany</span>
-            <select
-              className="form-select"
-              value={mirrorFilter}
-              onChange={(e) => setMirrorFilter(e.target.value as MirrorFilter)}
-              aria-label="Filter by intercompany settlement"
-            >
+            <div className="seg-toggle" role="group" aria-label="Filter by intercompany settlement">
               {MIRROR_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
+                <button
+                  key={o.value}
+                  className={mirrorFilter === o.value ? 'active' : ''}
+                  aria-pressed={mirrorFilter === o.value}
+                  title={
+                    mirrorFilter === o.value
+                      ? `${o.title} — press again to show everything`
+                      : o.title
+                  }
+                  onClick={() =>
+                    setMirrorFilter((prev) => (prev === o.value ? 'all' : o.value))
+                  }
+                >
                   {o.label}
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
           </div>
           <div className="filter-field">
             <span className="filter-field-label">Forecast Status</span>

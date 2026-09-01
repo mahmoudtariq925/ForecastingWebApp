@@ -27,7 +27,7 @@ import {
 } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle } from './cycleService';
-import { intercompanyCells } from './intercompanyService';
+import { intercompanyCells, ownFiguresOnly } from './intercompanyService';
 import { customRowsOf, normalizeCustomRows, sectionKey } from './customRows';
 import { DEMO_DATA } from './dataSource';
 import { listLegalEntities } from './legalEntityService';
@@ -543,6 +543,12 @@ export function consolidatedValues(
   display: ForecastTemplate,
   /** Restrict the aggregate to these entities (role scoping); omit for all. */
   onlyEntities?: string[],
+  /**
+   * Leave out everything mirrored in from other entities, so the total is what
+   * the countries themselves forecast rather than what the group expects to
+   * move. See `ownFiguresOnly`.
+   */
+  ownRowsOnly = false,
 ): ConsolidatedData {
   const templates = loadTemplates();
   const overrides = loadApprovals(activeCycleId());
@@ -602,7 +608,8 @@ export function consolidatedValues(
           : undefined) ?? displayIdxBySection.get(sectionKey(row.section));
       if (target !== undefined) remap.set(template.categories.length + i, target);
     });
-    for (const [key, v] of Object.entries(sub.values)) {
+    const figures = ownRowsOnly ? ownFiguresOnly(sub, template) : sub.values;
+    for (const [key, v] of Object.entries(figures)) {
       if (!v) continue;
       const [c, d] = key.split('-').map(Number);
       const target = remap.get(c);
