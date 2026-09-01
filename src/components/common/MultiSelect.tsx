@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { pushEscapeLayer } from './escapeLayer';
 
 interface MultiSelectProps {
   /** Accessible name for the control (the visible label sits beside it). */
@@ -68,13 +69,28 @@ export function MultiSelect({
       if (!wrapRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      // Closing the panel is the whole of what this Escape does; a dialog
+      // behind it must not also take it as "close me".
+      e.stopPropagation();
+      setOpen(false);
     };
+    /**
+     * Escape belongs to the panel while the panel is open.
+     *
+     * Without this the dialog it sits inside answers first — it listens in the
+     * capture phase, which beats a bubble-phase listener however deeply nested
+     * — and closes itself, taking the panel with it. The claim is released on
+     * cleanup, so it lifts however the panel closes: a pick, a click outside,
+     * Escape, or the whole screen going away.
+     */
+    const releaseEscape = pushEscapeLayer();
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', onKey);
+      releaseEscape();
     };
   }, [open]);
 

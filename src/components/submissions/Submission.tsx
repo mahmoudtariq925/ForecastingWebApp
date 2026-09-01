@@ -6,6 +6,7 @@ import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { ActionMenu } from '../common/ActionMenu';
 import { QuestionStrip } from './QuestionStrip';
+import { MirrorTable } from './MirrorTable';
 import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
@@ -50,7 +51,9 @@ import {
   isOpenQuestion,
   isVariance,
   loadDraftCheckpoint,
+  hasSeenStartChoice,
   markRequestsSeen,
+  markStartChoiceSeen,
   openQuestionEntries,
   peekSubmission,
   priorValueFor,
@@ -67,7 +70,9 @@ import {
   mirrorFingerprint,
   mirrorPrefsFiltered,
   mirrorPrefsOf,
+  mirrorPrefsToggling,
   mirrorProblem,
+  mirrorStatements,
   rebuildMirrors,
   syncMirrors,
   type MirrorPrefs,
@@ -628,6 +633,12 @@ function SubmissionEditor({
   // The chart sits above the grid and folds away — a submitter filling in
   // twenty days of numbers wants the rows, not the picture, most of the time.
   const [chartOpen, setChartOpen] = useState(false);
+  /**
+   * The intercompany table beside the outlook. Folded by default: the chart is
+   * what the card is for, and it keeps its full width until the table is
+   * actually wanted.
+   */
+  const [mirrorsOpen, setMirrorsOpen] = useState(false);
   /** Earlier forecast weeks overlaid on the chart for comparison. */
   const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
   const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
@@ -1063,7 +1074,7 @@ function SubmissionEditor({
     });
   };
 
-  const copyPrior = async () => {
+  const copyPrior = async (announce = true) => {
     const prevKey = prevWeekKey(week);
     const stored = loadSubmission(prevKey, entity, template.id);
     const hasStored = stored !== null;
@@ -1099,11 +1110,72 @@ function SubmissionEditor({
     setRestoreVersion((n) => n + 1);
     persist({ values: nextValues, flags: new Set(), customRows: nextRows });
     lastEditedCell.current = null;
+    // Silent when it IS the opening choice: the answer to "start from last
+    // week?" is the grid, not a dialog acknowledging the dialog just closed.
+    if (!announce) return;
     await notify({
       tone: 'success',
       message: hasStored
         ? `Copied your saved ${weekLabel(prevKey)} submission. Edit as needed.`
         : `Loaded prior-week values for ${weekLabel(prevKey)}. Edit as needed.`,
+    });
+  };
+
+  // ---- How this week starts ----------------------------------------------
+  /**
+   * The first time a submitter opens a given week's forecast, it asks what to
+   * start it from: last week's figures, or nothing.
+   *
+   * Once per (entity, week, template) and only ever BEFORE any work exists on
+   * it — which is what makes "start blank" safe to offer as a button rather
+   * than as a confirm. Reopening the forecast never asks again; Copy Prior and
+   * Reset are still there under More for anyone who wants to change their mind
+   * later.
+   */
+  const [startChoice, setStartChoice] = useState(false);
+  const startAskedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const target = `${week}:${entity}:${template.id}`;
+    if (startAskedFor.current === target) return;
+    startAskedFor.current = target;
+    // Only the person who fills it in, only while it is still theirs to fill.
+    if (!canEditCells || !editorActions) return;
+    if (hasSeenStartChoice(week, entity, template.id)) return;
+    setStartChoice(true);
+  }, [week, entity, template.id, canEditCells, editorActions]);
+
+  const answerStartChoice = async (carryOver: boolean) => {
+    markStartChoiceSeen(week, entity, template.id);
+    setStartChoice(false);
+    if (carryOver) {
+      await copyPrior(false);
+      return;
+    }
+    // Start blank: every editable cell cleared, the submitter's own rows and
+    // their figures with them. Mirrored rows stay — they are what other
+    // entities have said about this week, not this forecast's own work.
+    pushUndo();
+    lastEditedCell.current = null;
+    const mirrors = rows.filter((r) => !isOwnRow(r));
+    let nextValues: GridValues = {};
+    mirrors.forEach((row, i) => {
+      nextValues = withRowValues(
+        nextValues,
+        numCats + i,
+        numPeriods,
+        rowValues(template, rows, row.id, values, numPeriods),
+      );
+    });
+    setValues(nextValues);
+    setFlags(new Set());
+    setRows(mirrors);
+    setStartingBalance(null);
+    setRestoreVersion((n) => n + 1);
+    persist({
+      values: nextValues,
+      flags: new Set(),
+      customRows: mirrors,
+      startingBalance: null,
     });
   };
 
@@ -1280,6 +1352,21 @@ function SubmissionEditor({
   const mirrorSources = useMemo(
     () => entityChoices.map((o) => o.name).sort((a, b) => a.localeCompare(b)),
     [entityChoices],
+  );
+  /**
+   * What the rest of the group STATES about this week, carried or not, with
+   * the same statement one and two cycles back.
+   *
+   * Read off the counterparties' own forecasts rather than off this one, so a
+   * statement this forecast has declined is still listed — which is the whole
+   * point of a table you can add from. Recomputed when the rows change so
+   * taking one in or out is reflected immediately.
+   */
+  const statements = useMemo(
+    () => (hasIntercompany ? mirrorStatements(entity, week, template) : []),
+    // `rows` is what changes when a statement is taken in or dropped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasIntercompany, entity, week, template, rows],
   );
   /** The counterparties whose rows are actually in the grid right now. */
   const mirroredHere = useMemo(
@@ -2785,13 +2872,77 @@ function SubmissionEditor({
                   stacked
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
-                  // and carrying the week's net so it is read, not estimated.
+                  // and carrying the week's CLOSING BALANCE so it is read,
+                  // not estimated. They used to carry the day's net, which is
+                  // one of the columns already drawn underneath them and left
+                  // four unlabelled figures over a two-series chart with
+                  // nothing saying which line they belonged to. Where the
+                  // balance is running, the number worth printing at a week
+                  // edge is where the cash stands at the end of it.
                   emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
                   // ...which also makes them the dates worth printing, with
                   // the day the horizon opens on.
                   markedLabelsOnly
-                  slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
+                  slotValues={
+                    hasBalance
+                      ? dayLabels.map((dl, d) => (dl.dow === 'Fri' ? balanceByDay[d] : null))
+                      : undefined
+                  }
+                  slotValueLabel="Running balance"
                 />
+              )}
+              {/* What the rest of the group says about this week, beside the
+                  shape of it. Folded, the chart keeps the whole card and this
+                  is a strip down the right-hand edge; opened, the two share
+                  it — because deciding whether to carry a counterparty's
+                  settlement is a decision about the line you are looking at. */}
+              {hasIntercompany && (
+                <aside
+                  className={`outlook-mirrors${mirrorsOpen ? ' is-open' : ''}`}
+                  data-tour="mirror-table"
+                >
+                  <button
+                    className="mirror-collapse-head"
+                    aria-expanded={mirrorsOpen}
+                    title={
+                      mirrorsOpen
+                        ? 'Fold the intercompany table away'
+                        : 'What the rest of the group states about this week'
+                    }
+                    onClick={() => setMirrorsOpen((v) => !v)}
+                  >
+                    <span className="section-caret" aria-hidden="true">
+                      {mirrorsOpen ? '▸' : '◂'}
+                    </span>
+                    <span className="mirror-head-label">Intercompany</span>
+                    {statements.length > 0 && (
+                      <span className="badge-num">
+                        {statements.filter((s) => s.carried).length}/{statements.length}
+                      </span>
+                    )}
+                  </button>
+                  {mirrorsOpen && (
+                    <div className="mirror-body">
+                      <MirrorTable
+                        statements={statements}
+                        dateLabel={(d) =>
+                          dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`
+                        }
+                        periodLabels={{
+                          current: weekLabelShort(week),
+                          prior1: weekLabelShort(prevWeekKey(week)),
+                          prior2: weekLabelShort(prevWeekKey(prevWeekKey(week))),
+                        }}
+                        editable={canEditCells}
+                        onToggle={(counterparty) =>
+                          void applyMirrorPrefs(
+                            mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                </aside>
               )}
             </div>
           )}
@@ -3047,6 +3198,41 @@ function SubmissionEditor({
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {/* How this week starts. Two ways in, asked once, before there is
+          anything on the forecast to lose — which is why neither answer needs
+          a confirm behind it. */}
+      {startChoice && (
+        <Modal
+          open
+          title={`Start ${weekLabelShort(week)}`}
+          onClose={() => void answerStartChoice(false)}
+          footer={null}
+        >
+          <p className="start-choice-lead">How do you want to begin {entity}’s forecast?</p>
+          <div className="start-choice">
+            <button className="start-option" onClick={() => void answerStartChoice(true)}>
+              <span className="start-option-mark" aria-hidden="true">
+                ↻
+              </span>
+              <strong>Carry last week over</strong>
+              <span className="text-muted">
+                {weekLabelShort(prevWeekKey(week))} figures, ready to adjust
+              </span>
+            </button>
+            <button
+              className="start-option"
+              onClick={() => void answerStartChoice(false)}
+            >
+              <span className="start-option-mark" aria-hidden="true">
+                +
+              </span>
+              <strong>Start blank</strong>
+              <span className="text-muted">An empty grid to type into</span>
+            </button>
+          </div>
         </Modal>
       )}
     </>

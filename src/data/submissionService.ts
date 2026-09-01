@@ -1073,6 +1073,31 @@ export function markRequestsSeen(sub: Submission): void {
   saveData(seenKey(sub.period, sub.entity, sub.templateId), new Date().toISOString());
 }
 
+// ---------------------------------------------------------------------------
+// How a week starts. The first time a submitter opens a forecast they are
+// asked whether to carry last week's figures over or begin blank; after that
+// the question is settled and the forecast just opens. Recorded per (week,
+// entity, template) rather than per user: the choice is a property of the
+// forecast, and a second submitter on the same entity is joining work already
+// started, not starting it again.
+// ---------------------------------------------------------------------------
+const startChoiceKey = (period: string, entity: string, templateId: string) =>
+  `startChoice:${period}:${entity}:${templateId}`;
+
+/** Has this forecast already been started one way or the other? */
+export function hasSeenStartChoice(
+  period: string,
+  entity: string,
+  templateId: string,
+): boolean {
+  return loadData<boolean>(startChoiceKey(period, entity, templateId), false) === true;
+}
+
+/** Record that the question has been answered, so it is never asked twice. */
+export function markStartChoiceSeen(period: string, entity: string, templateId: string): void {
+  saveData(startChoiceKey(period, entity, templateId), true);
+}
+
 /**
  * The submitter's answer to the question on a cell, as a new requests map.
  *

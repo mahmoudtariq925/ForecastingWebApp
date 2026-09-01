@@ -90,11 +90,19 @@ interface ChartProps {
   /**
    * A number printed above the column, per slot; null leaves the slot bare.
    *
-   * Used for the week-end figures on the marked slots: a Friday's net is the
-   * number people read off a cash-flow chart, and reading it off the axis by
-   * eye is a guess to the nearest ten thousand.
+   * Used for the week-end figures on the marked slots: reading a week's
+   * closing position off the axis by eye is a guess to the nearest ten
+   * thousand.
    */
   slotValues?: (number | null)[];
+  /**
+   * What those numbers ARE, printed once in the gutter beside them.
+   *
+   * Without it they are four figures floating over a chart with two series
+   * and no way to tell which one they belong to — or whether they belong to
+   * either. One label answers it for all of them.
+   */
+  slotValueLabel?: string;
 }
 
 /** How long a single click waits for a second one before acting. */
@@ -133,6 +141,7 @@ export function Chart({
   emphasis,
   markedLabelsOnly = false,
   slotValues,
+  slotValueLabel,
 }: ChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   // The box the plot is actually drawn into, measured rather than assumed.
@@ -301,7 +310,13 @@ export function Chart({
             />
           ))}
         {/* The figure that belongs to a marked slot, printed where it can be
-            read rather than estimated off the axis. */}
+            read rather than estimated off the axis — and said once, on the
+            left, what the row of them is. */}
+        {slotValueLabel && slotValues?.some((v) => v !== null && v !== undefined) && (
+          <text className="chart-slot-caption" x={PAD_L} y={PAD_T - 3} textAnchor="start">
+            {slotValueLabel}
+          </text>
+        )}
         {slotValues?.map((v, i) =>
           v === null || v === undefined ? null : (
             <text

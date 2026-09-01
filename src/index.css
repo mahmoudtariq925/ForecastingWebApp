@@ -228,6 +228,10 @@
   --sidebar-bg: var(--jde-white);
   --border: rgba(197, 182, 175, 0.45);
   --border-strong: rgba(197, 182, 175, 0.75);
+  /* A rule light enough to repeat down every column of a dense grid without
+     the table reading as a cage. Below --border on purpose: columns are the
+     finer division, rows and group edges outrank them. */
+  --border-hair: rgba(197, 182, 175, 0.26);
 
   /* ---- Text ---- */
   --text: var(--jde-black);
@@ -1127,10 +1131,17 @@ td.num {
 }
 .forecast-grid th,
 .forecast-grid td {
-  /* Horizontal dividers only — vertical rules are reserved for the edges of
-     column groups so the grid reads as rows of numbers, not a cage. */
+  /* A RULED GRID, both ways.
+     Horizontal dividers alone left twenty numeric columns separated by
+     nothing but whitespace: reading across a row was fine, reading DOWN a
+     column meant holding a line with your eye, and a figure and its date
+     were joined only by alignment. A hairline per column — lighter than the
+     row rules, so the rows still lead — makes it a table you can read in
+     either direction. Group edges keep the heavier rule below, so a section
+     boundary still outranks a column boundary. */
   border: none;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border-hair);
   padding: 0;
   min-width: 84px;
   text-align: right;
@@ -1142,6 +1153,11 @@ td.num {
 .forecast-grid th.group-end,
 .forecast-grid td.group-end {
   border-right: 1px solid var(--border);
+}
+/* Nothing to separate past the last column. */
+.forecast-grid tr > th:last-child,
+.forecast-grid tr > td:last-child {
+  border-right: none;
 }
 .forecast-grid thead th {
   position: sticky;
@@ -1558,6 +1574,76 @@ td.num {
   font-size: 9px;
   letter-spacing: 0.06em;
   white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   HOW THIS WEEK STARTS
+
+   Two cards rather than a sentence and a pair of footer buttons: the choice
+   IS the dialog, so it is what the dialog shows. Each says what it does in
+   three words and what you get in a few more, and clicking one is the answer
+   — there is nothing to confirm afterwards, because it is asked before there
+   is anything on the forecast to lose.
+   -------------------------------------------------------------------------- */
+.start-choice-lead {
+  margin-bottom: 16px;
+  color: var(--text-dim);
+}
+.start-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.start-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 16px;
+  text-align: left;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+.start-option:hover {
+  border-color: var(--accent);
+  background: var(--accent-softer);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.start-option strong {
+  font-size: 14px;
+}
+.start-option .text-muted {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.start-option-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 15px;
+}
+.start-option:hover .start-option-mark {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+@media (max-width: 560px) {
+  .start-choice {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* === TEMPLATE BUILDER (spreadsheet editor) === */
@@ -3735,6 +3821,24 @@ tr.entity-row:focus-visible {
 .forecast-grid tr.subtotal-row > td {
   border-bottom: 2px solid var(--border-strong);
 }
+
+/* --- Lines that belong to no section -------------------------------------
+   CAPEX and Other on the standard template. They took a section's banding
+   and a section's indent, so an expanded section ran straight on into them
+   and there was no telling whose lines were whose. They are neither banded
+   nor indented: a plain ground, the label at the column's left edge, and a
+   rule above the first of them where the sections stop. */
+.forecast-grid tr.group-loose > td:not(.variance-flag):not(.comment-requested) {
+  background: var(--bg-elev);
+}
+.forecast-grid tr.group-loose + tr:not(.group-loose) > td,
+.forecast-grid tr:not(.group-loose):not(.section-row) + tr.group-loose > td {
+  border-top: 2px solid var(--border-strong);
+}
+.forecast-grid td.row-label.standalone {
+  padding-left: 12px;
+  font-weight: 600;
+}
 .forecast-grid th.day-h.section-band {
   border-left: 2px solid var(--border-strong);
 }
@@ -3775,6 +3879,43 @@ tr.entity-row:focus-visible {
 .forecast-grid tr.section-row.section-collapsed > td {
   font-weight: 600;
   border-bottom: 2px solid var(--border-strong);
+}
+
+/* ============================================================
+   THE TOTALS BLOCK
+
+   Nothing in here is typed into and all of it is derived, which makes it a
+   different kind of row from every row above it. In the same body as the
+   input rows it read as four more lines of the forecast; here it is a block
+   of its own — its own ground and a heavy rule cutting it off from the
+   entering above.
+
+   Deliberately NOT pinned to the foot of the scroller. The four figures it
+   comes to are already on the summary cards at the top of this card, which
+   is where a reader who only wants the bottom line looks; pinning these as
+   well would spend four rows of a grid that is short of them to say the same
+   thing twice.
+   ============================================================ */
+.forecast-grid tfoot.forecast-totals > tr > td {
+  background: var(--n-50);
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+/* The cut. Drawn on the first row of the block so it sits between the two
+   halves of the grid rather than under the last thing entered. */
+.forecast-grid tfoot.forecast-totals > tr:first-child > td {
+  border-top: 3px solid var(--border-strong);
+  box-shadow: 0 -4px 10px -8px rgba(87, 48, 39, 0.45);
+}
+/* The label column stays frozen horizontally with the rest of its column. */
+.forecast-grid tfoot.forecast-totals > tr > td.row-label {
+  background: var(--n-100);
+}
+/* The closing line is the one the page exists to produce. */
+.forecast-grid tfoot.forecast-totals > tr:last-child > td {
+  border-bottom: none;
+  font-weight: 700;
 }
 
 /* ============================================================
@@ -4373,10 +4514,80 @@ tbody td {
 /* ==========================================================================
    Merged dashboard: clickable stat boxes and the single outlook chart.
    ========================================================================== */
-/* Full width, like the outlook and the matrix below them — the stat boxes are
-   the top of one block, not a narrower thing sitting above it. */
 .kpi-grid.kpi-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* --- The head of the dashboard, in two halves ----------------------------
+   What is being looked at on the left, what it comes to on the right. The
+   three figures used to run full width UNDER the filters, which put a band of
+   chrome between the question and its answer and left the filter bar with a
+   strip of empty space beside its three fields. Half and half, they read as
+   one header: set the scope, see what it makes.
+
+   Below 1100px there is no second half worth having — three stat boxes at a
+   third of a half are four characters wide — so the two stack. */
+.dashboard-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--panel-gap);
+  align-items: start;
+  margin-bottom: var(--panel-gap);
+}
+.dashboard-head > .filter-panel,
+.dashboard-head > .kpi-grid {
+  margin-bottom: 0;
+}
+/* The boxes fill their half rather than sitting at their natural height, so
+   the two halves square off against each other. */
+.dashboard-head .dashboard-stats {
+  height: 100%;
+}
+.dashboard-head .dashboard-stats .kpi-card {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .dashboard-head {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- One colour each ------------------------------------------------------
+   Three white boxes with three numbers on them are told apart by reading all
+   three. A standing colour per box — the ground, the rule down its edge and
+   its label — makes "the commentary one" a thing you look at rather than a
+   thing you find. The VALUE keeps the tone colour (amber when something is
+   outstanding, green when it is clear), so the identity of the box and the
+   state of its number stay two separate signals. */
+.kpi-card.kpi-hue-received {
+  background: linear-gradient(180deg, rgba(35, 89, 156, 0.07), rgba(35, 89, 156, 0.02));
+  border-color: rgba(35, 89, 156, 0.22);
+}
+.kpi-card.kpi-hue-awaiting {
+  background: linear-gradient(180deg, rgba(176, 122, 30, 0.09), rgba(176, 122, 30, 0.03));
+  border-color: rgba(176, 122, 30, 0.24);
+}
+.kpi-card.kpi-hue-commentary {
+  background: linear-gradient(180deg, rgba(63, 98, 35, 0.08), rgba(63, 98, 35, 0.02));
+  border-color: rgba(63, 98, 35, 0.22);
+}
+.kpi-card.kpi-hue-received::before {
+  background: var(--blue);
+}
+.kpi-card.kpi-hue-awaiting::before {
+  background: var(--amber);
+}
+.kpi-card.kpi-hue-commentary::before {
+  background: var(--green);
+}
+.kpi-card.kpi-hue-received .kpi-label {
+  color: var(--blue);
+}
+.kpi-card.kpi-hue-awaiting .kpi-label {
+  color: var(--amber);
+}
+.kpi-card.kpi-hue-commentary .kpi-label {
+  color: var(--green);
 }
 /* Visible to a screen reader, invisible on screen — used where an icon or a
    symbol carries the meaning of a control. */
@@ -4862,6 +5073,16 @@ tbody td {
   font-size: 9.5px;
   font-weight: 600;
   fill: var(--text-dim);
+}
+/* What the row of week-edge figures is. Set in the word face and lighter than
+   the figures themselves, so it reads as their label rather than as one of
+   them. */
+.chart-svg .chart-slot-caption {
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  fill: var(--text-muted);
 }
 .chart-axis-label {
   font-family: var(--sans);
@@ -6372,9 +6593,208 @@ thead th,
 .forecast-entry .forecast-outlook .outlook-body {
   display: grid;
   /* Wide enough for the rail's own widest control ("Compare · Running
-     Balance") to sit inside it rather than push out of it. */
-  grid-template-columns: 250px minmax(0, 1fr);
+     Balance") to sit inside it rather than push out of it. The third column
+     is the intercompany table: a hair over nothing while it is folded — just
+     its own spine — and a real column once it is opened. The chart takes the
+     slack either way, so folding it away gives the plot back exactly the
+     width it had. */
+  grid-template-columns: 250px minmax(0, 1fr) auto;
   align-items: stretch;
+}
+/* Wider once the table is out, so the chart is not squeezed to pay for it. */
+.forecast-entry .forecast-outlook.is-open:has(.outlook-mirrors.is-open) {
+  max-width: 1500px;
+}
+
+/* --- What the group says, beside the shape of the week -------------------- */
+.outlook-mirrors {
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid rgba(197, 182, 175, 0.45);
+  background: #fafaf8;
+  min-width: 0;
+}
+.outlook-mirrors.is-open {
+  /* Enough for five columns of figures without wrapping a country name. */
+  width: clamp(340px, 32vw, 460px);
+}
+/* Folded, the head is a spine down the right-hand edge — the whole control,
+   in the width of a scrollbar's worth of card. */
+.mirror-collapse-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 12px 9px;
+  writing-mode: vertical-rl;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-right: 1px solid transparent;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.mirror-collapse-head:hover {
+  background: var(--accent-softer);
+  color: var(--accent);
+}
+.outlook-mirrors.is-open .mirror-collapse-head {
+  writing-mode: horizontal-tb;
+  border-right: 1px solid rgba(197, 182, 175, 0.45);
+  padding: 10px 12px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  width: 34px;
+}
+.outlook-mirrors.is-open .mirror-head-label,
+.outlook-mirrors.is-open .badge-num {
+  display: none;
+}
+.mirror-collapse-head .section-caret {
+  flex: none;
+}
+.mirror-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+.mirror-lead {
+  font-size: 11px;
+  margin-bottom: 8px;
+  line-height: 1.35;
+}
+.mirror-empty {
+  padding: 18px 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mirror-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.mirror-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.mirror-table th,
+.mirror-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.mirror-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafaf8;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.mirror-table .num {
+  text-align: right;
+  font-family: var(--mono);
+}
+.mirror-table tbody th {
+  font-family: var(--sans);
+  font-weight: 600;
+  color: var(--text);
+}
+.mirror-code {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+/* History: submitted at the time, and not something a closed week can be
+   added to. Set back so the one live figure in the row is the one that reads
+   as a control. */
+.mirror-table td.hist {
+  color: var(--text-muted);
+}
+/* The current figure IS the control. */
+.mirror-take {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.mirror-take:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mirror-take.on {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 600;
+}
+.mirror-take-mark {
+  font-size: 10px;
+  opacity: 0.85;
+}
+.mirror-static {
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.mirror-static.on {
+  color: var(--green);
+  font-weight: 600;
+}
+.mirror-table tr.is-carried > th {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+@media (max-width: 1000px) {
+  /* No room for a third column; the table goes under the plot instead. */
+  .forecast-entry .forecast-outlook .outlook-body {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+  .outlook-mirrors {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid rgba(197, 182, 175, 0.45);
+  }
+  .outlook-mirrors.is-open {
+    width: auto;
+  }
+  .mirror-collapse-head,
+  .outlook-mirrors.is-open .mirror-collapse-head {
+    writing-mode: horizontal-tb;
+    flex-direction: row;
+    width: auto;
+    border-right: none;
+  }
+  .outlook-mirrors.is-open .mirror-head-label,
+  .outlook-mirrors.is-open .badge-num {
+    display: inline-flex;
+  }
+  .outlook-mirrors {
+    flex-direction: column;
+  }
 }
 .forecast-entry .forecast-outlook .outlook-controls {
   display: flex;

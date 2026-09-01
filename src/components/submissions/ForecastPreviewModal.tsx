@@ -337,7 +337,19 @@ export function ForecastPreviewModal({
                 // The week edges and the day the horizon opens on carry the
                 // axis; a date every nth day in between is one nobody chose.
                 markedLabelsOnly
-                slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
+                // The week's closing balance, as on the forecast screen —
+                // where the cash stands at a week edge is the figure worth
+                // printing, and it says so beside them.
+                slotValues={
+                  hasBalance
+                    ? dayLabels.map((dl, d) =>
+                        dl.dow === 'Fri'
+                          ? runningBalance(numCats, values, submission?.startingBalance ?? 0, d)
+                          : null,
+                      )
+                    : undefined
+                }
+                slotValueLabel="Running balance"
               />
             </div>
           </>

@@ -17,6 +17,7 @@
 // ============================================================================
 import type {
   CommentRequest,
+  CustomRow,
   ForecastTemplate,
   Submission,
   SubmissionStatus,
@@ -27,6 +28,9 @@ import { demoCountries } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle, listCycles } from './cycleService';
 import { getOrCreateSubmission, templateForEntity } from './submissionService';
+import { customCatIndex, customRowsOf, isOwnRow } from './customRows';
+import { intercompanySections, syncMirrors } from './intercompanyService';
+import { periodsOf, prevWeekKey, rollShift } from './periods';
 import {
   loadApprovals,
   loadData,
@@ -340,6 +344,142 @@ function seedDemoQuestions(week: string): void {
   saveData(questionsSeededKey(week), true);
 }
 
+// ---------------------------------------------------------------------------
+// The week's intercompany position.
+//
+// A demo with an empty IC Settlements section says nothing about what the
+// section is FOR, and every screen built on it — the mirroring table beside
+// the outlook, the dashboard's settlement filters — opens with nothing in it
+// and reads as broken rather than as empty. So the week opens with real
+// settlements between real group companies.
+//
+// Only the ORIGINATING side is written here. The other half of each is
+// produced by `syncMirrors`, the same code that runs when a submitter types
+// one in, so the seeded state is exactly what a week of genuine use produces
+// rather than an imitation of it that can drift from it.
+// ---------------------------------------------------------------------------
+
+/** Who settles with whom, and roughly how much, on which working day. */
+const DEMO_INTERCOMPANY: { entity: string; counterparty: string; day: number; amount: number }[] = [
+  // The Dutch entity funds two subsidiaries and is paid by a third.
+  { entity: 'Netherlands', counterparty: 'Belgium', day: 2, amount: -1_450 },
+  { entity: 'Netherlands', counterparty: 'Poland', day: 7, amount: -880 },
+  { entity: 'Netherlands', counterparty: 'Germany', day: 12, amount: 2_100 },
+  // Germany settles the quarterly royalty with Italy and pays Austria.
+  { entity: 'Germany', counterparty: 'Italy', day: 3, amount: -3_250 },
+  { entity: 'Germany', counterparty: 'Austria', day: 9, amount: -640 },
+  // The UK is a net receiver this week.
+  { entity: 'United Kingdom', counterparty: 'France', day: 5, amount: 1_780 },
+  { entity: 'United Kingdom', counterparty: 'Spain', day: 14, amount: 920 },
+  // Switzerland runs the treasury pool: in from two, out to one.
+  { entity: 'Switzerland', counterparty: 'Portugal', day: 6, amount: 1_120 },
+  { entity: 'Switzerland', counterparty: 'Italy', day: 11, amount: 1_460 },
+  { entity: 'Switzerland', counterparty: 'France', day: 16, amount: -2_040 },
+  // …and three naming the Netherlands, so the demo submitter's own forecast
+  // has statements to READ as well as ones to make. The mirroring table shows
+  // what the group says about you; an entity nobody names opens it empty.
+  { entity: 'France', counterparty: 'Netherlands', day: 4, amount: -1_260 },
+  { entity: 'Spain', counterparty: 'Netherlands', day: 8, amount: -740 },
+  { entity: 'Italy', counterparty: 'Netherlands', day: 13, amount: 1_580 },
+];
+
+const intercompanySeededKey = (week: string) => `demoIntercompanySeeded:${week}`;
+
+/**
+ * Write one week's intercompany rows onto the entities that entered them, then
+ * let the app mirror each into its counterparty.
+ *
+ * `back` is how many cycles behind the active week this is. Horizons roll
+ * forward a cycle at a time, so the same calendar settlement sits `back·roll`
+ * days further along an older forecast's horizon — which is what puts a
+ * week-on-week comparison in the same column. The amount drifts a little per
+ * cycle so the history reads as a series rather than as the same figure
+ * stamped three times.
+ *
+ * Non-destructive: an entity that has ENTERED settlements of its own is
+ * skipped, so nothing anyone typed is overwritten and re-running costs
+ * nothing.
+ */
+function seedIntercompanyWeek(week: string, back: number): void {
+  const templates = loadTemplates();
+
+  const byEntity = new Map<string, typeof DEMO_INTERCOMPANY>();
+  for (const entry of DEMO_INTERCOMPANY) {
+    const list = byEntity.get(entry.entity);
+    if (list) list.push(entry);
+    else byEntity.set(entry.entity, [entry]);
+  }
+
+  for (const [entity, entries] of byEntity) {
+    const template = templateForEntity(templates, entity);
+    if (!template) continue;
+    const section = intercompanySections(template)[0];
+    if (!section) continue;
+    const stored = loadSubmission(week, entity, template.id);
+    if (!stored) continue;
+    const existing = customRowsOf(stored);
+    // Settlements this entity has ENTERED are somebody's work — leave them be.
+    // Rows it has RECEIVED are not: an entity named by a counterparty earlier
+    // in this same loop already holds their mirror, and treating that as
+    // "already seeded" skipped every entity that happened to be settled with
+    // before its own turn came round.
+    if (existing.some(isOwnRow)) continue;
+    const mirrors = existing.filter((r) => !isOwnRow(r));
+
+    // The received rows keep the indexes they already hold; this entity's own
+    // go after them, which is where `customCatIndex` will look for them.
+    const rows: CustomRow[] = [...mirrors];
+    const values = { ...stored.values };
+    entries.forEach((entry, i) => {
+      // The line the row breaks down: money out sits under the outflow line,
+      // money in under the inflow one, which is what makes the sign and the
+      // section agree.
+      const parent = template.categories.find(
+        (c) =>
+          c.group === section &&
+          c.intercompany === true &&
+          !c.subtotal &&
+          /out/i.test(c.label) === entry.amount < 0,
+      )?.label;
+      const row: CustomRow = {
+        id: `demo-ic-${entity}-${i}`.toLowerCase().replace(/\s+/g, '-'),
+        section,
+        ...(parent ? { parent } : {}),
+        label: entry.counterparty,
+        entity: entry.counterparty,
+      };
+      rows.push(row);
+      // The same calendar day, further along an older horizon.
+      const day = entry.day + back * rollShift(template);
+      if (day >= periodsOf(template).count) return;
+      // A little drift per cycle, so the history is a series rather than the
+      // same figure stamped three times.
+      const amount = Math.round(entry.amount * (1 - back * 0.12));
+      values[`${customCatIndex(template, mirrors.length + i)}-${day}`] = amount;
+    });
+
+    saveSubmission({ ...stored, customRows: rows, values });
+    // The other half of every one of them, written by the app's own mirroring.
+    syncMirrors({ period: week, entity, template, rows, values });
+  }
+}
+
+/**
+ * The active week's settlements, and the two cycles behind it.
+ *
+ * The mirroring table shows a statement against what the same counterparty
+ * said one and two cycles ago; seeding only the current week left those two
+ * columns reading "—" everywhere, which says the feature does not work rather
+ * than that the group is new to settling.
+ */
+function seedDemoIntercompany(week: string): void {
+  if (loadData<boolean>(intercompanySeededKey(week), false)) return;
+  seedIntercompanyWeek(prevWeekKey(prevWeekKey(week)), 2);
+  seedIntercompanyWeek(prevWeekKey(week), 1);
+  seedIntercompanyWeek(week, 0);
+  saveData(intercompanySeededKey(week), true);
+}
+
 /**
  * Give every closed cycle behind the active one a complete, approved set of
  * forecasts.
@@ -379,9 +519,11 @@ export function seedDemoWorkflow(week: string): void {
   if (!DEMO_DATA) return;
   seedClosedHistory();
   if (loadData<boolean>(seededKey(week), false)) {
-    // The forecasts were seeded by an earlier version that had no
-    // conversation on them; give this week its questions on the way past.
+    // The forecasts were seeded by an earlier version that had neither a
+    // conversation nor a settlement on them; give this week both on the way
+    // past. Each has its own marker, so neither re-runs once written.
     seedDemoQuestions(week);
+    seedDemoIntercompany(week);
     return;
   }
 
@@ -403,6 +545,9 @@ export function seedDemoWorkflow(week: string): void {
   const cycleId = activeCycle().id;
   saveApprovals(cycleId, { ...loadApprovals(cycleId), ...approvals });
   saveData(seededKey(week), true);
-  // …and the week's conversation, on top of the forecasts just created.
+  // …and the week's conversation and settlements, on the forecasts just
+  // created. Intercompany goes first: mirroring writes into counterparties'
+  // forecasts, and every one of them now exists.
+  seedDemoIntercompany(week);
   seedDemoQuestions(week);
 }
