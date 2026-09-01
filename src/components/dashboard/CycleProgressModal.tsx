@@ -3,6 +3,7 @@ import { Modal } from '../common/Modal';
 import { StatusPill } from '../common/StatusPill';
 import type { RegionProgress } from '../../data/dashboardService';
 import { chasedLabel } from '../../data/cycleService';
+import { stateRowClass } from '../../data/submissionService';
 import type { Entity } from '../../types';
 
 interface CycleProgressModalProps {
@@ -123,7 +124,10 @@ export function CycleProgressModal({
                 {isOpen && (
                   <div className="region-body">
                     {region.countries.map((c) => (
-                      <div className="country-row" key={c.entity.name}>
+                      <div
+                        className={`country-row ${stateRowClass(c.status)}`}
+                        key={c.entity.name}
+                      >
                         <strong className="country-name">{c.entity.name}</strong>
                         <StatusPill status={c.status} />
                         <span className="country-people">

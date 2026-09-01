@@ -4218,6 +4218,57 @@ tr.entity-row:focus-visible {
   background: var(--bg-elev);
   font-size: 13px;
 }
+/* ==========================================================================
+   STATE ROWS — where a forecast stands, read as a colour rather than a word.
+
+   The pill still states it. This is for the other question, the one asked of
+   a whole list at once: who is still missing. A tint plus a 3px edge in the
+   colour the pill already uses answers that by shape, so a submitted country
+   is picked out of eleven without reading a single label.
+
+   Deliberately quiet: the tints sit at ~12% so a coloured row is still a row
+   of numbers, not a warning. Draft is left untinted on purpose — "nothing has
+   happened yet" is the absence of colour, which is also what makes the rows
+   that HAVE moved stand out.
+   ========================================================================== */
+.state-row {
+  transition: background 0.15s ease;
+}
+.state-row.state-submitted {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.state-row.state-approved {
+  background: var(--green-soft);
+  border-color: var(--green);
+  box-shadow: inset 3px 0 0 var(--green);
+}
+.state-row.state-rejected {
+  background: var(--red-soft);
+  border-color: var(--red);
+  box-shadow: inset 3px 0 0 var(--red);
+}
+/* A thread in flight is not a fifth status — it rides on top of whichever
+   colour the row already carries, in the blue used for questions elsewhere. */
+.state-row.has-questions {
+  border-color: var(--blue);
+}
+.state-questions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 /* The same row, carrying a question rather than a country's status: outlined
    in the question blue so a reopened forecast is visibly not a first draft. */
 .todo-question-row {

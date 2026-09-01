@@ -9,6 +9,7 @@ import { listEntities } from '../../data/appData';
 import { activeCycle } from '../../data/cycleService';
 import { useDataVersion } from '../../data/useDataVersion';
 import { assignedEntitiesFor, permissionsFor } from '../../data/session';
+import { collectQuestionGroups, flattenQuestions } from '../../data/questionService';
 import { weekLabel, weekLabelShort } from '../../data/periods';
 import {
   applyApprovalDecision,
@@ -18,6 +19,7 @@ import {
   pendingApprovalCount,
   requesterLabel,
   requesterSummary,
+  stateRowClass,
   submissionGaps,
   submitStoredForecast,
   templateForEntity,
@@ -333,6 +335,14 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
     void version;
     const templates = loadTemplates();
     const overrides = loadApprovals(cycle.id);
+    // Threads still waiting on a reply, per country — the row colours by where
+    // the forecast stands, and carries this as its own mark on top.
+    const openByEntity = new Map<string, number>();
+    for (const q of flattenQuestions(collectQuestionGroups(templates))) {
+      if (q.state === 'awaiting' && q.period === week) {
+        openByEntity.set(q.entity, (openByEntity.get(q.entity) ?? 0) + 1);
+      }
+    }
     return listEntities()
       .filter((e) => scopedEntities.includes(e.name))
       .map((e) => {
@@ -341,6 +351,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           entity: e.name,
           templateId,
           status: entityStatus(e.name, week, templateId, overrides),
+          openQuestions: openByEntity.get(e.name) ?? 0,
         };
       });
   }, [isApprover, scopedEntities, week, cycle, version]);
@@ -630,9 +641,20 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
                     </button>
                     {countriesOpen &&
                       approverRows.map((r) => (
-                        <div className="todo-country-row" key={r.entity}>
+                        <div
+                          className={`todo-country-row ${stateRowClass(r.status, r.openQuestions)}`}
+                          key={r.entity}
+                        >
                           <strong>{r.entity}</strong>
                           <StatusPill status={r.status} />
+                          {r.openQuestions > 0 && (
+                            <span
+                              className="state-questions"
+                              title={`${r.openQuestions} question${r.openQuestions === 1 ? '' : 's'} still waiting on a reply`}
+                            >
+                              {r.openQuestions} open
+                            </span>
+                          )}
                           <span className="row-flex" style={{ marginLeft: 'auto' }}>
                             {r.status === 'approved' ? (
                               <span className="text-muted" style={{ fontSize: 12 }}>
