@@ -38,7 +38,7 @@ import {
 import { loadApprovals, loadTemplates, type ApprovalMap } from '../storage/localStorage';
 import { activeCycleId } from './submissionService';
 import { dayInflows, dayNet, dayOutflows } from '../components/submissions/gridMath';
-import { customRowsOf, gridCatCount } from './customRows';
+import { customRowsOf, isOwnRow, gridCatCount } from './customRows';
 
 /**
  * One country's line in the cycle-progress and approval views.
@@ -81,6 +81,8 @@ function sumsByLabel(
   template: ForecastTemplate,
   sub: Submission,
   selection: number[],
+  /** Leave out rows mirrored in from other entities — see `ownFiguresOnly`. */
+  ownRowsOnly = false,
 ): Map<string, number> {
   const byLabel = new Map<string, number>();
   const add = (label: string, value: number) => {
@@ -96,6 +98,10 @@ function sumsByLabel(
     add(cat.label, categorySum(sub.values, catIdx, selection));
   });
   customRowsOf(sub).forEach((row, i) => {
+    // Somebody else's statement about this entity, which "own rows only"
+    // is asking to leave out. The template's own lines never carry a
+    // mirrored figure — it lands on the row, not on the line above it.
+    if (ownRowsOnly && !isOwnRow(row)) return;
     // The line the row breaks down, or the first line of its section.
     const parent = row.parent?.trim().toLowerCase();
     const target =
@@ -618,6 +624,8 @@ export function categoryCountryMatrix(
   display: ForecastTemplate,
   onlyEntities?: string[],
   days?: number[] | null,
+  /** Count only what each country entered itself — see `ownFiguresOnly`. */
+  ownRowsOnly = false,
 ): CategoryCountryMatrix {
   const templates = loadTemplates();
   const periods = periodsOf(display).count;
@@ -634,7 +642,7 @@ export function categoryCountryMatrix(
   for (const e of entities) {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
-    perCountry.set(e.name, sumsByLabel(template, sub, selection));
+    perCountry.set(e.name, sumsByLabel(template, sub, selection, ownRowsOnly));
   }
 
   const countryTotals: Record<string, number> = {};
