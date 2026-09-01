@@ -62,7 +62,16 @@ import {
   settingsForEntity,
   templatesForEntity,
 } from '../../data/submissionService';
-import { mirrorFingerprint, mirrorProblem, syncMirrors } from '../../data/intercompanyService';
+import {
+  intercompanySections,
+  mirrorFingerprint,
+  mirrorPrefsFiltered,
+  mirrorPrefsOf,
+  mirrorProblem,
+  rebuildMirrors,
+  syncMirrors,
+  type MirrorPrefs,
+} from '../../data/intercompanyService';
 import {
   customRowsOf,
   entityOptions,
@@ -505,6 +514,10 @@ function SubmissionEditor({
   const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
     initial.questionedBy,
   );
+  /** What this forecast takes from its counterparties — see `MirrorPrefs`. */
+  const [mirrorPrefs, setMirrorPrefs] = useState<MirrorPrefs>(() => mirrorPrefsOf(initial));
+  /** The mirroring dialog, open on a copy of the prefs until it is saved. */
+  const [mirrorDraft, setMirrorDraft] = useState<MirrorPrefs | null>(null);
   /**
    * Set when this forecast's figures were changed after it had been handed
    * over: it was withdrawn from approval by that edit and has to go round the
@@ -605,11 +618,6 @@ function SubmissionEditor({
     mode: 'submitting' | 'single';
   } | null>(resumable ? { key: resumable.key, side: 'right', mode: resumable.mode } : null);
   const [flowDraft, setFlowDraft] = useState(resumable?.draft ?? '');
-  /**
-   * Cells still needing a number, spotlit after a submit attempt. null = not
-   * validating; an empty set never happens (nothing to point at → submit).
-   */
-  const [needInput, setNeedInput] = useState<Set<string> | null>(null);
   const [chartOptions, setChartOptions] = useState<ChartOptions>({
     balance: true,
     net: true,
@@ -796,6 +804,7 @@ function SubmissionEditor({
     questionedBy?: ForecastQuestion;
     revisedFrom?: SubmissionStatus;
     customRows?: CustomRow[];
+    mirrorPrefs?: MirrorPrefs;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -818,6 +827,7 @@ function SubmissionEditor({
       // Autosave must not forget the submitter's own rows either: without
       // them their figures are a block of numbers with no lines to sit on.
       customRows: snap.customRows ?? rows,
+      mirrorPrefs: snap.mirrorPrefs ?? mirrorPrefs,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -1260,6 +1270,97 @@ function SubmissionEditor({
   /** The legal entities an intercompany row may name. */
   const entityChoices = useMemo(() => entityOptions(entity), [entity]);
 
+  // ---- What this forecast takes from its counterparties -------------------
+  /** Does this template even have an intercompany section to mirror into? */
+  const hasIntercompany = useMemo(
+    () => intercompanySections(template).length > 0,
+    [template],
+  );
+  /** Every counterparty that could mirror into this forecast, by name. */
+  const mirrorSources = useMemo(
+    () => entityChoices.map((o) => o.name).sort((a, b) => a.localeCompare(b)),
+    [entityChoices],
+  );
+  /** The counterparties whose rows are actually in the grid right now. */
+  const mirroredHere = useMemo(
+    () => [...new Set(rows.filter((r) => !isOwnRow(r)).map((r) => r.source as string))],
+    [rows],
+  );
+
+  /**
+   * Tick or untick one counterparty. Empty means EVERY one of them, so
+   * unticking the first of ten writes the other nine down, and ticking the
+   * last one back folds it to empty again — the stored value then goes on
+   * meaning "all", including counterparties configured later.
+   */
+  const toggleMirrorSource = (prefs: MirrorPrefs, name: string): MirrorPrefs => {
+    const current = prefs.sources.length === 0 ? mirrorSources : prefs.sources;
+    const next = current.includes(name)
+      ? current.filter((n) => n !== name)
+      : [...current, name];
+    return { ...prefs, sources: next.length === mirrorSources.length ? [] : next };
+  };
+
+  /**
+   * Take the mirroring settings and make the grid agree with them: rows from
+   * a counterparty that is no longer accepted come out, rows from one that
+   * has just been accepted are pulled in from what they have stored.
+   */
+  const applyMirrorPrefs = async (next: MirrorPrefs) => {
+    pushUndo();
+    lastEditedCell.current = null;
+    const rebuilt = rebuildMirrors({
+      period: week,
+      entity,
+      template,
+      prefs: next,
+      rows,
+      values,
+      flags: [...flags],
+      comments,
+      commentRequests,
+    });
+    const nextFlags = new Set(rebuilt.flags);
+    setMirrorPrefs(next);
+    setRows(rebuilt.rows);
+    setValues(rebuilt.values);
+    setFlags(nextFlags);
+    setComments(rebuilt.comments);
+    setCommentRequests(rebuilt.commentRequests);
+    // The cells hold their own in-progress text; remount so the grid shows
+    // the rows it now has rather than the ones it had.
+    setRestoreVersion((n) => n + 1);
+    // Rows in or out is a change to the FIGURES, so it costs what any other
+    // change to them costs on a forecast already handed over: it comes back
+    // off the approver's desk and goes round again.
+    const changed = rebuilt.added.length > 0 || rebuilt.dropped.length > 0;
+    const withdrawn = changed ? withdrawFromApproval() : {};
+    persist({
+      mirrorPrefs: next,
+      customRows: rebuilt.rows,
+      values: rebuilt.values,
+      flags: nextFlags,
+      comments: rebuilt.comments,
+      commentRequests: rebuilt.commentRequests,
+      ...withdrawn,
+    });
+    setMirrorDraft(null);
+    const said = [
+      rebuilt.added.length > 0 ? `Pulled in ${rebuilt.added.join(', ')}.` : '',
+      rebuilt.dropped.length > 0 ? `Left out ${rebuilt.dropped.join(', ')}.` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    await notify({
+      tone: 'success',
+      message: next.enabled
+        ? `Intercompany mirroring updated.${said ? ` ${said}` : ''}`
+        : `Intercompany mirroring is off — this forecast carries only its own rows.${
+            said ? ` ${said}` : ''
+          }`,
+    });
+  };
+
   /** Add a row under a line — or under the section, where it has no lines. */
   const addRow = (section: string, parent?: string) => {
     if (!canEditRows) return;
@@ -1479,26 +1580,6 @@ function SubmissionEditor({
     [answeredRequests],
   );
 
-  /**
-   * Editable cells with no number in them yet. Subtotals are computed and
-   * intercompany cells are a breakdown rather than a figure, so neither ever
-   * "needs input"; a stored 0 is a real answer and counts as filled.
-   */
-  const emptyCells = useMemo(() => {
-    const out = new Set<string>();
-    template.categories.forEach((cat, catIdx) => {
-      // Subtotals are computed, and an intercompany cell holds a breakdown
-      // rather than a number — see `submissionGaps`, which this must agree
-      // with or the gate and the spotlights would point at different cells.
-      if (cat.subtotal || cat.intercompany) return;
-      for (let d = 0; d < numPeriods; d++) {
-        const key = cellKey(catIdx, d);
-        if (values[key] === undefined) out.add(key);
-      }
-    });
-    return out;
-  }, [template, values, numPeriods]);
-
   // ---- Guided commentary flow (runs on submit) ---------------------------
   // Submitting with unexplained variances used to raise a dialog over the
   // grid. Now the flow works IN the grid: each flagged cell is spotlit in
@@ -1652,7 +1733,6 @@ function SubmissionEditor({
    */
   const finishSubmit = async (snap: Snapshot = {}) => {
     const resubmission = revised;
-    setNeedInput(null);
     setCommentFlow(null);
     setStatus('submitted');
     // Whatever this forecast was before its figures were revised, it is a
@@ -1695,21 +1775,20 @@ function SubmissionEditor({
     else focusFlowCell(remaining[0], 'submitting');
   };
 
+  /**
+   * Send it. The only thing between a submitter and their approver is the
+   * commentary on a variance somebody will ask about anyway.
+   *
+   * An empty cell used to stop the submit and spotlight every one of them.
+   * It is not a gap: a line with nothing happening on it is a nil, which is
+   * most of a treasury grid on most days, and a forecast of 240 cells cannot
+   * be held back for the ones nobody typed a zero into. The figures are the
+   * submitter's to state; the variances are the ones treasury will ask about,
+   * so those are what the flow walks.
+   */
   const submit = async () => {
-    // Point at the gaps before anything else: a missing number is easier to
-    // fix while looking at the grid than to read about in a dialog.
-    if (emptyCells.size > 0 && needInput === null) {
-      setNeedInput(emptyCells);
-      requestAnimationFrame(() => {
-        document
-          .querySelector('.forecast-grid td.cell-spotlit')
-          ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
-      });
-      return;
-    }
     const pending = orderedUncommented();
     if (pending.length > 0) {
-      setNeedInput(null);
       focusFlowCell(pending[0], 'submitting');
       return;
     }
@@ -2161,6 +2240,12 @@ function SubmissionEditor({
         title="Forecast Entry"
         actions={
           <>
+            {/* ONE pill for the state of the forecast. A second badge in a
+                different shape saying "editing · not yet resubmitted" used to
+                sit beside it whenever a submitted forecast was unlocked,
+                which is a thing the panel over the grid says in full — and
+                said it in the styling of a tag rather than of the pills
+                around it. */}
             <StatusPill status={status === 'draft' ? 'submitted' : status} label={statusLabel(status)} />
             {readOnly && <ViewOnlyBadge hint="Read-only — only submitters edit forecasts" />}
             {isSubmitterView && !cycleOpen && (
@@ -2174,9 +2259,6 @@ function SubmissionEditor({
                 label="Figures Locked"
                 hint="Already submitted — press Edit Forecast to change a figure; that withdraws it from approval and you resubmit."
               />
-            )}
-            {handedOver && revising && (
-              <span className="tag tag-editing">Editing · not yet resubmitted</span>
             )}
             <CyclePill
               label="Active cycle"
@@ -2201,28 +2283,6 @@ function SubmissionEditor({
               : flowAnswering
                 ? 'Answering a question'
                 : 'Explaining a variance'}
-          </div>
-        )}
-        {needInput && (
-          <div className="variance-panel needs-input" data-tour="needs-input">
-            <h4>
-              ◉ {needInput.size} cell{needInput.size === 1 ? ' still needs' : 's still need'} a
-              number
-            </h4>
-            <div className="row">
-              <span>
-                The highlighted cells below are empty. Fill them in, or submit anyway if they
-                are genuinely nil for this period.
-              </span>
-              <span className="row-flex">
-                <button className="btn btn-ghost" onClick={() => setNeedInput(null)}>
-                  Keep Editing
-                </button>
-                <button className="btn btn-primary" onClick={submit}>
-                  Submit Anyway
-                </button>
-              </span>
-            </div>
           </div>
         )}
         {/* Handed over, and still changeable: the cycle is open, so a figure
@@ -2343,6 +2403,31 @@ function SubmissionEditor({
                   </span>
                 </button>
               )}
+              {/* A forecast that is NOT carrying everything its counterparties
+                  say about it looks exactly like one that is, and the
+                  difference is real money. So when mirroring is off or
+                  filtered, the toolbar says so — and, for the submitter, is
+                  the way back into the setting. */}
+              {hasIntercompany && mirrorPrefsFiltered(mirrorPrefs) && (
+                <button
+                  className="variance-badge mirror-badge"
+                  title={
+                    mirrorPrefs.enabled
+                      ? `Carrying intercompany rows from ${mirrorPrefs.sources.join(', ')} only`
+                      : 'Intercompany rows mirrored from other entities are not carried into this forecast'
+                  }
+                  disabled={!editorActions}
+                  onClick={() => setMirrorDraft(mirrorPrefs)}
+                >
+                  <span aria-hidden="true">⇄</span>
+                  {mirrorPrefs.enabled
+                    ? `${mirrorPrefs.sources.length} of ${mirrorSources.length}`
+                    : 'off'}
+                  <span className="variance-badge-label">
+                    {mirrorPrefs.enabled ? 'IC sources' : 'IC mirroring'}
+                  </span>
+                </button>
+              )}
               {/* Treasury reads and fixes forecasts but never submits one, so
                   the entry actions are the submitter's alone.
 
@@ -2389,6 +2474,11 @@ function SubmissionEditor({
                   // Only treasury chases an approver — the approver IS the
                   // recipient, and a submitter's approver is emailed on submit.
                   { label: 'Email Approver', onSelect: emailApprover, hidden: !isTreasury },
+                  {
+                    label: 'Intercompany Mirroring…',
+                    onSelect: () => setMirrorDraft(mirrorPrefs),
+                    hidden: !hasIntercompany || !editorActions,
+                  },
                   { label: 'Copy Prior Forecast', onSelect: copyPrior, hidden: !editorActions },
                   { label: 'Reset', onSelect: reset, danger: true, hidden: !editorActions },
                 ]}
@@ -2770,8 +2860,8 @@ function SubmissionEditor({
                 // submitter that conversation is closed, and outlining cells
                 // they have already dealt with reads as more work waiting.
                 answered={isSubmitterView ? undefined : answeredCells}
-                highlight={commentFlow ? new Set([commentFlow.key]) : needInput}
-                highlightTone={commentFlow ? 'comment' : 'input'}
+                highlight={commentFlow ? new Set([commentFlow.key]) : null}
+                highlightTone="comment"
                 collapsedGroups={collapsedGroups}
                 onToggleGroup={toggleGroup}
                 startingBalance={startingBalance}
@@ -2800,6 +2890,86 @@ function SubmissionEditor({
         </div>
 
       </div>
+
+      {/* What this forecast carries from the other side of the group. The
+          rows are somebody else's statement about your figures, and taking
+          them is a decision: a country reconciling with two counterparties
+          does not want the other seven landing in the middle of it. */}
+      <Modal
+        open={mirrorDraft !== null}
+        title="Intercompany Mirroring"
+        onClose={() => setMirrorDraft(null)}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setMirrorDraft(null)}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => mirrorDraft && void applyMirrorPrefs(mirrorDraft)}
+            >
+              Apply
+            </button>
+          </>
+        }
+      >
+        {mirrorDraft && (
+          <>
+            <p className="text-dim" style={{ marginBottom: 14 }}>
+              When a counterparty forecasts a settlement with {entity}, that row is mirrored
+              into this forecast with the sign flipped — they enter it, you read it, and both
+              sides hold the same figure. This is what this forecast takes.
+            </p>
+            <label className="series-check" style={{ marginBottom: 14 }}>
+              <input
+                type="checkbox"
+                checked={mirrorDraft.enabled}
+                onChange={(e) =>
+                  setMirrorDraft({ ...mirrorDraft, enabled: e.target.checked })
+                }
+              />
+              Include intercompany rows mirrored from other entities
+            </label>
+            {/* A list rather than the app's dropdown multi-select: this is the
+                answer to "whose figures am I carrying?", which is a thing to
+                read at a glance and not to open a menu for. (A dropdown inside
+                a dialog also opens over the buttons under it.) */}
+            <div className="form-group" style={{ marginBottom: 8 }}>
+              <label className="form-label">
+                Counterparties to take rows from
+                <span className="text-muted" style={{ marginLeft: 8, textTransform: 'none' }}>
+                  {mirrorDraft.sources.length === 0
+                    ? 'all of them'
+                    : `${mirrorDraft.sources.length} of ${mirrorSources.length}`}
+                </span>
+              </label>
+              <div className={`mirror-sources${mirrorDraft.enabled ? '' : ' is-off'}`}>
+                {mirrorSources.map((name) => (
+                  <label className="series-check" key={name}>
+                    <input
+                      type="checkbox"
+                      disabled={!mirrorDraft.enabled}
+                      checked={
+                        mirrorDraft.sources.length === 0 || mirrorDraft.sources.includes(name)
+                      }
+                      onChange={() => setMirrorDraft(toggleMirrorSource(mirrorDraft, name))}
+                    />
+                    {name}
+                    {mirroredHere.includes(name) && (
+                      <span className="mirror-source-note">carrying rows</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+              <span className="text-muted" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                Leaving one out removes the rows it has mirrored here and stops new ones
+                arriving until you take it back. That counterparty is told, so a figure they
+                entered does not simply vanish on their side.
+              </span>
+            </div>
+          </>
+        )}
+      </Modal>
 
       {/* Two readers, two dialogs — and neither of them is the submitter, who
           works their own forecast in the dock beside the grid. Treasury and
