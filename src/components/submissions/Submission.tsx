@@ -2785,12 +2785,23 @@ function SubmissionEditor({
                   stacked
                   // Fridays are the week-to-week reference point on a daily
                   // horizon — marked here as they are on treasury's outlook,
-                  // and carrying the week's net so it is read, not estimated.
+                  // and carrying the week's CLOSING BALANCE so it is read,
+                  // not estimated. They used to carry the day's net, which is
+                  // one of the columns already drawn underneath them and left
+                  // four unlabelled figures over a two-series chart with
+                  // nothing saying which line they belonged to. Where the
+                  // balance is running, the number worth printing at a week
+                  // edge is where the cash stands at the end of it.
                   emphasis={dayLabels.map((dl) => dl.dow === 'Fri')}
                   // ...which also makes them the dates worth printing, with
                   // the day the horizon opens on.
                   markedLabelsOnly
-                  slotValues={dayLabels.map((dl, d) => (dl.dow === 'Fri' ? netByDay[d] : null))}
+                  slotValues={
+                    hasBalance
+                      ? dayLabels.map((dl, d) => (dl.dow === 'Fri' ? balanceByDay[d] : null))
+                      : undefined
+                  }
+                  slotValueLabel="Running balance"
                 />
               )}
             </div>

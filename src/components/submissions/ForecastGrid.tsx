@@ -858,6 +858,36 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
             </td>
           </tr>
         )}
+        {dayComments !== undefined && (
+          <tr>
+            <td className="row-label">Comments</td>
+            {dayLabels.map((_dl, d) => (
+              <td key={d} className={`cell comment-cell${columnClass(d)}`}>
+                {editable ? (
+                  <input
+                    type="text"
+                    className="comment-input"
+                    value={dayComments?.[String(d)] ?? ''}
+                    onChange={(e) => onChangeDayComment?.(d, e.target.value)}
+                  />
+                ) : (
+                  <span style={{ padding: '0 8px' }}>{dayComments?.[String(d)] ?? ''}</span>
+                )}
+              </td>
+            ))}
+            <td className="cell" style={{ background: 'var(--n-100)' }} />
+          </tr>
+        )}
+      </tbody>
+      {/* WHAT THE FORECAST ADDS UP TO, in its own block.
+          These four are a different kind of row from everything above them —
+          nothing here is typed into, and all of it is derived. Sitting in the
+          same body as the input rows they read as four more lines of the
+          forecast, and the eye had to find where the entering stopped and the
+          arithmetic began. A `tfoot` puts them under their own rule, on their
+          own ground, and pins them to the foot of the scrolling grid so the
+          bottom line is readable without scrolling to it. */}
+      <tfoot className="forecast-totals">
         {computedRows.map((row) => {
           const rowTotal =
             row.label === 'Closing Balance'
@@ -886,27 +916,7 @@ function DaysAcrossGrid(props: ForecastGridProps & { scales: GridScales }) {
             </tr>
           );
         })}
-        {dayComments !== undefined && (
-          <tr>
-            <td className="row-label">Comments</td>
-            {dayLabels.map((_dl, d) => (
-              <td key={d} className={`cell comment-cell${columnClass(d)}`}>
-                {editable ? (
-                  <input
-                    type="text"
-                    className="comment-input"
-                    value={dayComments?.[String(d)] ?? ''}
-                    onChange={(e) => onChangeDayComment?.(d, e.target.value)}
-                  />
-                ) : (
-                  <span style={{ padding: '0 8px' }}>{dayComments?.[String(d)] ?? ''}</span>
-                )}
-              </td>
-            ))}
-            <td className="cell" style={{ background: 'var(--n-100)' }} />
-          </tr>
-        )}
-      </tbody>
+      </tfoot>
     </table>
   );
 }
@@ -957,6 +967,17 @@ function GroupRows({
   // Alternating tint so one section is visibly a different block from the
   // next, rather than twelve identical rows running together.
   const band = groupIndex % 2 === 0 ? ' band-a' : ' band-b';
+  /**
+   * A line that belongs to no section — CAPEX and Other on the standard
+   * template.
+   *
+   * It took the same tint and the same indent as the lines INSIDE a section,
+   * so expanding a section ran its contents straight on into the loose lines
+   * underneath with nothing to say where one ended and the other began. It
+   * gets its own ground and sits at the label column's left edge, where a
+   * line that is nobody's child belongs.
+   */
+  const loose = !group.label;
 
   return (
     <>
@@ -1091,13 +1112,15 @@ function GroupRows({
             <Fragment key={catIdx}>
             <tr
               className={
-                band + (isSubtotal ? ' subtotal-row' : '') + (custom ? ' custom-row' : '')
+                (loose ? ' group-loose' : band) +
+                (isSubtotal ? ' subtotal-row' : '') +
+                (custom ? ' custom-row' : '')
               }
             >
               <td
-                className={`row-label ${isSubtotal ? 'subtotal' : 'indent'}${
-                  custom ? ' row-label-custom' : ''
-                }`}
+                className={`row-label ${
+                  isSubtotal ? 'subtotal' : loose ? 'standalone' : 'indent'
+                }${custom ? ' row-label-custom' : ''}`}
               >
                 <RowName catIdx={catIdx} props={props} />
                 {/* A row breaks down a LINE, so the `+` sits on the line —
@@ -1498,6 +1521,13 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
           </tr>
           </Fragment>
         ))}
+      </tbody>
+      {/* The horizon's arithmetic, under its own rule — see the note on the
+          other orientation's `tfoot`. Dates run down the rows here, so what
+          separates is the LAST rows rather than the last columns, but it is
+          the same distinction: above, what was entered; below, what it comes
+          to. */}
+      <tfoot className="forecast-totals">
         {showColumnTotals && (
           <tr className="column-totals-row">
             <td className="row-label total">Column Total</td>
@@ -1548,7 +1578,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
             </td>
           )}
         </tr>
-      </tbody>
+      </tfoot>
     </table>
   );
 }

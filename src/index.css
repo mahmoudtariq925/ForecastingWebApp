@@ -228,6 +228,10 @@
   --sidebar-bg: var(--jde-white);
   --border: rgba(197, 182, 175, 0.45);
   --border-strong: rgba(197, 182, 175, 0.75);
+  /* A rule light enough to repeat down every column of a dense grid without
+     the table reading as a cage. Below --border on purpose: columns are the
+     finer division, rows and group edges outrank them. */
+  --border-hair: rgba(197, 182, 175, 0.26);
 
   /* ---- Text ---- */
   --text: var(--jde-black);
@@ -1127,10 +1131,17 @@ td.num {
 }
 .forecast-grid th,
 .forecast-grid td {
-  /* Horizontal dividers only — vertical rules are reserved for the edges of
-     column groups so the grid reads as rows of numbers, not a cage. */
+  /* A RULED GRID, both ways.
+     Horizontal dividers alone left twenty numeric columns separated by
+     nothing but whitespace: reading across a row was fine, reading DOWN a
+     column meant holding a line with your eye, and a figure and its date
+     were joined only by alignment. A hairline per column — lighter than the
+     row rules, so the rows still lead — makes it a table you can read in
+     either direction. Group edges keep the heavier rule below, so a section
+     boundary still outranks a column boundary. */
   border: none;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border-hair);
   padding: 0;
   min-width: 84px;
   text-align: right;
@@ -1142,6 +1153,11 @@ td.num {
 .forecast-grid th.group-end,
 .forecast-grid td.group-end {
   border-right: 1px solid var(--border);
+}
+/* Nothing to separate past the last column. */
+.forecast-grid tr > th:last-child,
+.forecast-grid tr > td:last-child {
+  border-right: none;
 }
 .forecast-grid thead th {
   position: sticky;
@@ -3735,6 +3751,24 @@ tr.entity-row:focus-visible {
 .forecast-grid tr.subtotal-row > td {
   border-bottom: 2px solid var(--border-strong);
 }
+
+/* --- Lines that belong to no section -------------------------------------
+   CAPEX and Other on the standard template. They took a section's banding
+   and a section's indent, so an expanded section ran straight on into them
+   and there was no telling whose lines were whose. They are neither banded
+   nor indented: a plain ground, the label at the column's left edge, and a
+   rule above the first of them where the sections stop. */
+.forecast-grid tr.group-loose > td:not(.variance-flag):not(.comment-requested) {
+  background: var(--bg-elev);
+}
+.forecast-grid tr.group-loose + tr:not(.group-loose) > td,
+.forecast-grid tr:not(.group-loose):not(.section-row) + tr.group-loose > td {
+  border-top: 2px solid var(--border-strong);
+}
+.forecast-grid td.row-label.standalone {
+  padding-left: 12px;
+  font-weight: 600;
+}
 .forecast-grid th.day-h.section-band {
   border-left: 2px solid var(--border-strong);
 }
@@ -3775,6 +3809,43 @@ tr.entity-row:focus-visible {
 .forecast-grid tr.section-row.section-collapsed > td {
   font-weight: 600;
   border-bottom: 2px solid var(--border-strong);
+}
+
+/* ============================================================
+   THE TOTALS BLOCK
+
+   Nothing in here is typed into and all of it is derived, which makes it a
+   different kind of row from every row above it. In the same body as the
+   input rows it read as four more lines of the forecast; here it is a block
+   of its own — its own ground and a heavy rule cutting it off from the
+   entering above.
+
+   Deliberately NOT pinned to the foot of the scroller. The four figures it
+   comes to are already on the summary cards at the top of this card, which
+   is where a reader who only wants the bottom line looks; pinning these as
+   well would spend four rows of a grid that is short of them to say the same
+   thing twice.
+   ============================================================ */
+.forecast-grid tfoot.forecast-totals > tr > td {
+  background: var(--n-50);
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+/* The cut. Drawn on the first row of the block so it sits between the two
+   halves of the grid rather than under the last thing entered. */
+.forecast-grid tfoot.forecast-totals > tr:first-child > td {
+  border-top: 3px solid var(--border-strong);
+  box-shadow: 0 -4px 10px -8px rgba(87, 48, 39, 0.45);
+}
+/* The label column stays frozen horizontally with the rest of its column. */
+.forecast-grid tfoot.forecast-totals > tr > td.row-label {
+  background: var(--n-100);
+}
+/* The closing line is the one the page exists to produce. */
+.forecast-grid tfoot.forecast-totals > tr:last-child > td {
+  border-bottom: none;
+  font-weight: 700;
 }
 
 /* ============================================================
@@ -4862,6 +4933,16 @@ tbody td {
   font-size: 9.5px;
   font-weight: 600;
   fill: var(--text-dim);
+}
+/* What the row of week-edge figures is. Set in the word face and lighter than
+   the figures themselves, so it reads as their label rather than as one of
+   them. */
+.chart-svg .chart-slot-caption {
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  fill: var(--text-muted);
 }
 .chart-axis-label {
   font-family: var(--sans);
