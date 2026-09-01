@@ -210,15 +210,24 @@
      and the BANDS inside a card (toolbars, table headers). The page used to
      be the same cream as those bands, so a card's own toolbar merged with the
      background behind the card and every screen read as one continuous
-     surface. The page is a shade deeper than the palette cream — mixed
-     toward the taupe, so it stays in the family — and cards keep white. */
-  --bg: #f1eae2;
+     surface. The page is a light warm grey — #C5B6AF laid over white at about
+     a fifth, so it stays in the palette's family — and cards keep white. The
+     gap between the two is what draws every edge on the screen.
+
+     These four were the forecast screen's own for a while, and every other
+     screen kept a beige a shade warmer. Two grounds that are nearly the same
+     colour but not quite is the one thing worse than either on its own —
+     moving between screens read as a slight, unexplained shift rather than as
+     one product — so the shift is the app's now. The forecast screen keeps
+     its card treatment (tighter radius, a shadow that casts); what it no
+     longer keeps is a ground of its own. */
+  --bg: #f0eeec;
   --bg-elev: var(--jde-white);
-  --bg-elev-2: var(--jde-cream);
+  --bg-elev-2: #fafaf8;
   --bg-sunken: var(--n-100);
   --sidebar-bg: var(--jde-white);
-  --border: #e0d5ce;
-  --border-strong: var(--jde-taupe);
+  --border: rgba(197, 182, 175, 0.45);
+  --border-strong: rgba(197, 182, 175, 0.75);
 
   /* ---- Text ---- */
   --text: var(--jde-black);
@@ -1783,6 +1792,14 @@ td.num {
 .modal-overlay.show {
   display: flex;
 }
+/* The dialog is a fixed shell around a scrolling middle: the title stays at
+   the top, THE BUTTONS STAY AT THE BOTTOM, and only the content between them
+   moves. The whole dialog used to scroll as one, which put "Submit Forecast"
+   and "Approve Forecast" below a forecast grid and a chart — off the bottom
+   of the screen, reachable only by scrolling to the very end of a dialog
+   whose own content already scrolls. Zooming in made it worse: the taller the
+   content gets against 88vh, the further the one button the dialog exists for
+   sits from where it is read. */
 .modal {
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -1791,9 +1808,13 @@ td.num {
   width: 90%;
   max-width: 520px;
   max-height: 88vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* The body is the scroll container now; the shell clips to its own radius. */
+  overflow: hidden;
 }
 .modal-header {
+  flex: none;
   padding: 20px 24px;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -1806,14 +1827,24 @@ td.num {
   font-weight: 500;
 }
 .modal-body {
+  /* `min-height: 0` or a flex item refuses to shrink below its content and
+     the scrollbar never appears — the dialog just grows past 88vh instead. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 22px 24px;
 }
 .modal-footer {
+  flex: none;
   padding: 16px 24px;
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  /* Sitting over content that scrolls under it, so the edge reads as pinned
+     rather than as the end of the page. */
+  background: var(--bg-elev);
+  box-shadow: 0 -4px 12px -8px rgba(87, 48, 39, 0.35);
 }
 .close-btn {
   color: var(--text-muted);
@@ -4533,25 +4564,35 @@ tbody td {
   text-transform: uppercase;
   color: var(--text-muted);
 }
+/* Rendered into <body> and positioned against the VIEWPORT by the component
+   (see MultiSelect), not laid out beside its button. Inside a dialog the
+   button sits in a body that scrolls and therefore clips, and an absolutely
+   positioned panel adds nothing to that body's scroll height — so whatever
+   ran past the edge was cut off with no way to scroll to it. Fixed, the list
+   gets the room the screen has rather than the room the dialog has.
+
+   Position and height are set inline; the list below takes what is left of
+   that height and scrolls, so the search box and the Clear row stay put.
+   z-index clears the modal layer (100), since it now opens over it. */
 .multi-select-panel {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  max-width: 320px;
+  position: fixed;
+  z-index: 200;
   padding: 6px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .multi-select-search {
   width: 100%;
   margin-bottom: 6px;
 }
 .multi-select-list {
-  max-height: 260px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 .multi-select-option {
@@ -6017,19 +6058,13 @@ thead th,
    and what it sits on, so the toolbars, the outlook and the grid dissolved
    into one continuous sheet and the screen read as having no boxes at all.
 
-   The page is a light warm grey — #C5B6AF laid over white at about a fifth,
-   so it stays in the palette's family — and it is decidedly not the cream it
-   replaced: that one ran 15 points of red over blue and read as beige, this
-   runs 4 and reads as grey with the warmth left in. Cards stay pure white.
-   The gap between the two is what draws every edge on the screen.
-
-   Four tokens carry the shift, so the rules that already read them (panels,
-   sticky header bands, dividers) follow without being restated. */
+   The warm grey that answered that is now the WHOLE APP's ground — it and the
+   three tokens that travel with it live in the palette block at the top of
+   this file, so every screen sits on the same colour and this one has no
+   ground of its own to state. What stays here is the card treatment: the
+   tighter radius and the shadow that actually casts, which a screen that is
+   mostly one very large table needs and a screen of forms does not. */
 .view.forecast-entry {
-  --bg: #f0eeec;
-  --bg-elev-2: #fafaf8;
-  --border: rgba(197, 182, 175, 0.45);
-  --border-strong: rgba(197, 182, 175, 0.75);
   background: var(--bg);
 }
 /* The top bar belongs to the PAGE, not to the first card under it. In white
