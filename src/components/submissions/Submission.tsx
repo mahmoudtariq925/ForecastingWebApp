@@ -9,7 +9,7 @@ import { QuestionStrip } from './QuestionStrip';
 import { MirrorTable } from './MirrorTable';
 import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
-import { RequestCommentaryModal } from './RequestCommentaryModal';
+import { AskQuestionDock } from './AskQuestionDock';
 import {
   categoryGroups,
   cellKey,
@@ -2318,6 +2318,23 @@ function SubmissionEditor({
     </aside>
   );
 
+  /**
+   * The reader's half of that dock: treasury and approvers ASK here, in the
+   * same panel beside the same grid the submitter answers in. It used to be a
+   * dialog over the forecast, which put the numbers being asked about behind
+   * the question being written.
+   */
+  const askDock = canRequestComments && askTarget && varianceCell && (
+    <AskQuestionDock
+      target={askTarget}
+      context={`${entity} · ${weekLabelShort(week)}`}
+      existing={commentRequests[varianceCell.key] ?? null}
+      flagged={flags.has(varianceCell.key)}
+      onClose={() => setVarianceCell(null)}
+      onSent={(request) => onQuestionSent(varianceCell.key, request)}
+    />
+  );
+
   return (
     <>
       {/* The entity lives in the toolbar's selector, and Save/Submit live in
@@ -3037,6 +3054,7 @@ function SubmissionEditor({
               />
             </div>
             {commentFlow?.side === 'right' && commentDock}
+            {askDock}
           </div>
         </div>
 
@@ -3127,16 +3145,7 @@ function SubmissionEditor({
           approvers ASK about a cell (the asking dialog is shared with the
           preview dialog and Comments Review); everybody else who can open a
           cell is reading it. */}
-      {canRequestComments && askTarget && varianceCell ? (
-        <RequestCommentaryModal
-          target={askTarget}
-          context={`${entity} · ${weekLabelShort(week)}`}
-          existing={commentRequests[varianceCell.key] ?? null}
-          flagged={flags.has(varianceCell.key)}
-          onClose={() => setVarianceCell(null)}
-          onSent={(request) => onQuestionSent(varianceCell.key, request)}
-        />
-      ) : (
+      {canRequestComments && askTarget && varianceCell ? null : (
         <Modal
           open={varianceCell !== null}
           title="Variance Detail"

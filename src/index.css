@@ -4014,6 +4014,46 @@ tr.entity-row:focus-visible {
   border-left: none;
   border-right: 1px solid var(--border);
 }
+/* Asking, docked beside the forecast instead of stacked over it. Inside a
+   dialog there is no page column to sit in, so it takes its own border and
+   rounds off rather than running to an edge that is not there. */
+.comment-dock.dock-ask {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elev-2);
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  max-height: 100%;
+}
+.comment-dock-readback .form-label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Grid and question side by side in the preview dialog. Without a question
+   open the grid keeps the full width it always had. */
+.preview-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.preview-body > .preview-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  /* Too narrow to read a grid and a thread beside each other: the question
+     goes under the numbers rather than squeezing both. */
+  .preview-body.with-dock {
+    flex-direction: column;
+  }
+  .preview-body.with-dock .comment-dock.dock-ask {
+    width: 100%;
+    flex-basis: auto;
+  }
+}
 .comment-dock-head {
   display: flex;
   justify-content: space-between;
