@@ -28,7 +28,7 @@ import {
   withRowValues,
 } from './customRows';
 import { listLegalEntities } from './legalEntityService';
-import { periodsOf } from './periods';
+import { periodsOf, prevWeekKey, rollShift } from './periods';
 import { loadSubmission, loadTemplates, saveSubmission } from '../storage/localStorage';
 import { getOrCreateSubmission, isHandedOver, templateForEntity } from './submissionService';
 
@@ -559,4 +559,144 @@ export function rebuildMirrors(args: {
     added,
     dropped,
   };
+}
+
+// ---------------------------------------------------------------------------
+// WHAT THE REST OF THE GROUP SAYS ABOUT YOU
+//
+// Mirroring is pushed: a counterparty types, and their figure lands here. That
+// is fine for carrying a settlement but useless for reading one — a submitter
+// could see what had arrived and nothing about what was on offer, so a
+// counterparty's statement that this forecast had declined was invisible, and
+// the same statement a week ago was invisible whatever the setting.
+//
+// These read the other side directly, for this week and the two behind it, and
+// return every statement whether or not it is currently carried. The table
+// beside the outlook is a view of exactly this.
+// ---------------------------------------------------------------------------
+
+/** One counterparty's statement about this entity, across three weeks. */
+export interface MirrorStatement {
+  /** The counterparty making it. */
+  counterparty: string;
+  /** Their row's id — stable, and what the figures are keyed to. */
+  rowId: string;
+  /** Day indexes on THIS entity's horizon that the statement touches. */
+  days: number[];
+  /** What they state for this week, on our side of the settlement. */
+  current: number;
+  /** The same statement one and two cycles back; null where they made none. */
+  prior1: number | null;
+  prior2: number | null;
+  /** Is this forecast carrying it right now? */
+  carried: boolean;
+}
+
+/** The total a counterparty states about `target` in one week, by day. */
+function statedFigures(
+  source: string,
+  period: string,
+  target: string,
+  templates: ForecastTemplate[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const { row, figures } of statedMirrors(source, period, target, templates)) {
+    for (const [day, v] of Object.entries(figures)) {
+      out[`${row.id}:${day}`] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * Every statement the rest of the group makes about this entity's week, with
+ * the same statement one and two cycles back beside it.
+ *
+ * Horizons roll forward a cycle at a time, so a forecast N cycles back covers
+ * this week's day d at its own day `d + N·roll` — the same alignment the
+ * chart's overlays use. Past the end of that horizon there is no statement to
+ * compare against, which is a gap rather than a zero.
+ */
+export function mirrorStatements(
+  entity: string,
+  period: string,
+  template: ForecastTemplate,
+): MirrorStatement[] {
+  const templates = loadTemplates();
+  const stored = loadSubmission(period, entity, template.id);
+  const carried = new Set(
+    customRowsOf(stored)
+      .filter((r) => !isOwnRow(r) && r.sourceRowId)
+      .map((r) => `${r.source}:${r.sourceRowId}`),
+  );
+  const step = rollShift(template);
+  const priorPeriods = [prevWeekKey(period), prevWeekKey(prevWeekKey(period))];
+
+  const out: MirrorStatement[] = [];
+  for (const legal of listLegalEntities()) {
+    if (legal.name === entity || legal.status !== 'active') continue;
+    for (const { row, figures } of statedMirrors(legal.name, period, entity, templates)) {
+      const days = Object.keys(figures)
+        .map(Number)
+        .filter((d) => Number.isFinite(d))
+        .sort((a, b) => a - b);
+      if (days.length === 0) continue;
+      const current = days.reduce((s, d) => s + (figures[String(d)] ?? 0), 0);
+
+      // The same row, N cycles back, read at the day that lines up with ours.
+      const priorTotal = (back: number): number | null => {
+        const past = statedFigures(legal.name, priorPeriods[back - 1], entity, templates);
+        let sum = 0;
+        let seen = false;
+        for (const d of days) {
+          const v = past[`${row.id}:${d + back * step}`];
+          if (typeof v === 'number') {
+            sum += v;
+            seen = true;
+          }
+        }
+        return seen ? sum : null;
+      };
+
+      out.push({
+        counterparty: legal.name,
+        rowId: row.id,
+        days,
+        current,
+        prior1: priorTotal(1),
+        prior2: priorTotal(2),
+        carried: carried.has(`${legal.name}:${row.id}`),
+      });
+    }
+  }
+  // The biggest settlement first — it is the one worth a decision.
+  out.sort(
+    (a, b) =>
+      Math.abs(b.current) - Math.abs(a.current) ||
+      a.counterparty.localeCompare(b.counterparty),
+  );
+  return out;
+}
+
+/**
+ * The prefs that carry (or stop carrying) one counterparty, given everything
+ * currently on offer.
+ *
+ * `sources: []` means EVERY counterparty, so declining one has to materialise
+ * the list first; accepting the last missing one collapses it back to empty,
+ * or the forecast would silently stop accepting a counterparty added later.
+ */
+export function mirrorPrefsToggling(
+  prefs: MirrorPrefs,
+  counterparty: string,
+  allSources: string[],
+): MirrorPrefs {
+  const accepted = new Set(
+    prefs.enabled ? (prefs.sources.length === 0 ? allSources : prefs.sources) : [],
+  );
+  if (accepted.has(counterparty)) accepted.delete(counterparty);
+  else accepted.add(counterparty);
+  const kept = allSources.filter((s) => accepted.has(s));
+  if (kept.length === 0) return { enabled: false, sources: [] };
+  return { enabled: true, sources: kept.length === allSources.length ? [] : kept };
 }

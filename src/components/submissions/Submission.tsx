@@ -6,6 +6,7 @@ import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { ActionMenu } from '../common/ActionMenu';
 import { QuestionStrip } from './QuestionStrip';
+import { MirrorTable } from './MirrorTable';
 import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { RequestCommentaryModal } from './RequestCommentaryModal';
@@ -69,7 +70,9 @@ import {
   mirrorFingerprint,
   mirrorPrefsFiltered,
   mirrorPrefsOf,
+  mirrorPrefsToggling,
   mirrorProblem,
+  mirrorStatements,
   rebuildMirrors,
   syncMirrors,
   type MirrorPrefs,
@@ -630,6 +633,12 @@ function SubmissionEditor({
   // The chart sits above the grid and folds away — a submitter filling in
   // twenty days of numbers wants the rows, not the picture, most of the time.
   const [chartOpen, setChartOpen] = useState(false);
+  /**
+   * The intercompany table beside the outlook. Folded by default: the chart is
+   * what the card is for, and it keeps its full width until the table is
+   * actually wanted.
+   */
+  const [mirrorsOpen, setMirrorsOpen] = useState(false);
   /** Earlier forecast weeks overlaid on the chart for comparison. */
   const [compareWeeks, setCompareWeeks] = useState<string[]>([]);
   const [compareMetric, setCompareMetric] = useState<CompareMetric>('net');
@@ -1343,6 +1352,21 @@ function SubmissionEditor({
   const mirrorSources = useMemo(
     () => entityChoices.map((o) => o.name).sort((a, b) => a.localeCompare(b)),
     [entityChoices],
+  );
+  /**
+   * What the rest of the group STATES about this week, carried or not, with
+   * the same statement one and two cycles back.
+   *
+   * Read off the counterparties' own forecasts rather than off this one, so a
+   * statement this forecast has declined is still listed — which is the whole
+   * point of a table you can add from. Recomputed when the rows change so
+   * taking one in or out is reflected immediately.
+   */
+  const statements = useMemo(
+    () => (hasIntercompany ? mirrorStatements(entity, week, template) : []),
+    // `rows` is what changes when a statement is taken in or dropped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasIntercompany, entity, week, template, rows],
   );
   /** The counterparties whose rows are actually in the grid right now. */
   const mirroredHere = useMemo(
@@ -2866,6 +2890,59 @@ function SubmissionEditor({
                   }
                   slotValueLabel="Running balance"
                 />
+              )}
+              {/* What the rest of the group says about this week, beside the
+                  shape of it. Folded, the chart keeps the whole card and this
+                  is a strip down the right-hand edge; opened, the two share
+                  it — because deciding whether to carry a counterparty's
+                  settlement is a decision about the line you are looking at. */}
+              {hasIntercompany && (
+                <aside
+                  className={`outlook-mirrors${mirrorsOpen ? ' is-open' : ''}`}
+                  data-tour="mirror-table"
+                >
+                  <button
+                    className="mirror-collapse-head"
+                    aria-expanded={mirrorsOpen}
+                    title={
+                      mirrorsOpen
+                        ? 'Fold the intercompany table away'
+                        : 'What the rest of the group states about this week'
+                    }
+                    onClick={() => setMirrorsOpen((v) => !v)}
+                  >
+                    <span className="section-caret" aria-hidden="true">
+                      {mirrorsOpen ? '▸' : '◂'}
+                    </span>
+                    <span className="mirror-head-label">Intercompany</span>
+                    {statements.length > 0 && (
+                      <span className="badge-num">
+                        {statements.filter((s) => s.carried).length}/{statements.length}
+                      </span>
+                    )}
+                  </button>
+                  {mirrorsOpen && (
+                    <div className="mirror-body">
+                      <MirrorTable
+                        statements={statements}
+                        dateLabel={(d) =>
+                          dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`
+                        }
+                        periodLabels={{
+                          current: weekLabelShort(week),
+                          prior1: weekLabelShort(prevWeekKey(week)),
+                          prior2: weekLabelShort(prevWeekKey(prevWeekKey(week))),
+                        }}
+                        editable={canEditCells}
+                        onToggle={(counterparty) =>
+                          void applyMirrorPrefs(
+                            mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                </aside>
               )}
             </div>
           )}

@@ -28,8 +28,9 @@ import { demoCountries } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle, listCycles } from './cycleService';
 import { getOrCreateSubmission, templateForEntity } from './submissionService';
-import { customCatIndex, customRowsOf } from './customRows';
+import { customCatIndex, customRowsOf, isOwnRow } from './customRows';
 import { intercompanySections, syncMirrors } from './intercompanyService';
+import { periodsOf, prevWeekKey, rollShift } from './periods';
 import {
   loadApprovals,
   loadData,
@@ -374,20 +375,32 @@ const DEMO_INTERCOMPANY: { entity: string; counterparty: string; day: number; am
   { entity: 'Switzerland', counterparty: 'Portugal', day: 6, amount: 1_120 },
   { entity: 'Switzerland', counterparty: 'Italy', day: 11, amount: 1_460 },
   { entity: 'Switzerland', counterparty: 'France', day: 16, amount: -2_040 },
+  // …and three naming the Netherlands, so the demo submitter's own forecast
+  // has statements to READ as well as ones to make. The mirroring table shows
+  // what the group says about you; an entity nobody names opens it empty.
+  { entity: 'France', counterparty: 'Netherlands', day: 4, amount: -1_260 },
+  { entity: 'Spain', counterparty: 'Netherlands', day: 8, amount: -740 },
+  { entity: 'Italy', counterparty: 'Netherlands', day: 13, amount: 1_580 },
 ];
 
 const intercompanySeededKey = (week: string) => `demoIntercompanySeeded:${week}`;
 
 /**
- * Write the week's intercompany rows onto the entities that entered them, then
+ * Write one week's intercompany rows onto the entities that entered them, then
  * let the app mirror each into its counterparty.
  *
- * Non-destructive: an entity that already carries intercompany rows — seeded
- * before, or added by a user — is skipped entirely, so nothing anyone typed is
- * overwritten and re-running costs nothing.
+ * `back` is how many cycles behind the active week this is. Horizons roll
+ * forward a cycle at a time, so the same calendar settlement sits `back·roll`
+ * days further along an older forecast's horizon — which is what puts a
+ * week-on-week comparison in the same column. The amount drifts a little per
+ * cycle so the history reads as a series rather than as the same figure
+ * stamped three times.
+ *
+ * Non-destructive: an entity that has ENTERED settlements of its own is
+ * skipped, so nothing anyone typed is overwritten and re-running costs
+ * nothing.
  */
-function seedDemoIntercompany(week: string): void {
-  if (loadData<boolean>(intercompanySeededKey(week), false)) return;
+function seedIntercompanyWeek(week: string, back: number): void {
   const templates = loadTemplates();
 
   const byEntity = new Map<string, typeof DEMO_INTERCOMPANY>();
@@ -404,10 +417,18 @@ function seedDemoIntercompany(week: string): void {
     if (!section) continue;
     const stored = loadSubmission(week, entity, template.id);
     if (!stored) continue;
-    // Somebody's settlements are already here — leave them be.
-    if (customRowsOf(stored).length > 0) continue;
+    const existing = customRowsOf(stored);
+    // Settlements this entity has ENTERED are somebody's work — leave them be.
+    // Rows it has RECEIVED are not: an entity named by a counterparty earlier
+    // in this same loop already holds their mirror, and treating that as
+    // "already seeded" skipped every entity that happened to be settled with
+    // before its own turn came round.
+    if (existing.some(isOwnRow)) continue;
+    const mirrors = existing.filter((r) => !isOwnRow(r));
 
-    const rows: CustomRow[] = [];
+    // The received rows keep the indexes they already hold; this entity's own
+    // go after them, which is where `customCatIndex` will look for them.
+    const rows: CustomRow[] = [...mirrors];
     const values = { ...stored.values };
     entries.forEach((entry, i) => {
       // The line the row breaks down: money out sits under the outflow line,
@@ -428,14 +449,34 @@ function seedDemoIntercompany(week: string): void {
         entity: entry.counterparty,
       };
       rows.push(row);
-      values[`${customCatIndex(template, i)}-${entry.day}`] = entry.amount;
+      // The same calendar day, further along an older horizon.
+      const day = entry.day + back * rollShift(template);
+      if (day >= periodsOf(template).count) return;
+      // A little drift per cycle, so the history is a series rather than the
+      // same figure stamped three times.
+      const amount = Math.round(entry.amount * (1 - back * 0.12));
+      values[`${customCatIndex(template, mirrors.length + i)}-${day}`] = amount;
     });
 
     saveSubmission({ ...stored, customRows: rows, values });
     // The other half of every one of them, written by the app's own mirroring.
     syncMirrors({ period: week, entity, template, rows, values });
   }
+}
 
+/**
+ * The active week's settlements, and the two cycles behind it.
+ *
+ * The mirroring table shows a statement against what the same counterparty
+ * said one and two cycles ago; seeding only the current week left those two
+ * columns reading "—" everywhere, which says the feature does not work rather
+ * than that the group is new to settling.
+ */
+function seedDemoIntercompany(week: string): void {
+  if (loadData<boolean>(intercompanySeededKey(week), false)) return;
+  seedIntercompanyWeek(prevWeekKey(prevWeekKey(week)), 2);
+  seedIntercompanyWeek(prevWeekKey(week), 1);
+  seedIntercompanyWeek(week, 0);
   saveData(intercompanySeededKey(week), true);
 }
 

@@ -6593,9 +6593,208 @@ thead th,
 .forecast-entry .forecast-outlook .outlook-body {
   display: grid;
   /* Wide enough for the rail's own widest control ("Compare · Running
-     Balance") to sit inside it rather than push out of it. */
-  grid-template-columns: 250px minmax(0, 1fr);
+     Balance") to sit inside it rather than push out of it. The third column
+     is the intercompany table: a hair over nothing while it is folded — just
+     its own spine — and a real column once it is opened. The chart takes the
+     slack either way, so folding it away gives the plot back exactly the
+     width it had. */
+  grid-template-columns: 250px minmax(0, 1fr) auto;
   align-items: stretch;
+}
+/* Wider once the table is out, so the chart is not squeezed to pay for it. */
+.forecast-entry .forecast-outlook.is-open:has(.outlook-mirrors.is-open) {
+  max-width: 1500px;
+}
+
+/* --- What the group says, beside the shape of the week -------------------- */
+.outlook-mirrors {
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid rgba(197, 182, 175, 0.45);
+  background: #fafaf8;
+  min-width: 0;
+}
+.outlook-mirrors.is-open {
+  /* Enough for five columns of figures without wrapping a country name. */
+  width: clamp(340px, 32vw, 460px);
+}
+/* Folded, the head is a spine down the right-hand edge — the whole control,
+   in the width of a scrollbar's worth of card. */
+.mirror-collapse-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 12px 9px;
+  writing-mode: vertical-rl;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-right: 1px solid transparent;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.mirror-collapse-head:hover {
+  background: var(--accent-softer);
+  color: var(--accent);
+}
+.outlook-mirrors.is-open .mirror-collapse-head {
+  writing-mode: horizontal-tb;
+  border-right: 1px solid rgba(197, 182, 175, 0.45);
+  padding: 10px 12px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  width: 34px;
+}
+.outlook-mirrors.is-open .mirror-head-label,
+.outlook-mirrors.is-open .badge-num {
+  display: none;
+}
+.mirror-collapse-head .section-caret {
+  flex: none;
+}
+.mirror-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+.mirror-lead {
+  font-size: 11px;
+  margin-bottom: 8px;
+  line-height: 1.35;
+}
+.mirror-empty {
+  padding: 18px 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mirror-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.mirror-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.mirror-table th,
+.mirror-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.mirror-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafaf8;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.mirror-table .num {
+  text-align: right;
+  font-family: var(--mono);
+}
+.mirror-table tbody th {
+  font-family: var(--sans);
+  font-weight: 600;
+  color: var(--text);
+}
+.mirror-code {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+/* History: submitted at the time, and not something a closed week can be
+   added to. Set back so the one live figure in the row is the one that reads
+   as a control. */
+.mirror-table td.hist {
+  color: var(--text-muted);
+}
+/* The current figure IS the control. */
+.mirror-take {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.mirror-take:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mirror-take.on {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 600;
+}
+.mirror-take-mark {
+  font-size: 10px;
+  opacity: 0.85;
+}
+.mirror-static {
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+.mirror-static.on {
+  color: var(--green);
+  font-weight: 600;
+}
+.mirror-table tr.is-carried > th {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+@media (max-width: 1000px) {
+  /* No room for a third column; the table goes under the plot instead. */
+  .forecast-entry .forecast-outlook .outlook-body {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+  .outlook-mirrors {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid rgba(197, 182, 175, 0.45);
+  }
+  .outlook-mirrors.is-open {
+    width: auto;
+  }
+  .mirror-collapse-head,
+  .outlook-mirrors.is-open .mirror-collapse-head {
+    writing-mode: horizontal-tb;
+    flex-direction: row;
+    width: auto;
+    border-right: none;
+  }
+  .outlook-mirrors.is-open .mirror-head-label,
+  .outlook-mirrors.is-open .badge-num {
+    display: inline-flex;
+  }
+  .outlook-mirrors {
+    flex-direction: column;
+  }
 }
 .forecast-entry .forecast-outlook .outlook-controls {
   display: flex;
