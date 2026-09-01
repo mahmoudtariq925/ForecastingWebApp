@@ -9,7 +9,6 @@ import { categoryGroups, cellKey, dayNet, runningBalance } from './gridMath';
 import { useDataVersion } from '../../data/useDataVersion';
 import {
   getPriorValues,
-  isOpenQuestion,
   openQuestionEntries,
   peekSubmission,
   priorValueFor,
@@ -140,6 +139,18 @@ export function ForecastPreviewModal({
   const openRequests = openQuestionEntries(requests);
   /** Cells whose question has come back, so the answer can be read first. */
   const answered = Object.entries(requests).filter(([key, r]) => r.answeredAt && submission?.comments?.[key]?.trim());
+  /**
+   * The same cells for the grid, so a reply is visible ON the number it is
+   * about. The notes above say which questions came back; without this the
+   * cells they belong to looked untouched, and matching a note to a cell meant
+   * reading the date off it and counting columns.
+   *
+   * Reviewers only — to the submitter an answered question is history, which
+   * is the rule the full forecast screen already applies.
+   */
+  const answeredCells = canRequestComments
+    ? new Set(answered.map(([key]) => key))
+    : undefined;
   const hasBalance = submission?.startingBalance != null;
   const netByDay = dayLabels.map((_dl, d) => dayNet(numCats, values, d));
   // While earlier cycles are laid over it, this week's net is drawn in the
@@ -287,6 +298,7 @@ export function ForecastPreviewModal({
                 values={values}
                 flags={new Set(submission.flags)}
                 requested={new Set(openRequests.map(([key]) => key))}
+                answered={answeredCells}
                 startingBalance={submission.startingBalance}
                 editable={false}
                 onCellClick={canRequestComments ? askCell : undefined}
@@ -337,7 +349,14 @@ export function ForecastPreviewModal({
         <RequestCommentaryModal
           target={askTarget}
           context={`${entity} · ${weekLabelShort(week)}`}
-          existing={isOpenQuestion(requests[askTarget.cellKey]) ? requests[askTarget.cellKey] : null}
+          // The WHOLE conversation on the cell, answered or not. Passing it
+          // only while the question was still open meant asking again about a
+          // cell somebody had already replied to opened a blank "what do you
+          // want explained?" — the reply shown as loose commentary with
+          // nothing to say what it answered — while the send path appended to
+          // that very thread. The full forecast screen has always passed the
+          // request itself; this is the same cell read the same way.
+          existing={requests[askTarget.cellKey] ?? null}
           flagged={submission?.flags.includes(askTarget.cellKey) ?? false}
           onClose={() => setAsking(null)}
         />
