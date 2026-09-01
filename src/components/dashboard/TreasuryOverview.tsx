@@ -93,25 +93,38 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
  * the figures each one entered itself, with everything mirrored in from a
  * counterparty left out.
  *
- * There used to be an "Intercompany mirroring" entry between them, and it was
- * exactly the union of the two method options — an entity mirrors iff it has
- * a non-zero IC amount, and every one of those is either negative or
- * positive. An option that can only ever equal "payables OR receivables" is a
- * question the two beneath it already answer.
+ * `all` is not an option anybody picks — it is NOTHING PICKED. The three
+ * buttons each toggle, so pressing the active one lets go of it and the page
+ * returns to showing every country with every figure, mirrored and own alike.
+ * That is why there is no "All" button: an off switch you have to find is a
+ * fourth thing to read, and letting go of the one you pressed is the same
+ * gesture people already use on the status toggle beside it.
+ *
+ * There used to be an "Intercompany mirroring" entry too, and it was exactly
+ * the union of the two method options — an entity mirrors iff it has a
+ * non-zero IC amount, and every one of those is either negative or positive.
+ * An option that can only ever equal "payables OR receivables" is a question
+ * the other two already answer.
  */
 type MirrorFilter = 'all' | 'payables' | 'receivables' | 'off';
 
-const MIRROR_OPTIONS: { value: MirrorFilter; label: string }[] = [
-  /**
-   * The off position — the way back to the page's normal state, which is
-   * every country with the group's own settlements counted in. Every filter
-   * on this bar has one ("All countries", "ALL" on status); without it,
-   * choosing a treatment would be a one-way trip.
-   */
-  { value: 'all', label: 'All' },
-  { value: 'payables', label: 'Payables method IC' },
-  { value: 'receivables', label: 'Receivables method IC' },
-  { value: 'off', label: 'Mirror off · own figures' },
+const MIRROR_OPTIONS: { value: Exclude<MirrorFilter, 'all'>; label: string; title: string }[] = [
+  {
+    value: 'off',
+    label: 'Mirror off',
+    title:
+      'Every country, counting only the figures each entered itself — nothing mirrored in from a counterparty',
+  },
+  {
+    value: 'payables',
+    label: 'Payables',
+    title: 'Countries paying a group company this cycle',
+  },
+  {
+    value: 'receivables',
+    label: 'Receivables',
+    title: 'Countries being paid by a group company this cycle',
+  },
 ];
 
 /** A country's forecast opened in a dialog from one of the modals above. */
@@ -576,23 +589,32 @@ export function TreasuryOverview({
               ))}
             </select>
           </div>
-          {/* How a country settles with the rest of the group. A select
-              rather than a fifth segmented row: five options at this width
-              would wrap into two lines of chrome above the numbers. */}
+          {/* How a country settles with the rest of the group. Three options
+              fit a segmented row at this width, so it matches the status
+              toggle beside it rather than being the one select on the bar.
+              One at a time, and pressing the active one lets go of it —
+              which is the off switch, so there is no button for it. */}
           <div className="filter-field">
             <span className="filter-field-label">Intercompany</span>
-            <select
-              className="form-select"
-              value={mirrorFilter}
-              onChange={(e) => setMirrorFilter(e.target.value as MirrorFilter)}
-              aria-label="Filter by intercompany settlement"
-            >
+            <div className="seg-toggle" role="group" aria-label="Filter by intercompany settlement">
               {MIRROR_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
+                <button
+                  key={o.value}
+                  className={mirrorFilter === o.value ? 'active' : ''}
+                  aria-pressed={mirrorFilter === o.value}
+                  title={
+                    mirrorFilter === o.value
+                      ? `${o.title} — press again to show everything`
+                      : o.title
+                  }
+                  onClick={() =>
+                    setMirrorFilter((prev) => (prev === o.value ? 'all' : o.value))
+                  }
+                >
                   {o.label}
-                </option>
+                </button>
               ))}
-            </select>
+            </div>
           </div>
           <div className="filter-field">
             <span className="filter-field-label">Forecast Status</span>
