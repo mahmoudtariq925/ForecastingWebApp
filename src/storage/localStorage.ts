@@ -440,8 +440,25 @@ export function saveUsers(users: User[]): void {
   saveData('users', users);
 }
 
+/**
+ * Bumped when the SEEDED roster changes shape rather than merely gaining a
+ * field. It went from an account per country — eleven submitters, ten
+ * approvers and four demo joiners — to three regions of one submitter and one
+ * approver each. A browser that has run the app before holds the old list, so
+ * without this it would keep showing people who no longer exist and entities
+ * whose approver is not in User Management.
+ */
+const ROSTER_VERSION = 2;
+
 export function loadUsers(fallback: User[]): User[] {
   const users = objectEntries<User>(loadData<unknown>('users', null));
+  // Replace a stored roster from before the regional seed, once. Guarded by
+  // its own flag so accounts added afterwards are never wiped.
+  if (users && users.length > 0 && loadData<number>('rosterVersion', 1) < ROSTER_VERSION) {
+    saveData('rosterVersion', ROSTER_VERSION);
+    saveUsers(fallback);
+    return fallback;
+  }
   if (!users || users.length === 0) return fallback;
   const migrated = users.map((u) => ({
     ...u,
@@ -492,6 +509,31 @@ export function loadLegalEntities(fallback: LegalEntity[]): LegalEntity[] {
    * assigned" is also a legitimate state an administrator can choose, and
    * this must not keep undoing that.
    */
+  /**
+   * The regional roster landed: every stored entity still names the per-country
+   * approver it was seeded with, and most of those accounts are gone. Point the
+   * responsibilities back at the seed once, keeping the entity's own master data
+   * (currency, template, status) as configured.
+   */
+  if (loadData<number>('entityRosterVersion', 1) < ROSTER_VERSION) {
+    saveData('entityRosterVersion', ROSTER_VERSION);
+    const reassigned = clean.map((entity) => {
+      const seed = fallback.find(
+        (f) => f.id === entity.id || f.name.toLowerCase() === entity.name.toLowerCase(),
+      );
+      return seed
+        ? {
+            ...entity,
+            submitters: [...seed.submitters],
+            approvers: [...seed.approvers],
+            viewers: [...seed.viewers],
+          }
+        : entity;
+    });
+    saveLegalEntities(reassigned);
+    return reassigned;
+  }
+
   if (loadData<boolean>('assignmentsHealed', false)) return clean;
   let healed = false;
   const repaired = clean.map((entity) => {
