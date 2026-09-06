@@ -4653,7 +4653,7 @@ tbody td {
   background: linear-gradient(180deg, rgba(176, 122, 30, 0.09), rgba(176, 122, 30, 0.03));
   border-color: rgba(176, 122, 30, 0.24);
 }
-.kpi-card.kpi-hue-commentary {
+.kpi-card.kpi-hue-variance {
   background: linear-gradient(180deg, rgba(63, 98, 35, 0.08), rgba(63, 98, 35, 0.02));
   border-color: rgba(63, 98, 35, 0.22);
 }
@@ -4663,7 +4663,7 @@ tbody td {
 .kpi-card.kpi-hue-awaiting::before {
   background: var(--amber);
 }
-.kpi-card.kpi-hue-commentary::before {
+.kpi-card.kpi-hue-variance::before {
   background: var(--green);
 }
 .kpi-card.kpi-hue-received .kpi-label {
@@ -4672,8 +4672,29 @@ tbody td {
 .kpi-card.kpi-hue-awaiting .kpi-label {
   color: var(--amber);
 }
-.kpi-card.kpi-hue-commentary .kpi-label {
+.kpi-card.kpi-hue-variance .kpi-label {
   color: var(--green);
+}
+
+/* The second figure on a KPI card: a number the card must carry WITHOUT
+   folding it into its own. Unexplained variances and open questions are
+   different work owned by different people — one number covering both is
+   exactly what made "commentary" ambiguous — so this sits apart, in the blue
+   the app already uses for threads. */
+.kpi-aside {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-top: 2px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 /* Visible to a screen reader, invisible on screen — used where an icon or a
    symbol carries the meaning of a control. */
@@ -4764,12 +4785,25 @@ tbody td {
   letter-spacing: 0.04em;
   color: var(--text-dim);
 }
-/* Both controls are the same height, so their labels sit on one line
-   whatever each one is built from (a native select, a button). */
+/* Every control on the bar is the same height, so they line up as one row
+   whatever each is built from — a native select, a button, or a segmented
+   toggle. The toggle was added last and missed this rule, which left the
+   intercompany filter sitting a few pixels short of the two beside it. */
 .filter-field .form-select,
-.filter-field .multi-select-btn {
+.filter-field .multi-select-btn,
+.filter-field .seg-toggle {
   width: 100%;
   height: 38px;
+}
+/* A toggle stretches to that height rather than being padded to it, so the
+   labels stay centred whatever the row height is. */
+.filter-field .seg-toggle {
+  width: auto;
+  align-items: stretch;
+}
+.filter-field .seg-toggle button {
+  display: inline-flex;
+  align-items: center;
 }
 .filter-chip {
   padding: 6px 12px;

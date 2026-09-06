@@ -33,7 +33,7 @@ export interface Permissions {
    * Everyone can READ the questions board; only these two open a question on
    * a number.
    */
-  canRequestCommentary: boolean;
+  canAskQuestions: boolean;
   canViewConsolidated: boolean;
   /** Read forecasts for the entities they are assigned to. */
   canViewForecasts: boolean;
@@ -50,7 +50,7 @@ const NO_ACCESS: Permissions = {
   canApproveForecasts: false,
   canSubmitForecasts: false,
   canViewAllEntities: false,
-  canRequestCommentary: false,
+  canAskQuestions: false,
   canViewConsolidated: false,
   canViewForecasts: false,
 };
@@ -75,7 +75,7 @@ function permissionsForRole(role: Role): Permissions {
         canApproveForecasts: true,
         canSubmitForecasts: true,
         canViewAllEntities: true,
-        canRequestCommentary: true,
+        canAskQuestions: true,
         canViewConsolidated: true,
         canViewForecasts: true,
       };
@@ -86,7 +86,7 @@ function permissionsForRole(role: Role): Permissions {
       return {
         ...NO_ACCESS,
         canApproveForecasts: true,
-        canRequestCommentary: true,
+        canAskQuestions: true,
         canViewForecasts: true,
       };
     case 'submitter':

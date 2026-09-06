@@ -239,7 +239,7 @@ export function EntitySetupDialog({
               <div className="text-dim" style={{ fontSize: 12, lineHeight: 1.7 }}>
                 Cells moving more than ±
                 <strong>{entity.varianceThreshold ?? defaultThreshold}%</strong> versus the prior
-                cycle are flagged and need commentary before this entity's forecast can be closed.
+                cycle are flagged and need an explanation before this entity's forecast can be closed.
                 <div className="text-muted">
                   Leave blank to follow the group default of ±{defaultThreshold}%.
                 </div>

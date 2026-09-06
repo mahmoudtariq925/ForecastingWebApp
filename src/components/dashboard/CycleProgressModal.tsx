@@ -133,9 +133,9 @@ export function CycleProgressModal({
                         <span className="country-people">
                           {c.entity.submitter} → {c.entity.approver}
                         </span>
-                        {c.needCommentary > 0 && (
+                        {c.unexplained > 0 && (
                           <span className="badge-num warn">
-                            {c.needCommentary} to explain
+                            {c.unexplained} to explain
                           </span>
                         )}
                         <span className="row-flex country-actions">

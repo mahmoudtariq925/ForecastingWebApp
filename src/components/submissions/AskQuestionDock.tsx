@@ -110,8 +110,8 @@ export function AskQuestionDock({
         </div>
       ) : (
         <div className="comment-dock-readback">
-          <span className="form-label">Submitter’s commentary</span>
-          <div className="readback">{target.comment?.trim() || 'No commentary provided yet.'}</div>
+          <span className="form-label">Submitter’s explanation</span>
+          <div className="readback">{target.comment?.trim() || 'No explanation provided yet.'}</div>
         </div>
       )}
       <textarea

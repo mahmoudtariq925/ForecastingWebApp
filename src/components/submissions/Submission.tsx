@@ -1915,7 +1915,7 @@ function SubmissionEditor({
   const startRevising = async () => {
     const confirmed = await confirm({
       title: 'Edit a submitted forecast',
-      message: `This forecast has already been ${statusLabel(status)}. You can change the figures, but doing so withdraws it from approval — you resubmit afterwards and your approver decides again. Answering questions and writing commentary need none of this.`,
+      message: `This forecast has already been ${statusLabel(status)}. You can change the figures, but doing so withdraws it from approval — you resubmit afterwards and your approver decides again. Answering questions and writing explanations need none of this.`,
       confirmLabel: 'Edit Forecast',
     });
     if (!confirmed) return;
@@ -2139,7 +2139,7 @@ function SubmissionEditor({
         `Total outflows: ${fmtK(totalOutflows)}\n` +
         `Net cash flow: ${fmtK(totalNet)}\n` +
         `Closing balance: ${fmtK(closingBalance)}\n` +
-        `Variance flags: ${flags.size} (${uncommented.length} awaiting commentary)\n\n` +
+        `Variance flags: ${flags.size} (${uncommented.length} unexplained)\n\n` +
         `Open the forecast: ${appUrl()}\n\n` +
         `Best regards,\n${me.name}\n${me.email}`,
     });
@@ -2265,7 +2265,7 @@ function SubmissionEditor({
         }
         value={flowDraft}
         onChange={(e) => setFlowDraft(e.target.value)}
-        aria-label={flowAnswering ? 'Your reply' : 'Commentary'}
+        aria-label={flowAnswering ? 'Your reply' : 'Explanation'}
       />
       <div className="comment-dock-actions">
         <button
@@ -2304,7 +2304,7 @@ function SubmissionEditor({
         </button>
         {flowSubmitting && (
           <button className="btn btn-ghost" onClick={() => void finishSubmit()}>
-            Submit Without Commentary
+            Submit Without Explaining
           </button>
         )}
       </div>
@@ -2402,10 +2402,10 @@ function SubmissionEditor({
             <div className="row">
               <span>
                 {!cycleOpen
-                  ? 'This cycle is closed, so the figures stay as reported. Commentary and answers are still yours to write.'
+                  ? 'This cycle is closed, so the figures stay as reported. Explanations and answers are still yours to write.'
                   : revising
                     ? 'The grid is unlocked. Nothing has changed yet, so the forecast is still with your approver — the first figure you change withdraws it, and you resubmit for a fresh decision.'
-                    : 'The figures are locked because this forecast is already in. Commentary and answers are still yours to write; to change a number, press Edit Forecast.'}
+                    : 'The figures are locked because this forecast is already in. Explanations and answers are still yours to write; to change a number, press Edit Forecast.'}
               </span>
               {cycleOpen && !revising && (
                 <span className="row-flex">
@@ -2484,7 +2484,7 @@ function SubmissionEditor({
                   data-tour="variance-badge"
                   title={
                     uncommented.length > 0
-                      ? `${uncommented.length} of ${flags.size} flagged cell${flags.size === 1 ? '' : 's'} still need commentary — click to explain the first`
+                      ? `${uncommented.length} of ${flags.size} flagged cell${flags.size === 1 ? '' : 's'} still unexplained — click to explain the first`
                       : `${flags.size} flagged cell${flags.size === 1 ? '' : 's'}, all explained`
                   }
                   onClick={() => {
@@ -3196,10 +3196,10 @@ function SubmissionEditor({
                 />
               )}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Commentary</label>
+                <label className="form-label">Explanation</label>
                 <textarea
                   className="form-textarea"
-                  placeholder="No commentary provided yet."
+                  placeholder="No explanation provided yet."
                   value={comments[varianceCell.key] ?? ''}
                   disabled
                   readOnly

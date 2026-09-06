@@ -223,8 +223,8 @@ function EntityListModal({
                     {w.openQuestions} question{w.openQuestions === 1 ? '' : 's'}
                   </span>
                 )}
-                {canEdit && w.needCommentary > 0 && (
-                  <span className="badge-num">{w.needCommentary} to explain</span>
+                {canEdit && w.unexplained > 0 && (
+                  <span className="badge-num">{w.unexplained} to explain</span>
                 )}
                 {onReview &&
                   (submitted ? (
@@ -765,7 +765,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
           // An approver reading a forecast is exactly the person with a
           // question about a number in it, so it is asked from here rather
           // than by leaving for the full forecast page.
-          canRequestComments={preview.mode === 'approve' && permissions.canRequestCommentary}
+          canRequestComments={preview.mode === 'approve' && permissions.canAskQuestions}
           actions={
             preview.mode === 'approve' ? (
               // Approve, or ask. A doubt about a number is a question on that
