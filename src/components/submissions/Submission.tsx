@@ -25,7 +25,7 @@ import {
 import { QuestionThread } from '../review/QuestionThread';
 import { clearFlowState, loadFlowState, saveFlowState } from '../../data/flowState';
 import { listEntities, seedUsers } from '../../data/appData';
-import { activeWeekKey, isCycleOpenForEntity } from '../../data/cycleService';
+import { activeWeekKey, cycleForWeek, cycleIdFor, isCycleOpenForEntity } from '../../data/cycleService';
 import {
   shiftWeeks,
   horizonWeeks,
@@ -40,7 +40,6 @@ import {
   weekYearMonth,
 } from '../../data/periods';
 import {
-  activeCycleId,
   answerCommentRequest,
   applyApprovalDecision,
   clearApprovalDecision,
@@ -539,6 +538,19 @@ function SubmissionEditor({
    * cycle closes the numbers are history and only the conversation carries on.
    */
   const cycleOpen = useMemo(() => isCycleOpenForEntity(week, entity), [week, entity]);
+  /**
+   * The cycle that collects the week on screen, named in the header. A week
+   * the app has no cycle record for still has an id — it is derived from the
+   * week — so the badge never goes blank.
+   */
+  const viewedCycle = useMemo(() => cycleForWeek(week), [week]);
+  const viewedCycleId = viewedCycle?.id ?? cycleIdFor(week);
+  const viewedCycleLabel =
+    viewedCycle?.status === 'consolidated'
+      ? 'Closed cycle'
+      : viewedCycle?.status === 'scheduled'
+        ? 'Not open yet'
+        : 'Cycle';
   /** The forecast is with the approver, or already approved. */
   const handedOver = isSubmitterView && isHandedOver(status);
   /** Submitted once, changed since, and not yet sent back. */
@@ -2364,9 +2376,17 @@ function SubmissionEditor({
                 hint="Already submitted — press Edit Forecast to change a figure; that withdraws it from approval and you resubmit."
               />
             )}
+            {/* The cycle of the WEEK ON SCREEN, not whichever one the app is
+                working in. The two are the same most of the time and were
+                assumed to be always: a reviewer looking at a past week, or a
+                submitter left on a week whose cycle has since closed, got a
+                header that named an open cycle beside a locked grid — "draft ·
+                figures locked · active cycle CW-nn", three claims about three
+                different things. It says which cycle collects what is on the
+                screen, and whether that one is still open. */}
             <CyclePill
-              label="Active cycle"
-              value={activeCycleId()}
+              label={cycleOpen ? 'Active cycle' : viewedCycleLabel}
+              value={viewedCycleId}
               onClick={onNavigate ? () => onNavigate('cycles') : undefined}
             />
           </>
