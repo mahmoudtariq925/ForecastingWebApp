@@ -13,7 +13,7 @@ interface AttentionModalProps {
 const fmtK = (v: number) => `€${Math.round(v).toLocaleString()}k`;
 
 /**
- * Snapshot of every country whose forecast still owes commentary, biggest
+ * Snapshot of every country whose forecast still owes an explanation, biggest
  * unexplained move first — the ranking a treasury reviewer actually works
  * down. Replaces the old "Requires Attention" section on the dashboard.
  */
@@ -24,11 +24,11 @@ export function AttentionModal({
   onClose,
   onOpen,
 }: AttentionModalProps) {
-  const totalOpen = rows.reduce((s, r) => s + r.needCommentary, 0);
+  const totalOpen = rows.reduce((s, r) => s + r.unexplained, 0);
   return (
     <Modal
       open={open}
-      title="Forecasts requiring commentary"
+      title="Unexplained variances"
       size="xl"
       onClose={onClose}
       footer={
@@ -47,7 +47,7 @@ export function AttentionModal({
       {rows.length === 0 ? (
         <div className="empty-state">
           <div className="ic">✓</div>
-          <p>Every flagged cell has commentary — nothing is blocking the cycle.</p>
+          <p>Every flagged variance is explained — nothing is blocking the cycle.</p>
         </div>
       ) : (
         <div className="panel-body no-pad">
@@ -71,7 +71,7 @@ export function AttentionModal({
                   </td>
                   <td className="text-dim">{r.region}</td>
                   <td className="num">
-                    <span className="badge-num warn">{r.needCommentary}</span>
+                    <span className="badge-num warn">{r.unexplained}</span>
                   </td>
                   <td className="text-dim">{r.worstLabel}</td>
                   <td className="num">{fmtK(r.worstAbs)}</td>

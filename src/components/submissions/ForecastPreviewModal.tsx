@@ -4,7 +4,7 @@ import { StatusPill } from '../common/StatusPill';
 import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { customRowsOf, gridCategories } from '../../data/customRows';
-import { RequestCommentaryModal } from './RequestCommentaryModal';
+import { AskQuestionDock } from './AskQuestionDock';
 import { categoryGroups, cellKey, dayNet, runningBalance } from './gridMath';
 import { useDataVersion } from '../../data/useDataVersion';
 import {
@@ -287,6 +287,10 @@ export function ForecastPreviewModal({
                 </div>
               </div>
             ))}
+            {/* Grid and question side by side. The question is about a number
+                that stays on screen beside it, rather than behind a second
+                dialog stacked on this one. */}
+            <div className={`preview-body${askTarget ? ' with-dock' : ''}`}>
             <div className="forecast-grid-wrap preview-grid">
               <ForecastGrid
                 // Same forecast, same weeks — this dialog is a reading of the
@@ -307,6 +311,22 @@ export function ForecastPreviewModal({
                 onToggleGroup={toggleGroup}
                 showColumnTotals={template.columnTotals === true}
               />
+            </div>
+            {askTarget && (
+              <AskQuestionDock
+                target={askTarget}
+                context={`${entity} · ${weekLabelShort(week)}`}
+                // The WHOLE conversation on the cell, answered or not. Passing
+                // it only while the question was still open meant asking again
+                // about a cell somebody had already replied to opened a blank
+                // "what do you want explained?" — the reply shown as loose
+                // commentary with nothing to say what it answered — while the
+                // send path appended to that very thread.
+                existing={requests[askTarget.cellKey] ?? null}
+                flagged={submission?.flags.includes(askTarget.cellKey) ?? false}
+                onClose={() => setAsking(null)}
+              />
+            )}
             </div>
             {/* The shape of the week, under the numbers that make it. Taller
                 and narrower than the grid above it: a trend is read off the
@@ -355,24 +375,6 @@ export function ForecastPreviewModal({
           </>
         )}
       </Modal>
-      {/* Over the forecast rather than instead of it: the question is about a
-          number that stays on screen behind the dialog. */}
-      {askTarget && (
-        <RequestCommentaryModal
-          target={askTarget}
-          context={`${entity} · ${weekLabelShort(week)}`}
-          // The WHOLE conversation on the cell, answered or not. Passing it
-          // only while the question was still open meant asking again about a
-          // cell somebody had already replied to opened a blank "what do you
-          // want explained?" — the reply shown as loose commentary with
-          // nothing to say what it answered — while the send path appended to
-          // that very thread. The full forecast screen has always passed the
-          // request itself; this is the same cell read the same way.
-          existing={requests[askTarget.cellKey] ?? null}
-          flagged={submission?.flags.includes(askTarget.cellKey) ?? false}
-          onClose={() => setAsking(null)}
-        />
-      )}
     </>
   );
 }

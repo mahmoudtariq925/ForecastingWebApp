@@ -666,6 +666,34 @@ export function isReceived(status: SubmissionStatus): boolean {
   return status === 'submitted' || status === 'approved' || status === 'consolidated';
 }
 
+/** The four states a row is coloured by — several statuses share a colour. */
+export type EntityTone = 'draft' | 'submitted' | 'approved' | 'rejected';
+
+/** Which of the four a status belongs to. Consolidated reads as approved. */
+export function toneOf(status: SubmissionStatus): EntityTone {
+  if (status === 'submitted') return 'submitted';
+  if (status === 'approved' || status === 'consolidated') return 'approved';
+  if (status === 'rejected') return 'rejected';
+  return 'draft';
+}
+
+/**
+ * The class that colours a row by where its forecast stands.
+ *
+ * A pill states the status, but a pill is read one row at a time. Down a list
+ * of eleven countries the question is "who is still missing", which is a
+ * shape, not a word — so the row carries a tint and an edge in the same colour
+ * the pill already uses, and the eye answers it without reading.
+ *
+ * Open questions are NOT a fifth colour. A forecast can be awaiting a decision
+ * AND have a thread running, and collapsing those into one colour loses
+ * whichever came second; the question count rides along as its own mark in the
+ * blue the app already uses for threads.
+ */
+export function stateRowClass(status: SubmissionStatus, openQuestions = 0): string {
+  return `state-row state-${toneOf(status)}${openQuestions > 0 ? ' has-questions' : ''}`;
+}
+
 /**
  * Prior-week values used for variance comparison and "Copy Prior Forecast":
  * the stored previous-week submission if one exists, otherwise (standard

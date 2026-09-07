@@ -73,7 +73,7 @@ export interface EntityProgress {
   /** Whether this week's forecast has actually been saved yet. */
   started: boolean;
   /** Flagged cells with no commentary — treasury cannot close on these. */
-  needCommentary: number;
+  unexplained: number;
   /** Open questions (treasury's or the approver's) waiting on a reply. */
   openQuestions: number;
   flagged: number;
@@ -139,7 +139,7 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
     const template = templateForEntity(templates, entity);
     if (!template) return [];
     const submission = peekSubmission(entity, week, template);
-    const needCommentary = submission.flags.filter(
+    const unexplained = submission.flags.filter(
       (k) => !submission.comments?.[k]?.trim(),
     ).length;
     return [
@@ -149,7 +149,7 @@ export function entityProgressFor(user: User, week: string): EntityProgress[] {
         templateName: template.name,
         submission,
         started: loadSubmission(week, entity, template.id) !== null,
-        needCommentary,
+        unexplained,
         openQuestions: openQuestionEntries(submission.commentRequests).length,
         flagged: submission.flags.length,
         returnedForUpdate: submission.status === 'rejected',
@@ -190,7 +190,7 @@ export function analystTodo(
   );
   const openQuestions = questions.length;
   const askedBy = requesterSummary(questions.map((q) => q.fromRole));
-  const needCommentary = entities.reduce((s, e) => s + e.needCommentary, 0);
+  const unexplained = entities.reduce((s, e) => s + e.unexplained, 0);
   const returned = entities.filter((e) => e.returnedForUpdate).length;
   const unsubmitted = entities.filter((e) => e.submission.status === 'draft').length;
   // Drafts that HAVE been submitted before, and are back because their
@@ -271,7 +271,7 @@ export function analystTodo(
           ? 'blocked'
           : submit.state === 'active'
             ? 'waiting'
-            : needCommentary > 0
+            : unexplained > 0
               ? 'active'
               : 'done',
       detail:
@@ -279,19 +279,19 @@ export function analystTodo(
           ? `${openQuestions} open question${openQuestions === 1 ? '' : 's'} from ${askedBy}`
           : submit.state === 'active'
             ? 'Opens once your forecasts are in'
-            : needCommentary === 0
+            : unexplained === 0
               ? 'Nothing waiting on you'
-              : `${needCommentary} variance${needCommentary === 1 ? '' : 's'} to explain`,
+              : `${unexplained} variance${unexplained === 1 ? '' : 's'} to explain`,
     };
   } else {
     // Viewer: purely informational.
     review = {
       key: 'review',
       label: 'Review in progress',
-      state: needCommentary > 0 || pendingApprovals > 0 ? 'waiting' : submitDone ? 'done' : 'waiting',
+      state: unexplained > 0 || pendingApprovals > 0 ? 'waiting' : submitDone ? 'done' : 'waiting',
       detail:
-        needCommentary > 0
-          ? `${needCommentary} variance${needCommentary === 1 ? '' : 's'} still being explained`
+        unexplained > 0
+          ? `${unexplained} variance${unexplained === 1 ? '' : 's'} still being explained`
           : submitDone
             ? 'Review complete'
             : 'Starts once the forecasts are in',

@@ -7,7 +7,6 @@ import { AttentionModal } from './AttentionModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
 import { MultiSelect } from '../common/MultiSelect';
-import { countryCode } from '../../data/countryCodes';
 import { STANDARD_TEMPLATE_ID } from '../../data/mockData';
 import { listEntities, seedUsers } from '../../data/appData';
 import { useDataVersion } from '../../data/useDataVersion';
@@ -41,6 +40,7 @@ import {
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { currentUser, permissionsFor } from '../../data/session';
 import { loadApprovals, loadSettings, loadTemplates, loadUsers } from '../../storage/localStorage';
+import { collectQuestionGroups, flattenQuestions } from '../../data/questionService';
 import { dayInflows, dayNet, dayOutflows } from '../submissions/gridMath';
 import { emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
@@ -171,7 +171,7 @@ export function TreasuryOverview({
   // leaving them asserting the state from before the click.
   const dataVersion = useDataVersion();
   /** Treasury and approvers may ask a submitter about a cell from the dialog. */
-  const canAsk = useMemo(() => permissionsFor(currentUser()).canRequestCommentary, []);
+  const canAsk = useMemo(() => permissionsFor(currentUser()).canAskQuestions, []);
   const settings = useMemo(() => {
     void dataVersion;
     return loadSettings(DEFAULT_SETTINGS);
@@ -218,16 +218,6 @@ export function TreasuryOverview({
     // overrides is a fresh object per render; its cycle id is the real input.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopedNames, week, cycleId, dataVersion]);
-
-  /**
-   * Countries whose forecast is in but NOT approved — the numbers in the totals
-   * that an approver could still send back. Flagged beside the filter rather
-   * than buried in a modal, because it qualifies everything else on the page.
-   */
-  const unapproved = useMemo(
-    () => scopedNames.filter((n) => statusByCountry.get(n) === 'submitted'),
-    [scopedNames, statusByCountry],
-  );
 
   const [mirrorFilter, setMirrorFilter] = useState<MirrorFilter>('all');
   /**
@@ -374,7 +364,21 @@ export function TreasuryOverview({
     },
     [week, settings, countries, periods, dataVersion],
   );
-  const openComments = attention.reduce((s, r) => s + r.needCommentary, 0);
+  const openComments = attention.reduce((s, r) => s + r.unexplained, 0);
+
+  /**
+   * Threads treasury or an approver opened that are still waiting on a reply,
+   * across the countries in scope. Deliberately a separate figure from the one
+   * above: a variance nobody has asked about is the submitter's own work, and
+   * a question is somebody waiting on an answer.
+   */
+  const openQuestions = useMemo(() => {
+    void dataVersion;
+    const inScope = new Set(countries);
+    return flattenQuestions(collectQuestionGroups(loadTemplates())).filter(
+      (q) => q.state === 'awaiting' && q.period === week && inScope.has(q.entity),
+    ).length;
+  }, [countries, week, dataVersion]);
 
   // ---- 4-week outlook, consolidated across the selected countries ---------
   // Straight off `consolidatedValues`, which reads every entity's stored
@@ -648,30 +652,6 @@ export function TreasuryOverview({
               </button>
             </div>
           )}
-          {/* Submitted but not approved: the figures are in the totals above
-              and could still be sent back. Each flag filters the page to that
-              country, which is the next thing you want after seeing it. */}
-          {unapproved.length > 0 && (
-            <div className="filter-flags" title="Submitted, not yet approved">
-              {unapproved.map((name) => (
-                <button
-                  key={name}
-                  className={`filter-flag${countryFilter.includes(name) ? ' on' : ''}`}
-                  title={`${name} — submitted, awaiting approval`}
-                  onClick={() =>
-                    setCountryFilter((prev) =>
-                      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-                    )
-                  }
-                >
-                  <span className="filter-flag-mark" aria-hidden="true">
-                    !
-                  </span>
-                  {countryCode(name)}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -701,10 +681,20 @@ export function TreasuryOverview({
           dataTour="stat-awaiting"
           onOpen={() => setStatModal('awaiting')}
         />
+        {/* Variances the submitters owe an explanation for — NOT questions.
+            The two used to share the word "commentary" and this one number,
+            which made it read as a queue of things treasury had asked about
+            when it is the opposite: work nobody has had to ask for yet. The
+            questions ride alongside as their own figure. */}
         <StatBox
-          hue="commentary"
-          label="Requires Commentary"
+          hue="variance"
+          label="Unexplained Variances"
           value={String(openComments)}
+          aside={
+            openQuestions > 0
+              ? `${openQuestions} question${openQuestions === 1 ? '' : 's'} open`
+              : undefined
+          }
           sub={
             attention.length === 0
               ? periodLabel
@@ -775,7 +765,7 @@ export function TreasuryOverview({
             <span className="panel-unit">{periodLabel ? `${periodLabel} · €k` : '€k'}</span>
           </div>
           {matrix ? (
-            <CountryMatrix matrix={matrix} />
+            <CountryMatrix matrix={matrix} selectedCount={countries.length} />
           ) : (
             <div className="empty-state">
               <div className="ic">▦</div>
@@ -913,6 +903,7 @@ function StatBox({
   label,
   value,
   sub,
+  aside,
   tone,
   hue,
   dataTour,
@@ -921,9 +912,16 @@ function StatBox({
   label: string;
   value: string;
   sub: string;
+  /**
+   * A second, unrelated figure this card should NOT fold into its own.
+   * Unexplained variances and open questions are different work owned by
+   * different people; one number covering both is what made "commentary"
+   * ambiguous in the first place, so the second gets its own mark.
+   */
+  aside?: string;
   tone: 'ok' | 'warn';
   /** Which of the three this is — its standing colour, whatever the tone. */
-  hue: 'received' | 'awaiting' | 'commentary';
+  hue: 'received' | 'awaiting' | 'variance';
   dataTour: string;
   onOpen: () => void;
 }) {
@@ -935,6 +933,7 @@ function StatBox({
     >
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
+      {aside && <span className="kpi-aside">{aside}</span>}
       <div className="kpi-sub text-dim">{sub}</div>
       <span className="kpi-open" aria-hidden="true">
         View →

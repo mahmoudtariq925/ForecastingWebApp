@@ -5,6 +5,14 @@ import type { CategoryCountryMatrix, MatrixRow } from '../../data/dashboardServi
 
 interface CountryMatrixProps {
   matrix: CategoryCountryMatrix;
+  /**
+   * How many countries the filters resolved to, which is NOT the same as how
+   * many the matrix has: a country with nothing to show for this template and
+   * period is selected but absent from the figures. Without the distinction
+   * the empty state told someone who had just picked a country that they had
+   * not picked one.
+   */
+  selectedCount: number;
 }
 
 const fmt = (v: number) => (Math.round(v) === 0 ? '—' : Math.round(v).toLocaleString());
@@ -55,7 +63,7 @@ function toSections(rows: MatrixRow[], countries: string[]): Section[] {
  * country drives receivables" rather than "receivables are bigger than tax",
  * which the labels already say.
  */
-export function CountryMatrix({ matrix }: CountryMatrixProps) {
+export function CountryMatrix({ matrix, selectedCount }: CountryMatrixProps) {
   const { countries, rows, countryTotals, grandTotal } = matrix;
   const sections = useMemo(() => toSections(rows, countries), [rows, countries]);
   // Collapsed by default: the set holds the bands that have been opened.
@@ -73,7 +81,13 @@ export function CountryMatrix({ matrix }: CountryMatrixProps) {
     return (
       <div className="empty-state">
         <div className="ic">▦</div>
-        <p>No countries selected. Pick at least one above to see the breakdown.</p>
+        <p>
+          {selectedCount === 0
+            ? 'No countries selected. Pick at least one above to see the breakdown.'
+            : selectedCount === 1
+              ? 'The selected country has no figures for this template and period.'
+              : `The ${selectedCount} selected countries have no figures for this template and period.`}
+        </p>
       </div>
     );
   }

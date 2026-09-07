@@ -59,56 +59,48 @@ const CURRENCIES: Record<string, string> = {
 const SEED_ASSIGNMENTS: Record<
   string,
   { viewers?: string[]; approvers?: string[]; submitters?: string[] }
-> = {
-  Netherlands: {
-    submitters: ['jan.devries@contoso.com', 'nina.brandt@contoso.com'],
-    approvers: ['pieter.bakker@contoso.com'],
-    viewers: ['tom.whitfield@contoso.com', 'priya.raman@contoso.com'],
-  },
-  Germany: {
-    submitters: ['anna.mueller@contoso.com'],
-    approvers: ['klaus.weber@contoso.com', 'omar.haddad@contoso.com'],
-    viewers: ['tom.whitfield@contoso.com', 'priya.raman@contoso.com'],
-  },
-  France: {
-    submitters: ['marie.dubois@contoso.com'],
-    approvers: ['pierre.martin@contoso.com'],
-  },
-  'United Kingdom': {
-    submitters: ['james.patel@contoso.com'],
-    approvers: ['sarah.obrien@contoso.com'],
-  },
-  Spain: {
-    submitters: ['carlos.ruiz@contoso.com'],
-    approvers: ['elena.garcia@contoso.com'],
-  },
-  Italy: {
-    submitters: ['marco.rossi@contoso.com'],
-    approvers: ['giulia.conti@contoso.com'],
-  },
-  Poland: {
-    submitters: ['tomasz.nowak@contoso.com'],
-    approvers: ['anna.wojcik@contoso.com'],
-  },
-  Belgium: {
-    submitters: ['sophie.janssens@contoso.com'],
-    // Pieter also approves Belgium, so the approver demo account lands with a
-    // real decision waiting while its own country's forecast is still a draft.
-    approvers: ['luc.desmet@contoso.com', 'pieter.bakker@contoso.com'],
-  },
-  Switzerland: {
-    submitters: ['hans.mueller@contoso.com'],
-    approvers: ['klaus.weber@contoso.com'],
-  },
-  Austria: {
-    submitters: ['lukas.huber@contoso.com'],
-    approvers: ['maria.gruber@contoso.com'],
-  },
-  Portugal: {
-    submitters: ['joao.silva@contoso.com'],
-    approvers: ['ana.costa@contoso.com'],
-  },
-};
+> = (() => {
+  /**
+   * Three regions, each with one submitter and one approver, covering all
+   * eleven countries between them.
+   *
+   * There used to be an account per country — eleven submitters and ten
+   * approvers whose names appeared once each. That is a long User Management
+   * list to scroll and a lot of people to introduce for a demo, and it hid the
+   * thing worth showing: one approver holding several countries' forecasts.
+   */
+  const REGIONS: { submitter: string; approver: string; countries: string[] }[] = [
+    {
+      submitter: 'jan.devries@contoso.com',
+      approver: 'pieter.bakker@contoso.com',
+      countries: ['Netherlands', 'Belgium', 'United Kingdom'],
+    },
+    {
+      submitter: 'anna.mueller@contoso.com',
+      approver: 'klaus.weber@contoso.com',
+      countries: ['Germany', 'Switzerland', 'Austria', 'Poland'],
+    },
+    {
+      submitter: 'marie.dubois@contoso.com',
+      approver: 'elena.garcia@contoso.com',
+      countries: ['France', 'Spain', 'Italy', 'Portugal'],
+    },
+  ];
+  // Group Finance reads everything, so the viewers go on every entity.
+  const VIEWERS = ['tom.whitfield@contoso.com', 'sofia.almeida@contoso.com'];
+  const out: Record<string, { viewers?: string[]; approvers?: string[]; submitters?: string[] }> =
+    {};
+  for (const r of REGIONS) {
+    for (const country of r.countries) {
+      out[country] = {
+        submitters: [r.submitter],
+        approvers: [r.approver],
+        viewers: VIEWERS,
+      };
+    }
+  }
+  return out;
+})();
 
 /**
  * The configured legal entities, derived from the reporting entities above so
@@ -147,44 +139,20 @@ export const users: User[] = [
   { name: 'Maja Kowalska', email: 'maja.kowalska@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Now' },
   { name: 'Linda Chen', email: 'linda.chen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: '20m ago' },
 
-  // Country submitters, one per entity.
-  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: '2h ago' },
-  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DE Sales', role: 'submitter', status: 'active', last: '4h ago' },
-  { name: 'Marie Dubois', email: 'marie.dubois@contoso.com', team: 'FR Commercial', role: 'submitter', status: 'active', last: '3h ago' },
-  { name: 'James Patel', email: 'james.patel@contoso.com', team: 'UK Services', role: 'submitter', status: 'active', last: '6h ago' },
-  { name: 'Carlos Ruiz', email: 'carlos.ruiz@contoso.com', team: 'ES Operations', role: 'submitter', status: 'active', last: '11h ago' },
-  { name: 'Marco Rossi', email: 'marco.rossi@contoso.com', team: 'IT Operations', role: 'submitter', status: 'active', last: '9h ago' },
-  { name: 'Tomasz Nowak', email: 'tomasz.nowak@contoso.com', team: 'PL Shared Services', role: 'submitter', status: 'active', last: '12h ago' },
-  { name: 'Sophie Janssens', email: 'sophie.janssens@contoso.com', team: 'BE Operations', role: 'submitter', status: 'active', last: '5h ago' },
-  { name: 'Hans Müller', email: 'hans.mueller@contoso.com', team: 'CH Treasury', role: 'submitter', status: 'active', last: '7h ago' },
-  { name: 'Lukas Huber', email: 'lukas.huber@contoso.com', team: 'AT Operations', role: 'submitter', status: 'active', last: '8h ago' },
-  { name: 'João Silva', email: 'joao.silva@contoso.com', team: 'PT Operations', role: 'submitter', status: 'active', last: '12h ago' },
+  // Regional submitters. One person files for several countries, which is how
+  // a shared service centre actually works — and it keeps the roster to people
+  // you can name rather than one account per flag.
+  { name: 'Jan de Vries', email: 'jan.devries@contoso.com', team: 'Benelux & UK', role: 'submitter', status: 'active', last: '2h ago' },
+  { name: 'Anna Müller', email: 'anna.mueller@contoso.com', team: 'DACH & CEE', role: 'submitter', status: 'active', last: '4h ago' },
+  { name: 'Marie Dubois', email: 'marie.dubois@contoso.com', team: 'Southern Europe', role: 'submitter', status: 'active', last: '3h ago' },
 
-  // Country approvers.
-  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'NL Operations', role: 'approver', status: 'active', last: '1h ago' },
-  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: '3h ago' },
-  { name: 'Pierre Martin', email: 'pierre.martin@contoso.com', team: 'FR Commercial', role: 'approver', status: 'active', last: '2h ago' },
-  { name: "Sarah O'Brien", email: 'sarah.obrien@contoso.com', team: 'UK Services', role: 'approver', status: 'active', last: 'Yesterday' },
-  { name: 'Elena García', email: 'elena.garcia@contoso.com', team: 'ES Operations', role: 'approver', status: 'active', last: '10h ago' },
-  { name: 'Giulia Conti', email: 'giulia.conti@contoso.com', team: 'IT Operations', role: 'approver', status: 'active', last: '8h ago' },
-  { name: 'Anna Wójcik', email: 'anna.wojcik@contoso.com', team: 'PL Shared Services', role: 'approver', status: 'active', last: '1d ago' },
-  { name: 'Luc De Smet', email: 'luc.desmet@contoso.com', team: 'BE Operations', role: 'approver', status: 'active', last: '4h ago' },
-  { name: 'Maria Gruber', email: 'maria.gruber@contoso.com', team: 'AT Operations', role: 'approver', status: 'active', last: '6h ago' },
-  { name: 'Ana Costa', email: 'ana.costa@contoso.com', team: 'PT Operations', role: 'approver', status: 'active', last: '1d ago' },
+  // Regional approvers, each covering the same region as a submitter above.
+  { name: 'Pieter Bakker', email: 'pieter.bakker@contoso.com', team: 'Benelux & UK', role: 'approver', status: 'active', last: '1h ago' },
+  { name: 'Klaus Weber', email: 'klaus.weber@contoso.com', team: 'DACH & CEE', role: 'approver', status: 'active', last: '3h ago' },
+  { name: 'Elena García', email: 'elena.garcia@contoso.com', team: 'Southern Europe', role: 'approver', status: 'active', last: '10h ago' },
 
   { name: 'Tom Whitfield', email: 'tom.whitfield@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: '1d ago' },
   { name: 'Sofia Almeida', email: 'sofia.almeida@contoso.com', team: 'Group Finance', role: 'viewer', status: 'inactive', last: '3w ago' },
-
-  // ---------------------------------------------------------------------
-  // Brand-new joiners, one per role. They have never signed in, so picking
-  // one from the user switcher always runs that role's guided walkthrough
-  // — the quickest way to review every tour end to end.
-  // ---------------------------------------------------------------------
-  { name: 'Nina Brandt', email: 'nina.brandt@contoso.com', team: 'NL Operations', role: 'submitter', status: 'active', last: 'Never', alwaysTour: true },
-  { name: 'Omar Haddad', email: 'omar.haddad@contoso.com', team: 'DE Sales', role: 'approver', status: 'active', last: 'Never', alwaysTour: true },
-  { name: 'Priya Raman', email: 'priya.raman@contoso.com', team: 'Group Finance', role: 'viewer', status: 'active', last: 'Never', alwaysTour: true },
-  { name: 'Rasmus Nilsen', email: 'rasmus.nilsen@contoso.com', team: 'Treasury HQ', role: 'treasury', status: 'active', last: 'Never', alwaysTour: true },
-  
 ];
 
 // ---------------------------------------------------------------------------

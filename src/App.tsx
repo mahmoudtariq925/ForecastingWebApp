@@ -151,7 +151,7 @@ export default function App() {
         // someone else's submitted forecast, with no save button and no trace,
         // silently moved the group total nobody could then explain.
         readOnly={!permissions.canSubmitForecasts || permissions.canViewTreasuryDashboard}
-        canRequestComments={permissions.canRequestCommentary}
+        canRequestComments={permissions.canAskQuestions}
         // Approvers decide on the forecast itself. Treasury does not decide
         // at all: it reads and asks questions.
         canApprove={permissions.canApproveForecasts && !permissions.canViewTreasuryDashboard}

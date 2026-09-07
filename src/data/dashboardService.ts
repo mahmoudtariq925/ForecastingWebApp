@@ -53,7 +53,7 @@ export interface CountryProgress {
   status: SubmissionStatus;
   templateId: string;
   /** Flagged cells still without commentary. */
-  needCommentary: number;
+  unexplained: number;
   received: boolean;
   approved: boolean;
 }
@@ -198,7 +198,7 @@ export function cycleProgress(
       entity,
       status,
       templateId: template?.id ?? '',
-      needCommentary: 0,
+      unexplained: 0,
       // A forecast returned for update has NOT been received — counting
       // 'rejected' as received is what let a rejection push the "submissions
       // received" number up instead of down.
@@ -208,7 +208,7 @@ export function cycleProgress(
     if (template) {
       const selection = new Set(selectedPeriods(periodsOf(template).count, days));
       const sub = peekSubmission(entity.name, week, template);
-      row.needCommentary = sub.flags.filter(
+      row.unexplained = sub.flags.filter(
         (k) => !sub.comments?.[k]?.trim() && inSelection(k, selection),
       ).length;
     }
@@ -260,13 +260,13 @@ export function filterRegions(
 // Requires attention: which countries owe commentary, biggest move first.
 // ---------------------------------------------------------------------------
 
-/** One country's commentary debt, ranked by the size of its largest move. */
+/** One country's unexplained variances, ranked by the size of its largest move. */
 export interface AttentionRow {
   entity: string;
   region: string;
   templateId: string;
   /** Flagged cells with no commentary yet. */
-  needCommentary: number;
+  unexplained: number;
   flagged: number;
   /** Largest unexplained move as a percentage, or null when one would mislead. */
   worstPct: number | null;
@@ -327,7 +327,7 @@ export function attentionRows(
       entity: entity.name,
       region: entity.region,
       templateId: template.id,
-      needCommentary: open.length,
+      unexplained: open.length,
       flagged: sub.flags.length,
       worstPct,
       worstAbs,

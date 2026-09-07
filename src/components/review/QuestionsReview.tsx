@@ -603,7 +603,7 @@ export function QuestionsReview({ onOpenSubmission, scopeEntities }: QuestionsRe
               role={viewerRole}
               hint={
                 viewerRole === 'submitter' && isCycleOpenForEntity(openItem.period, openItem.entity)
-                  ? 'Your reply is the commentary on this cell. If the figure itself is wrong, open the forecast and correct it — that sends it round for approval again.'
+                  ? 'Your reply is the explanation on this cell. If the figure itself is wrong, open the forecast and correct it — that sends it round for approval again.'
                   : undefined
               }
               onSend={(text) => reply(openItem, text)}
