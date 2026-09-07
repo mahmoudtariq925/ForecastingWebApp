@@ -73,6 +73,15 @@ export function Cycles() {
 
   const closingSummary = useMemo(() => (closing ? cycleOverview(closing) : null), [closing]);
 
+  /** Cycles still collecting, other than the one being opened. */
+  const alreadyOpen = useMemo(
+    () =>
+      opening
+        ? rows.map((r) => r.cycle).filter((c) => c.status === 'submitted' && c.id !== opening.id)
+        : [],
+    [rows, opening],
+  );
+
   const setStatus = (cycle: Cycle, status: Cycle['status']) => {
     setCycleStatus(cycle.id, status);
     setClosing(null);
@@ -241,6 +250,28 @@ export function Cycles() {
               {weekLabel(opening.weekKey)} · closes {opening.closes}. Only the entities this cycle
               covers can enter or change figures for that week.
             </p>
+            {/* Opening a second cycle does not close the first, and the app
+                works in the most recent open one — so without saying this,
+                treasury moved everybody onto a new week while the previous
+                cycle was still collecting, and the forecasts in flight were
+                left on a week nothing points at. */}
+            {alreadyOpen.length > 0 && (
+              <div className="variance-panel needs-input" style={{ marginBottom: 14 }}>
+                <h4>
+                  {alreadyOpen.length === 1 ? 'A cycle is' : `${alreadyOpen.length} cycles are`}{' '}
+                  still open
+                </h4>
+                <p style={{ margin: 0 }}>
+                  {alreadyOpen.map((c) => c.id).join(', ')}{' '}
+                  {alreadyOpen.length === 1 ? 'is' : 'are'} still collecting. Opening this one moves
+                  the app onto {opening.id};{' '}
+                  {alreadyOpen.length === 1 ? 'the other stays open' : 'the others stay open'} but
+                  nothing will point at {alreadyOpen.length === 1 ? 'it' : 'them'}. Close{' '}
+                  {alreadyOpen.length === 1 ? 'it' : 'them'} first unless you mean to collect more
+                  than one week at once.
+                </p>
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Open For</label>
               <MultiSelect

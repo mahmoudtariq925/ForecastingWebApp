@@ -165,13 +165,25 @@ export function listCycles(): Cycle[] {
 }
 
 /**
- * The cycle the app is working in: the most recent OPEN one, falling back to
- * the newest cycle so there is always exactly one answer. Every screen asks
+ * The cycle the app is working in: the most recent OPEN one. Every screen asks
  * this rather than picking a cycle for itself.
+ *
+ * When nothing is open the fallback is the most recently CLOSED cycle, not
+ * simply the newest. `listCycles` is sorted newest-first and the weeks ahead
+ * are listed unopened, so "the newest" was a `scheduled` cycle several weeks
+ * in the future: closing the last open cycle moved the whole app onto a week
+ * nobody had opened, labelled "Active cycle", with the figures locked because
+ * the cycle collecting them had not started. Falling back to the week just
+ * finished keeps the app on a cycle that actually happened.
  */
 export function activeCycle(): Cycle {
   const cycles = listCycles();
-  return cycles.find((c) => c.status === 'submitted') ?? cycles[0] ?? buildCycle(currentWeekKey(), 'submitted');
+  return (
+    cycles.find((c) => c.status === 'submitted') ??
+    cycles.find((c) => c.status !== 'scheduled') ??
+    cycles[cycles.length - 1] ??
+    buildCycle(currentWeekKey(), 'submitted')
+  );
 }
 
 /** The forecast week the app is working in — the active cycle's week. */
