@@ -72,9 +72,9 @@ const SUBMITTER_STEPS: TourStep[] = [
   },
   {
     view: 'analystHome',
-    selector: '[data-tour="analyst-forecast-actions"]',
+    selector: '[data-tour="todo-submit"]',
     title: 'Open your forecast',
-    body: 'One click takes you straight into this week’s forecast. It says “Continue” once you’ve started, so you always know where you left off.',
+    body: 'The checklist’s first step is the way in. It opens the countries you file for, each with its status, so you always know where you left off.',
     side: 'left',
   },
   {
@@ -100,10 +100,18 @@ const SUBMITTER_STEPS: TourStep[] = [
   },
   {
     view: 'submission',
-    selector: '[data-tour="variance-panel"]',
+    selector: '[data-tour="variance-badge"]',
     title: 'Explaining big changes',
-    body: 'Cells that moved a lot since last week get flagged. Click a flagged cell and add a short note — Treasury can’t close the cycle until those are explained.',
+    body: 'Cells that moved a lot since last week get flagged, and this badge counts the ones you have not explained yet. Click it to jump to the first — Treasury cannot close the cycle until each has a short note.',
     side: 'bottom',
+  },
+  {
+    view: 'submission',
+    selector: '[data-tour="mirror-table"]',
+    expand: '.panel-collapse-head',
+    title: 'What other countries say about you',
+    body: 'When another entity forecasts a payment to you, it appears here with the current week and the two before it. Click a figure to pull it into your own forecast, or click it again to take it back out — the older columns are history, and are there to check it against.',
+    side: 'left',
   },
   {
     view: 'submission',
@@ -144,7 +152,7 @@ const SUBMITTER_JOURNEY: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="cycle-scope"]',
     title: '3 · The period is set for you',
-    body: 'On the forecast page, the cycle badge shows exactly which dates you are forecasting. The template is fixed too — Treasury configures it per entity.',
+    body: 'Opening the forecast asks how you want to start — carry last week’s figures over to adjust, or begin on a blank grid. After that the cycle badge shows exactly which dates you are forecasting; the template is fixed too, set by Treasury per entity.',
     side: 'bottom',
   },
   {
@@ -218,7 +226,7 @@ const APPROVER_STEPS: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="forecast-grid"]',
     title: 'Read the full forecast',
-    body: 'Every forecast for your entities opens here read-only — the same grid your submitters fill in, with their commentary on the flagged cells. Reviewing never risks changing their numbers.',
+    body: 'Every forecast for your entities opens here read-only — the same grid your submitters fill in, with their explanations on the flagged cells. Reviewing never risks changing their numbers. When one is waiting on you, Approve and Return for Update appear in the toolbar above it.',
     side: 'top',
   },
   {
@@ -253,7 +261,7 @@ const APPROVER_JOURNEY: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="forecast-grid"]',
     title: '3 · Review the detail',
-    body: 'Sections open collapsed so you see the shape first; expand what you want to inspect. The ? on any cell asks the submitter to explain that number.',
+    body: 'Sections open collapsed so you see the shape first; expand what you want to inspect. The ? on any cell opens a panel beside the grid to ask its submitter about that number — the figure stays in view while you write. The decision buttons appear here too, once a forecast has been submitted to you.',
     side: 'top',
   },
   {
@@ -312,7 +320,7 @@ const TREASURY_STEPS: TourStep[] = [
     view: 'dashboard',
     selector: '[data-tour="dashboard-kpis"]',
     title: 'The whole picture',
-    body: 'Total forecast, net cash position, how many entities have reported, and how many flagged cells still need explaining.',
+    body: 'Three numbers for the cycle: how many entities have reported, how many are submitted but not yet approved, and how many questions are still waiting on an answer. Each one opens the list behind it.',
     side: 'bottom',
   },
   {
@@ -324,10 +332,24 @@ const TREASURY_STEPS: TourStep[] = [
   },
   {
     view: 'dashboard',
-    selector: '[data-tour="stat-attention"]',
-    title: 'What still needs explaining',
-    body: 'Every country whose forecast owes commentary, biggest unexplained move first — the order to work down the list in.',
+    selector: '[data-tour="stat-awaiting"]',
+    title: 'Waiting on an approver',
+    body: 'Forecasts that are in but not signed off. Their figures already count towards the totals on this page, and an approver could still send any of them back.',
     side: 'bottom',
+  },
+  {
+    view: 'dashboard',
+    selector: '[data-tour="stat-attention"]',
+    title: 'Questions waiting on an answer',
+    body: 'Every question you or an approver has put to a submitter, longest wait first. Open a forecast on the cell it was asked about, or go straight to the Questions page to reply and close threads off.',
+    side: 'bottom',
+  },
+  {
+    view: 'dashboard',
+    selector: '[data-tour="overview-filters"]',
+    title: 'Narrowing the page',
+    body: 'Country, template and status narrow everything below at once — chart, breakdown and consolidated forecast together. Intercompany is three buttons: press Payables or Receivables for the countries settling that way, or Mirror off to count only what each country entered itself. Press the one you chose again to let go of it.',
+    side: 'right',
   },
   {
     view: 'dashboard',
@@ -363,7 +385,7 @@ const TREASURY_STEPS: TourStep[] = [
     view: 'submission',
     selector: '[data-tour="forecast-grid"]',
     title: 'Any entity’s forecast',
-    body: 'Open any entity’s grid to read it. The numbers stay theirs — click a cell to ask its submitter about it rather than changing it yourself.',
+    body: 'Open any entity’s grid to read it. The numbers stay theirs — click a cell and a panel opens beside the grid to ask its submitter about that figure, rather than changing it yourself.',
     side: 'top',
   },
   {

@@ -722,6 +722,7 @@ export function AnalystHome({ user, onOpenSubmission, onNavigate }: AnalystHomeP
               cycleCloses={cycle.closes}
               scopeEntities={scopedEntities}
               onOpenSubmission={onOpenSubmission}
+              onNavigate={onNavigate}
             />
           </>
         )}

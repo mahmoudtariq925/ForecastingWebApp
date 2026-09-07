@@ -3,7 +3,7 @@ import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common
 import { ForecastGrid } from '../submissions/ForecastGrid';
 import { categoryGroups } from '../submissions/gridMath';
 import { CycleProgressModal } from './CycleProgressModal';
-import { AttentionModal } from './AttentionModal';
+import { QuestionsModal } from './QuestionsModal';
 import { DayBreakdownModal } from './DayBreakdownModal';
 import { CountryMatrix } from './CountryMatrix';
 import { MultiSelect } from '../common/MultiSelect';
@@ -21,7 +21,6 @@ import {
 } from '../../data/periods';
 import {
   allCountries,
-  attentionRows,
   categoryCountryMatrix,
   cycleProgress,
   filterRegions,
@@ -46,6 +45,7 @@ import { emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import type { Entity } from '../../types';
 import type { SubmissionTarget } from '../submissions/Submission';
+import type { ViewId } from '../../types/nav';
 
 interface TreasuryOverviewProps {
   week: string;
@@ -59,6 +59,8 @@ interface TreasuryOverviewProps {
    */
   scopeEntities?: string[];
   onOpenSubmission?: (target: SubmissionTarget) => void;
+  /** Go to another screen — the questions box offers a door to its queue. */
+  onNavigate?: (view: ViewId) => void;
 }
 
 /** Which stat box (if any) has its modal open. */
@@ -131,8 +133,8 @@ const MIRROR_OPTIONS: { value: Exclude<MirrorFilter, 'all'>; label: string; titl
 interface PreviewTarget {
   entity: string;
   templateId?: string;
-  /** Cell to raise the commentary-request dialog on, when arriving from a
-   *  row that named one ("this country's largest unexplained move"). */
+  /** Cell to open on, when arriving from a row that named one (the cell a
+   *  question was asked about). */
   focusCell?: string;
 }
 
@@ -165,6 +167,7 @@ export function TreasuryOverview({
   cycleCloses,
   scopeEntities,
   onOpenSubmission,
+  onNavigate,
 }: TreasuryOverviewProps) {
   // Every rollup below re-reads when anything is written to storage, so a
   // decision taken on this page refreshes the panels beside it rather than
@@ -357,28 +360,27 @@ export function TreasuryOverview({
   const received = countryRows.filter((c) => c.received).length;
   const awaiting = countryRows.filter((c) => c.received && !c.approved).length;
 
-  const attention = useMemo(
-    () => {
-      void dataVersion;
-      return attentionRows(week, settings, countries, periods);
-    },
-    [week, settings, countries, periods, dataVersion],
-  );
-  const openComments = attention.reduce((s, r) => s + r.unexplained, 0);
-
   /**
-   * Threads treasury or an approver opened that are still waiting on a reply,
-   * across the countries in scope. Deliberately a separate figure from the one
-   * above: a variance nobody has asked about is the submitter's own work, and
-   * a question is somebody waiting on an answer.
+   * Every question put to a submitter this cycle, across the countries in
+   * scope.
+   *
+   * This box used to rank countries by their largest UNEXPLAINED VARIANCE,
+   * which is a different job with a different owner: nobody has asked about
+   * those yet, and the forecast screen's variance badge is where a submitter
+   * works them. Counting both under one heading is what made "commentary"
+   * ambiguous, so this is now only about questions somebody actually asked.
    */
-  const openQuestions = useMemo(() => {
+  const questions = useMemo(() => {
     void dataVersion;
     const inScope = new Set(countries);
     return flattenQuestions(collectQuestionGroups(loadTemplates())).filter(
-      (q) => q.state === 'awaiting' && q.period === week && inScope.has(q.entity),
-    ).length;
+      (q) => q.period === week && inScope.has(q.entity),
+    );
   }, [countries, week, dataVersion]);
+  /** The number on the card: threads somebody is still waiting on. */
+  const openQuestions = questions.filter((q) => q.state === 'awaiting').length;
+  const questionCountries = new Set(questions.filter((q) => q.state === 'awaiting').map((q) => q.entity))
+    .size;
 
   // ---- 4-week outlook, consolidated across the selected countries ---------
   // Straight off `consolidatedValues`, which reads every entity's stored
@@ -681,30 +683,23 @@ export function TreasuryOverview({
           dataTour="stat-awaiting"
           onOpen={() => setStatModal('awaiting')}
         />
-        {/* Variances the submitters owe an explanation for — NOT questions.
-            The two used to share the word "commentary" and this one number,
-            which made it read as a queue of things treasury had asked about
-            when it is the opposite: work nobody has had to ask for yet. The
-            questions ride alongside as their own figure. */}
+        {/* Questions somebody asked — not variances nobody has asked about
+            yet. Those are the submitter's own work and are worked from the
+            variance badge on the forecast screen. */}
         <StatBox
           hue="variance"
-          label="Unexplained Variances"
-          value={String(openComments)}
-          aside={
-            openQuestions > 0
-              ? `${openQuestions} question${openQuestions === 1 ? '' : 's'} open`
-              : undefined
-          }
+          label="Open Questions"
+          value={String(openQuestions)}
           sub={
-            attention.length === 0
-              ? periodLabel
-                ? `Nothing outstanding on ${periodLabel}`
-                : 'Nothing blocking cycle close'
-              : `Across ${attention.length} countr${attention.length === 1 ? 'y' : 'ies'}${
+            openQuestions === 0
+              ? questions.length > 0
+                ? 'Every question has been answered'
+                : 'Nobody has asked anything yet'
+              : `Across ${questionCountries} countr${questionCountries === 1 ? 'y' : 'ies'}${
                   periodLabel ? ` on ${periodLabel}` : ''
                 }`
           }
-          tone={openComments === 0 ? 'ok' : 'warn'}
+          tone={openQuestions === 0 ? 'ok' : 'warn'}
           dataTour="stat-attention"
           onOpen={() => setStatModal('attention')}
         />
@@ -841,15 +836,23 @@ export function TreasuryOverview({
         />
       )}
       {statModal === 'attention' && (
-        <AttentionModal
+        <QuestionsModal
           open
-          rows={attention}
+          rows={questions}
           subtitle={`${weekLabel(week)}${
             periodLabel ? ` · ${periodLabel} only` : ''
-          } · largest unexplained move first`}
+          } · longest wait first`}
           onClose={() => setStatModal(null)}
           onOpen={(r) =>
-            openForecast({ entity: r.entity, templateId: r.templateId, focusCell: r.worstCell })
+            openForecast({ entity: r.entity, templateId: r.templateId, focusCell: r.cellKey })
+          }
+          onOpenQueue={
+            onNavigate
+              ? () => {
+                  setStatModal(null);
+                  onNavigate('review');
+                }
+              : undefined
           }
         />
       )}

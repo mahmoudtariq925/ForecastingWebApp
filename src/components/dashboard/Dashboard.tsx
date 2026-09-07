@@ -50,6 +50,7 @@ export function Dashboard({ onOpenModal, onOpenSubmission, onNavigate }: Dashboa
           cycleId={cycle.id}
           cycleCloses={cycle.closes}
           onOpenSubmission={onOpenSubmission}
+          onNavigate={onNavigate}
         />
       </div>
     </div>
