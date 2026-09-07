@@ -2928,62 +2928,60 @@ function SubmissionEditor({
                   slotValueLabel="Running balance"
                 />
               )}
-              {/* What the rest of the group says about this week, beside the
-                  shape of it. Folded, the chart keeps the whole card and this
-                  is a strip down the right-hand edge; opened, the two share
-                  it — because deciding whether to carry a counterparty's
-                  settlement is a decision about the line you are looking at. */}
-              {hasIntercompany && (
-                <aside
-                  className={`outlook-mirrors${mirrorsOpen ? ' is-open' : ''}`}
-                  data-tour="mirror-table"
-                >
-                  <button
-                    className="mirror-collapse-head"
-                    aria-expanded={mirrorsOpen}
-                    title={
-                      mirrorsOpen
-                        ? 'Fold the intercompany table away'
-                        : 'What the rest of the group states about this week'
-                    }
-                    onClick={() => setMirrorsOpen((v) => !v)}
-                  >
-                    <span className="section-caret" aria-hidden="true">
-                      {mirrorsOpen ? '▸' : '◂'}
-                    </span>
-                    <span className="mirror-head-label">Intercompany</span>
-                    {statements.length > 0 && (
-                      <span className="badge-num">
-                        {statements.filter((s) => s.carried).length}/{statements.length}
-                      </span>
-                    )}
-                  </button>
-                  {mirrorsOpen && (
-                    <div className="mirror-body">
-                      <MirrorTable
-                        statements={statements}
-                        dateLabel={(d) =>
-                          dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`
-                        }
-                        periodLabels={{
-                          current: weekLabelShort(week),
-                          prior1: weekLabelShort(prevWeekKey(week)),
-                          prior2: weekLabelShort(prevWeekKey(prevWeekKey(week))),
-                        }}
-                        editable={canEditCells}
-                        onToggle={(counterparty) =>
-                          void applyMirrorPrefs(
-                            mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
-                          )
-                        }
-                      />
-                    </div>
-                  )}
-                </aside>
-              )}
             </div>
           )}
         </div>
+
+        {/* What the rest of the group says about this week: its own card under
+            the outlook, folding the same way. It used to be a third column
+            inside the outlook — a spine down the edge of the chart that took
+            the chart's width when it opened, and gave a five-column table
+            340px to live in. The two say different things about the same
+            week and neither is a margin note on the other. */}
+        {hasIntercompany && (
+          <div
+            className={`panel chart-panel forecast-mirrors${mirrorsOpen ? ' is-open' : ''}`}
+            data-tour="mirror-table"
+          >
+            <button
+              className="panel-collapse-head"
+              aria-expanded={mirrorsOpen}
+              onClick={() => setMirrorsOpen((v) => !v)}
+            >
+              <span className="section-caret" aria-hidden="true">
+                {mirrorsOpen ? '▾' : '▸'}
+              </span>
+              <strong>Intercompany Mirroring</strong>
+              <span className="text-muted">
+                {weekLabelShort(week)} ·{' '}
+                {statements.length === 0
+                  ? 'nothing stated by the group'
+                  : `${statements.filter((st) => st.carried).length} of ${statements.length} carried`}
+              </span>
+            </button>
+            {mirrorsOpen && (
+              <div className="mirror-body">
+                <MirrorTable
+                  statements={statements}
+                  dateLabel={(d) =>
+                    dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`
+                  }
+                  periodLabels={{
+                    current: weekLabelShort(week),
+                    prior1: weekLabelShort(prevWeekKey(week)),
+                    prior2: weekLabelShort(prevWeekKey(prevWeekKey(week))),
+                  }}
+                  editable={canEditCells}
+                  onToggle={(counterparty) =>
+                    void applyMirrorPrefs(
+                      mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
+                    )
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* The forecast itself, in its own box — the controls above are
             settings, not part of the grid. */}

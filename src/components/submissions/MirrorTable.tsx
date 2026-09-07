@@ -55,21 +55,25 @@ export function MirrorTable({
     <>
       <div className="mirror-lead text-muted">
         {carried} of {statements.length} carried into this forecast
-        {editable ? ' · click a current figure to add or remove it' : ''}
+        {editable
+          ? ` · click a ${periodLabels.current} figure to add that settlement to your grid, or again to take it out`
+          : ''}
       </div>
       <div className="mirror-table-wrap">
         <table className="mirror-table">
           <thead>
             <tr>
-              <th scope="col">Country</th>
-              <th scope="col">Date</th>
-              <th scope="col" className="num">
+              <th scope="col">Counterparty</th>
+              <th scope="col">Settles</th>
+              {/* This week first and nearest the name — it is the one that can
+                  still be acted on — with the two cycles behind it after. */}
+              <th scope="col" className="num col-current">
                 {periodLabels.current}
               </th>
-              <th scope="col" className="num">
+              <th scope="col" className="num col-hist">
                 {periodLabels.prior1}
               </th>
-              <th scope="col" className="num">
+              <th scope="col" className="num col-hist">
                 {periodLabels.prior2}
               </th>
             </tr>
@@ -79,7 +83,7 @@ export function MirrorTable({
               const dates =
                 s.days.length === 1
                   ? dateLabel(s.days[0])
-                  : `${dateLabel(s.days[0])} +${s.days.length - 1}`;
+                  : `${dateLabel(s.days[0])} +${s.days.length - 1} more`;
               return (
                 <tr key={`${s.counterparty}:${s.rowId}`} className={s.carried ? 'is-carried' : ''}>
                   <th scope="row">
@@ -88,7 +92,9 @@ export function MirrorTable({
                     </span>
                     {s.counterparty}
                   </th>
-                  <td title={s.days.map(dateLabel).join(', ')}>{dates}</td>
+                  <td className="mirror-when" title={s.days.map(dateLabel).join(', ')}>
+                    {dates}
+                  </td>
                   <td className="num">
                     {editable ? (
                       <button
@@ -103,6 +109,12 @@ export function MirrorTable({
                       >
                         <span className="mirror-take-mark" aria-hidden="true">
                           {s.carried ? '✓' : '+'}
+                        </span>
+                        {/* The button says which of the two things it does;
+                            without it the only difference between carrying a
+                            statement and not was the colour of a figure. */}
+                        <span className="mirror-take-word">
+                          {s.carried ? 'Carried' : 'Add'}
                         </span>
                         {fmt(s.current)}
                       </button>
