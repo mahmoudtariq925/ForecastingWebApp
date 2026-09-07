@@ -214,7 +214,18 @@ export function useOnboardingTour({
           markNav(step.view);
           return true; // centred card, nothing to find
         }
-        const el = await waitForElement(step.selector);
+        let el = await waitForElement(step.selector);
+        /**
+         * A step can point INSIDE a panel that opens folded, in which case its
+         * element does not exist yet and the step would be skipped before the
+         * disclosure below ever ran. Open it first and look again — this is
+         * what `expand` is for, and it was only being applied to steps whose
+         * element happened to be rendered already.
+         */
+        if (!el && step.expand) {
+          await openDisclosure(document.body, step.expand);
+          el = await waitForElement(step.selector);
+        }
         if (!el) return false;
         markNav(step.view);
         await openDisclosure(el, step.expand);
