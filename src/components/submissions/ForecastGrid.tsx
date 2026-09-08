@@ -1114,7 +1114,12 @@ function GroupRows({
               className={
                 (loose ? ' group-loose' : band) +
                 (isSubtotal ? ' subtotal-row' : '') +
-                (custom ? ' custom-row' : '')
+                (custom ? ' custom-row' : '') +
+                // Mirrored is a property of the LINE, so it is marked on the
+                // row: drawing it per cell put a blue tick on the left edge of
+                // all twenty of them, which reads as a row cut into pieces
+                // rather than as one row somebody else wrote.
+                (categories[catIdx]?.source !== undefined ? ' row-mirrored' : '')
               }
             >
               <td
@@ -1411,7 +1416,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 key={col.catIdx}
                 className={`day-h${col.end ? ' group-end' : ''}${col.band}${
                   categories[col.catIdx].customRowId !== undefined ? ' day-h-custom' : ''
-                }`}
+                }${categories[col.catIdx].source !== undefined ? ' day-h-mirrored' : ''}`}
               >
                 <RowName catIdx={col.catIdx} props={props} />
                 {categories[col.catIdx].customRowId === undefined &&
