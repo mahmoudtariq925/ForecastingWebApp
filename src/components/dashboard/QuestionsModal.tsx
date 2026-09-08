@@ -88,35 +88,54 @@ export function QuestionsModal({
         </div>
       ) : (
         <div className="panel-body no-pad">
-          <table>
+          {/* Six columns with no widths let every row set its own: a country
+              name wrapped onto two lines here, a date onto two lines there,
+              and "24h ago" broke under its own pill. The columns are sized
+              now, and what a cell holds is stacked in it rather than strung
+              across the table — one shape per row, whatever the content. */}
+          <table className="questions-table">
+            <colgroup>
+              <col className="q-col-cell" />
+              <col className="q-col-who" />
+              <col className="q-col-question" />
+              <col className="q-col-state" />
+              <col className="q-col-action" />
+            </colgroup>
             <thead>
               <tr>
-                <th>Country</th>
-                <th>Line item</th>
+                <th>Country · cell</th>
                 <th>Asked by</th>
                 <th>Question</th>
-                <th>Last activity</th>
+                <th>Waiting</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {ordered.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className={r.state === 'awaiting' ? 'is-awaiting' : ''}>
                   <td>
-                    <strong>{r.entity}</strong>
+                    <span className="q-primary">{r.entity}</span>
+                    <span className="q-secondary" title={`${r.category} · ${r.dateLabel}`}>
+                      {r.category} · {r.dateLabel}
+                    </span>
                   </td>
-                  <td className="text-dim">
-                    {r.category} · {r.dateLabel}
+                  <td>
+                    <span className="q-primary q-plain" title={r.from}>
+                      {r.from}
+                    </span>
+                    <span className="q-secondary">{requesterLabel(r.role)}</span>
                   </td>
-                  <td className="text-dim">
-                    {r.from} ({requesterLabel(r.role)})
+                  {/* Two lines of the question rather than sixty characters of
+                      it: the old cut landed mid-word ("is a suppl…") and told
+                      the reader nothing they could act on. */}
+                  <td>
+                    <span className="q-question" title={r.message}>
+                      {r.message}
+                    </span>
                   </td>
-                  <td className="text-dim" title={r.message}>
-                    {r.message.length > 60 ? `${r.message.slice(0, 60)}…` : r.message}
-                  </td>
-                  <td className="text-dim">
+                  <td>
                     <span
-                      className={`badge-num${r.state === 'awaiting' ? ' warn' : ''}`}
+                      className={`badge-num${r.state === 'awaiting' ? ' warn' : ' ok'}`}
                       title={
                         r.state === 'awaiting'
                           ? 'Still waiting on a reply'
@@ -124,15 +143,11 @@ export function QuestionsModal({
                       }
                     >
                       {r.state === 'awaiting' ? 'waiting' : 'answered'}
-                    </span>{' '}
-                    {agoLabel(r.lastAt)}
+                    </span>
+                    <span className="q-secondary">{agoLabel(r.lastAt)}</span>
                   </td>
-                  <td>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ padding: '4px 10px', fontSize: 12 }}
-                      onClick={() => onOpen(r)}
-                    >
+                  <td className="q-action">
+                    <button className="btn btn-ghost btn-small" onClick={() => onOpen(r)}>
                       Open Forecast
                     </button>
                   </td>

@@ -812,6 +812,12 @@ textarea {
   cursor: not-allowed;
   box-shadow: none;
 }
+/* The size a button takes inside a table row: the same padding and size that
+   half a dozen call sites were setting inline. */
+.btn.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
 .btn-primary {
   background: var(--primary);
   color: var(--text-on-accent);
@@ -2137,6 +2143,16 @@ td.num {
 .variance-panel.handover-panel h4 {
   color: var(--green);
 }
+/* A week that is not this entity's to file into. Neutral, not a warning:
+   nothing has gone wrong, the forecast simply belongs to a week nobody can
+   put figures in — and the grid below is a record of what was never sent. */
+.variance-panel.locked-panel {
+  background: var(--n-100);
+  border-left-color: var(--n-400);
+}
+.variance-panel.locked-panel h4 {
+  color: var(--text-dim);
+}
 /* An open treasury question, matching the blue outline on the cell. */
 .variance-panel.comment-request-panel {
   background: var(--blue-soft);
@@ -3062,6 +3078,86 @@ tbody tr.row-selected td {
 }
 tbody tr.row-inactive td {
   opacity: 0.55;
+}
+
+/* === QUESTIONS ASKED (the summary over the treasury dashboard) ===========
+   A table of six columns and no widths let every row decide its own shape:
+   "United Kingdom" wrapped, a line item wrapped under it, and the time broke
+   away from the pill it belongs to. Fixed columns, and each cell stacked into
+   the two lines it actually holds — who and which cell, who asked and in what
+   capacity, the question, the state and how long it has waited. */
+.questions-table {
+  table-layout: fixed;
+}
+.questions-table col.q-col-cell {
+  width: 22%;
+}
+.questions-table col.q-col-who {
+  width: 16%;
+}
+.questions-table col.q-col-question {
+  width: auto;
+}
+.questions-table col.q-col-state {
+  width: 130px;
+}
+.questions-table col.q-col-action {
+  width: 140px;
+}
+.questions-table th,
+.questions-table td {
+  padding: 10px 14px;
+  vertical-align: middle;
+}
+.questions-table td {
+  border-bottom: 1px solid var(--border);
+}
+.questions-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.questions-table tbody tr:hover td {
+  background: var(--bg-sunken);
+}
+/* The line somebody reads first, and the line that qualifies it. */
+.q-primary,
+.q-secondary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.q-primary {
+  font-weight: 600;
+  color: var(--text);
+}
+.q-primary.q-plain {
+  font-weight: 500;
+}
+.q-secondary {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+/* Two lines of the question, cut by the box rather than by a character
+   count — the old 60-character slice ended mid-word on every row. */
+.q-question {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.questions-table .q-action {
+  text-align: right;
+}
+/* Waiting is the state somebody is held up by, so those rows carry an edge
+   and the answered ones sit back. */
+.questions-table tbody tr.is-awaiting td:first-child {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.questions-table tbody tr:not(.is-awaiting) .q-primary {
+  color: var(--text-dim);
 }
 
 /* === REQUIRES ATTENTION (treasury dashboard) === */
@@ -6705,6 +6801,30 @@ thead th,
 .forecast-entry .seg-toggle button.active:hover {
   background: var(--jde-blue);
   color: var(--jde-white);
+}
+
+/* The two cards over the grid — the week's shape, and what the group says
+   about it — share a row. Folded they are two strips, and stacking two
+   near-empty bars over a forecast wasted the height twice; opened, either
+   one takes the row to itself, because a chart and a five-column table have
+   nothing to gain from half a screen each. */
+.forecast-entry .forecast-strips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--panel-gap);
+}
+.forecast-entry .forecast-strips > .panel {
+  flex: 1 1 340px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.forecast-entry .forecast-strips > .panel.is-open {
+  flex-basis: 100%;
+}
+/* The row itself carries the gap the panels used to. */
+.forecast-entry .forecast-strips {
+  margin-bottom: var(--panel-gap);
 }
 
 /* ---- The Running Balance Outlook ----------------------------------------
