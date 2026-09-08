@@ -7,7 +7,7 @@ import { useDialog } from '../common/dialogContext';
 import { listEntities, seedUsers } from '../../data/appData';
 import { listCycles, openCycleForWeek, setCycleStatus } from '../../data/cycleService';
 import { cycleOverview } from '../../data/dashboardService';
-import { weekLabel } from '../../data/periods';
+import { currentWeekKey, weekLabel } from '../../data/periods';
 import { loadSettings, loadUsers } from '../../storage/localStorage';
 import { emailForName, mailDomain, openEmail } from '../../utils/email';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
@@ -189,9 +189,18 @@ export function Cycles() {
                 {rows.map(({ cycle, summary }) => {
                   const isOpen = cycle.status === 'submitted';
                   const scheduled = cycle.status === 'scheduled';
+                  /**
+                   * A week that has not started yet reads as ahead of the
+                   * list whatever has been done to it. Opening one early —
+                   * for a country that closes its books first, say — used to
+                   * make its row look exactly like this week's, so a reader
+                   * scanning the table had nothing but the date to tell them
+                   * they were looking at a forecast nobody can file yet.
+                   */
+                  const future = cycle.weekKey > currentWeekKey();
                   const pill = CYCLE_PILL[cycle.status];
                   return (
-                    <tr key={cycle.id} className={scheduled ? 'row-inactive' : ''}>
+                    <tr key={cycle.id} className={scheduled || future ? 'row-inactive' : ''}>
                       <td>
                         <strong>{cycle.id}</strong>
                       </td>
@@ -210,8 +219,7 @@ export function Cycles() {
                       <td className="num">{scheduled ? '—' : `€${summary.totalM.toFixed(1)}M`}</td>
                       <td>
                         <button
-                          className="btn btn-ghost"
-                          style={{ padding: '4px 10px', fontSize: 12 }}
+                          className="btn btn-ghost btn-small"
                           onClick={() =>
                             isOpen ? setClosing(cycle) : startOpening(cycle)
                           }

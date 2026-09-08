@@ -214,13 +214,31 @@ export function isCycleOpen(weekKey: string): boolean {
 }
 
 /**
+ * WHY a week is, or is not, open to one entity.
+ *
+ * A locked grid is the same lock whatever the reason, and the reason is what
+ * the person looking at it needs: a week nobody has opened yet is waiting for
+ * treasury, a closed one is history, and a week opened for three countries
+ * that does not name yours is neither. Saying "this cycle is closed" to all
+ * three was wrong twice out of three times.
+ */
+export type CycleAccess = 'open' | 'not-opened' | 'closed' | 'other-entities' | 'no-cycle';
+
+export function cycleAccessFor(weekKey: string, entity: string): CycleAccess {
+  const cycle = cycleForWeek(weekKey);
+  if (!cycle) return 'no-cycle';
+  if (cycle.status === 'scheduled') return 'not-opened';
+  if (cycle.status !== 'submitted') return 'closed';
+  if (cycle.entities && !cycle.entities.includes(entity)) return 'other-entities';
+  return 'open';
+}
+
+/**
  * The same question for one entity: a cycle opened for a subset does not
  * unlock everybody's grid.
  */
 export function isCycleOpenForEntity(weekKey: string, entity: string): boolean {
-  const cycle = cycleForWeek(weekKey);
-  if (cycle?.status !== 'submitted') return false;
-  return !cycle.entities || cycle.entities.includes(entity);
+  return cycleAccessFor(weekKey, entity) === 'open';
 }
 
 // ---------------------------------------------------------------------------
