@@ -51,27 +51,21 @@ export function IntercompanyTable({
 
   return (
     <>
+      {/* Short enough for the column the table lives in. The rest of what
+          each half of it means is on the control it describes: a country
+          that settles with nine others and sees three rows still learns from
+          here that the other six are unapproved rather than absent. */}
       <div className="mirror-lead text-muted">
-        {statements.length === 1
-          ? '1 approved settlement names this entity'
-          : `${statements.length} approved settlements name this entity`}
-        {/* Said on every table, not only the empty one: a country that settles
-            with nine others and sees three rows needs to know the other six
-            are unapproved rather than absent. */}
-        {' · '}
         <span title="A counterparty appears here once their own forecast for the week has been approved">
-          approved forecasts only
+          {statements.length} from approved forecasts
         </span>
-        {editable
-          ? ` · copy one in and it becomes your own figure, yours to change`
-          : ''}
+        {editable ? ' · copy one in to use it' : ''}
       </div>
       <div className="mirror-table-wrap">
         <table className="mirror-table">
           <thead>
             <tr>
               <th scope="col">Counterparty</th>
-              <th scope="col">Settles</th>
               {/* This week first and nearest the name — it is the one being
                   filled in — with the two cycles behind it after. */}
               <th scope="col" className="num col-current">
@@ -93,12 +87,16 @@ export function IntercompanyTable({
                   : `${dateLabel(s.days[0])} +${s.days.length - 1} more`;
               return (
                 <tr key={`${s.counterparty}:${s.rowId}`}>
-                  {/* The country's name, and only that: the two-letter code
-                      beside it was the same fact twice in one cell. */}
-                  <th scope="row">{s.counterparty}</th>
-                  <td className="mirror-when" title={s.days.map(dateLabel).join(', ')}>
-                    {dates}
-                  </td>
+                  {/* Who and when, stacked. A column of its own for the date
+                      cost the table more width than the whole of the two
+                      history columns, in a column it has to share with a
+                      chart that needs its own. */}
+                  <th scope="row">
+                    <span className="mirror-who">{s.counterparty}</span>
+                    <span className="mirror-when" title={s.days.map(dateLabel).join(', ')}>
+                      {dates}
+                    </span>
+                  </th>
                   <td className="num">
                     <span className="ic-figure">{fmt(s.current)}</span>
                     {/* Copying is repeatable on purpose: it writes the same

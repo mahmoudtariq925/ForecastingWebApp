@@ -288,7 +288,13 @@ export function Chart({
   };
 
   return (
-    <div className="chart-container" style={{ height: height + 40 }}>
+    // The height the caller asked for, unless a stylesheet has a better idea:
+    // how tall a plot should be depends on how wide its container turned out,
+    // which is a question CSS can answer and a prop cannot.
+    <div
+      className="chart-container"
+      style={{ height: `var(--chart-h, ${height + 40}px)` }}
+    >
       <svg ref={svgRef} className="chart-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         {/* Marked slots (Fridays on a daily horizon) get a standing band, so
             the week-to-week reference points are findable without counting

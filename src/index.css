@@ -6773,13 +6773,23 @@ thead th,
 }
 /* Two columns, open or folded. The shape of the week and what the group says
    about it are both things you check a figure AGAINST, so they are read
-   together and neither is worth a scroll to reach. The basis is the width
-   below which a chart and a five-column table stop being readable side by
-   side; under that the row wraps and they stack. */
+   together and neither is worth a scroll to reach.
+ *
+ * Not an even split. A week's shape needs width — twenty days in half a
+ * screen is a portrait box — while the table is five short columns and a
+ * handful of rows, and at half the screen it was mostly white. So the chart
+ * keeps the width it had when it owned the row, and the table takes the
+ * column beside it. Where both cannot have that, the row wraps and they
+ * stack. */
 .forecast-entry .forecast-strips > .panel {
-  flex: 1 1 460px;
   min-width: 0;
   margin-bottom: 0;
+}
+.forecast-entry .forecast-strips > .forecast-outlook {
+  flex: 1 1 900px;
+}
+.forecast-entry .forecast-strips > .forecast-mirrors {
+  flex: 0 1 380px;
 }
 /* The row itself carries the gap the panels used to. */
 .forecast-entry .forecast-strips {
@@ -6811,7 +6821,7 @@ thead th,
      checkboxes stop fitting. Fixed at that cap, the rail was wider than the
      plot once the card shared its row with the intercompany table — a column
      of checkboxes crowding out the thing they control. */
-  grid-template-columns: clamp(160px, 33%, 250px) minmax(0, 1fr);
+  grid-template-columns: clamp(160px, 30%, 225px) minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -6827,7 +6837,7 @@ thead th,
   max-width: 1120px;
 }
 .forecast-entry .forecast-mirrors .mirror-body {
-  padding: 4px 18px 16px;
+  padding: 4px 14px 14px;
 }
 .mirror-lead {
   font-size: 12px;
@@ -6850,7 +6860,7 @@ thead th,
 }
 .mirror-table th,
 .mirror-table td {
-  padding: 9px 14px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-weight: 400;
@@ -6880,11 +6890,14 @@ thead th,
 .mirror-table td:first-child {
   width: 1%;
 }
+/* The figure columns are as wide as a figure and its button, not as wide as
+   the space happened to allow: at 210px and 140px the five of them wanted
+   more than twice the column the table now sits in. */
 .mirror-table .col-current {
-  width: 210px;
+  width: 92px;
 }
 .mirror-table .col-hist {
-  width: 140px;
+  width: 56px;
 }
 .mirror-table tbody th {
   font-family: var(--sans);
@@ -6900,7 +6913,15 @@ thead th,
 .mirror-table tbody tr:hover > td {
   background: var(--bg-sunken);
 }
+/* The counterparty and the day it settles, one under the other. */
+.mirror-who {
+  display: block;
+  font-weight: 600;
+}
 .mirror-when {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
   color: var(--text-dim);
 }
 /* History: submitted at the time, and not something a closed week can be
@@ -6983,11 +7004,24 @@ thead th,
    earlier one-column card did, and every mark and label in the plot was
    squashed to four fifths of its height to fit inside it. */
 .forecast-entry .forecast-outlook .chart-container {
-  padding: 14px 18px 6px;
+  /* Side gutters trimmed: every pixel here is one the plot does not get, and
+     sharing the row with the table left none to spare. */
+  padding: 14px 10px 6px;
 }
-/* Narrow viewports have no width to give a rail, so it goes back to strips
-   above the plot — the same blocks, stacked the other way. */
-@media (max-width: 1080px) {
+/* A NARROW CARD has no width to give a rail, so it goes back to strips above
+   the plot — the same blocks, stacked the other way, and the plot then has
+   the whole card.
+ *
+ * Asked of the CARD rather than of the window, because since the card shares
+ * its row with the intercompany table the two have stopped agreeing: a
+ * 1,700px window holds a 715px card, and it was the card's width the plot
+ * had to live in. A rail beside a plot at that width left twenty days in
+ * 300px — a week squeezed into a portrait box, which is the same figure
+ * unreadable in the opposite direction to the one that started this. */
+.forecast-entry .forecast-outlook {
+  container-type: inline-size;
+}
+@container (max-width: 640px) {
   .forecast-entry .forecast-outlook .outlook-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -7005,6 +7039,11 @@ thead th,
     width: auto;
     margin-top: 0;
     margin-left: auto;
+  }
+  /* Shorter with it, so the plot stays landscape at a card width the full
+     height would have made square. */
+  .forecast-entry .forecast-outlook .chart-container {
+    --chart-h: 265px;
   }
 }
 /* The plot's own rules come through `var(--border)` on the SVG's `stroke`
