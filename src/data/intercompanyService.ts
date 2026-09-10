@@ -244,24 +244,19 @@ function flippedFigures(
  * around — carrying it copies whatever happened to be in the cell at the
  * moment it was taken, and the copy then stands through this forecast's own
  * submission and approval with nothing to say it came from a draft.
- *
- * `anyStatus` reads past that gate. It is not a way to carry an unapproved
- * figure — nothing does that — but a way to tell a statement that has gone
- * back into the counterparty's hands apart from one they have withdrawn.
  */
 function statedMirrors(
   source: string,
   period: string,
   target: string,
   templates: ForecastTemplate[],
-  { anyStatus = false }: { anyStatus?: boolean } = {},
 ): { row: CustomRow; figures: Record<string, number> }[] {
   const sourceTemplate = templateForEntity(templates, source);
   if (!sourceTemplate) return [];
   const stored = loadSubmission(period, source, sourceTemplate.id);
   if (!stored) return [];
   // `consolidated` is approved and then some — see `toneOf`.
-  if (!anyStatus && toneOf(stored.status) !== 'approved') return [];
+  if (toneOf(stored.status) !== 'approved') return [];
   const rows = customRowsOf(stored);
   const periods = periodsOf(sourceTemplate).count;
   const out: { row: CustomRow; figures: Record<string, number> }[] = [];
@@ -467,17 +462,13 @@ export interface MirrorStatement {
   days: number[];
   /**
    * What their APPROVED forecast states for this week, on our side of the
-   * settlement — null once there is no approved statement left and this
-   * forecast is carrying the copy of one. `gone` says which happened.
+   * settlement — null where there is no approved figure, whether they have
+   * taken the settlement out or their forecast has gone back into their
+   * hands. The table does not tell those apart: either way there is nothing
+   * to take, the copy already carried stands, and a row that says so in
+   * words says more than a reader of a table of figures wants.
    */
   current: number | null;
-  /**
-   * Why the current figure is missing, on a row this forecast still carries:
-   * `withdrawn` — the counterparty has taken the settlement out; `unapproved`
-   * — they still state it, but their forecast has gone back into their hands
-   * and is no longer signed off. Null while an approved statement stands.
-   */
-  gone: 'withdrawn' | 'unapproved' | null;
   /** The same statement one and two cycles back; null where they made none. */
   prior1: number | null;
   prior2: number | null;
@@ -589,7 +580,6 @@ export function mirrorStatements(
         rowId: row.id,
         days,
         current,
-        gone: null,
         prior1: priorTotal(legal.name, row.id, days, 1),
         prior2: priorTotal(legal.name, row.id, days, 2),
         carried: carried.has(key),
@@ -600,11 +590,11 @@ export function mirrorStatements(
   }
 
   /**
-   * A statement this forecast carries that the counterparty no longer makes —
-   * or no longer makes in a forecast anybody has approved. The copy is still
-   * in the grid, which is what a copy is, and without a row here the only
-   * trace of it would be a mirrored line in the forecast with nothing on the
-   * other side of it.
+   * A statement this forecast carries that no approved forecast makes any
+   * more — taken out, or gone back to the counterparty for changes. The copy
+   * is still in the grid, which is what a copy is, and without a row here the
+   * only trace of it would be a mirrored line in the forecast with nothing on
+   * the other side of it.
    */
   heldRows.forEach((row) => {
     if (isOwnRow(row) || !row.sourceRowId) return;
@@ -612,11 +602,6 @@ export function mirrorStatements(
     const key = `${source}:${row.sourceRowId}`;
     if (seen.has(key)) return;
     const mine = held.get(key);
-    // The two are worth telling apart: a settlement taken out is one to stop
-    // carrying, and a forecast reopened for changes is one to wait on.
-    const stillStated = statedMirrors(source, period, entity, templates, {
-      anyStatus: true,
-    }).some((says) => says.row.id === row.sourceRowId);
     // The days and the history are read off the COPY, which is all there is
     // left of the statement: what the counterparty submitted in the weeks
     // behind this one happened, and does not stop having happened because
@@ -627,7 +612,6 @@ export function mirrorStatements(
       rowId: row.sourceRowId,
       days,
       current: null,
-      gone: stillStated ? 'unapproved' : 'withdrawn',
       prior1: priorTotal(source, row.sourceRowId, days, 1),
       prior2: priorTotal(source, row.sourceRowId, days, 2),
       carried: true,

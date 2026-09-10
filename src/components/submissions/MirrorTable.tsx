@@ -22,22 +22,21 @@ const fmt = (v: number | null): string =>
  * Has the counterparty restated a settlement this forecast is carrying?
  *
  * A carried figure is a copy taken when it was carried, so the two drift
- * apart the moment either side edits. That is not an error — it is the thing
- * the table exists to show, because nothing else on the screen can: the grid
- * holds the copy and says nothing about where it came from.
+ * apart the moment either side edits and is approved again. That is not an
+ * error — it is the thing the table exists to show, because nothing else on
+ * the screen can: the grid holds the copy and says nothing about where it
+ * came from.
  *
- * A statement with no approved figure left is NOT this: nobody has restated
- * anything, the settlement has gone back into the counterparty's hands or out
- * of their forecast altogether. `stale` is that case, and the two are counted
- * apart because they are answered differently — one is a figure to take, the
- * other is a forecast to wait on.
+ * A carried row with no approved figure behind it any more is NOT this. The
+ * counterparty has taken the settlement out, or their forecast has gone back
+ * to them for changes; either way there is nothing to offer, the copy stands
+ * as it was approved, and the row says so by showing that figure and nothing
+ * else. A table of figures should read as figures.
  */
 const restated = (s: MirrorStatement): boolean =>
   s.carried &&
-  s.gone === null &&
-  Math.round(s.carriedTotal ?? 0) !== Math.round(s.current ?? 0);
-
-const stale = (s: MirrorStatement): boolean => s.carried && s.gone !== null;
+  s.current !== null &&
+  Math.round(s.carriedTotal ?? 0) !== Math.round(s.current);
 
 /**
  * What the rest of the group says about this entity's week, and what of it
@@ -75,8 +74,6 @@ export function MirrorTable({
     () => statements.filter((s) => restated(s)).length,
     [statements],
   );
-  /** Carried, with no approved figure behind it any more. */
-  const dropped = useMemo(() => statements.filter((s) => stale(s)).length, [statements]);
 
   if (statements.length === 0) {
     return (
@@ -110,18 +107,6 @@ export function MirrorTable({
               {moved === 1
                 ? '1 carried settlement has been restated since you took it'
                 : `${moved} carried settlements have been restated since you took them`}
-            </strong>
-          </>
-        ) : (
-          ''
-        )}
-        {dropped > 0 ? (
-          <>
-            {' · '}
-            <strong className="mirror-moved-note">
-              {dropped === 1
-                ? '1 no longer has an approved figure behind it'
-                : `${dropped} no longer have an approved figure behind them`}
             </strong>
           </>
         ) : (
@@ -198,25 +183,12 @@ export function MirrorTable({
                         {fmt(shown)}
                       </span>
                     )}
-                    {/* What the counterparty says NOW, where that is no longer
-                        what was taken. The copy stands until somebody says
-                        otherwise — this is where they say it. */}
-                    {(restated(s) || stale(s)) && (
+                    {/* The one thing worth a word: an approved figure that is
+                        no longer the one carried. The copy stands until
+                        somebody takes the new one — this is where they do it. */}
+                    {restated(s) && (
                       <span className="mirror-moved">
-                        {/* A settlement taken out is one to stop carrying; a
-                            forecast reopened for changes is one to wait on.
-                            Both leave the copy standing, so the row has to say
-                            which of the two it is. */}
-                        {s.gone === 'withdrawn' ? (
-                          <span className="mirror-moved-word">no longer stated</span>
-                        ) : s.gone === 'unapproved' ? (
-                          <span
-                            className="mirror-moved-word"
-                            title={`${s.counterparty}'s forecast is back with them and no longer approved — the figure carried here is the one that was signed off`}
-                          >
-                            no longer approved
-                          </span>
-                        ) : editable ? (
+                        {editable ? (
                           <button
                             className="mirror-retake"
                             title={`${s.counterparty} now states ${fmt(s.current)} — replace the figure this forecast carries`}
