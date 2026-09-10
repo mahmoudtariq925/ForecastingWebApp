@@ -42,10 +42,6 @@ export interface GridCategory extends TemplateCategory {
   customLabel?: string;
   /** Intercompany rows: the counterparty legal entity, by name. */
   entityName?: string;
-  /** Mirrored from another entity's forecast, so read-only here. */
-  source?: string;
-  /** The mirror arrived after this forecast had been handed over. */
-  late?: boolean;
 }
 
 /** Section identity: sections are named, and the name is the key. */
@@ -102,8 +98,6 @@ export function gridCategories(
         customLabel: row.label,
         ...(row.parent !== undefined ? { parentLabel: row.parent } : {}),
         ...(row.entity ? { entityName: row.entity } : {}),
-        ...(row.source ? { source: row.source } : {}),
-        ...(row.late ? { late: true as const } : {}),
       };
     }),
   ];
@@ -163,7 +157,7 @@ export function entityOptions(entity: string): EntityOption[] {
 }
 
 let seq = 0;
-/** Ids only have to be unique within one forecast; mirrors derive theirs. */
+/** Ids only have to be unique within one forecast. */
 export function newRowId(): string {
   seq += 1;
   return `cr${seq}-${Date.now().toString(36)}`;
@@ -188,9 +182,6 @@ export function makeCustomRow(
     ...(entity ? { entity } : {}),
   };
 }
-
-/** A row this entity entered itself, as opposed to one mirrored into it. */
-export const isOwnRow = (row: CustomRow): boolean => !row.source;
 
 /**
  * Whether a section's rows are legal entities rather than free text: true
@@ -303,7 +294,14 @@ export function withRowValues(
   return next;
 }
 
-/** Rows stored by an older version, made safe to read. */
+/**
+ * Rows stored by an older version, made safe to read.
+ *
+ * A forecast written while intercompany rows were MIRRORED — carried in from
+ * a counterparty and read-only here — comes back with its provenance dropped,
+ * which turns each of those rows into what it is now: this entity's own row,
+ * holding the figure that was copied into it, editable like any other.
+ */
 export function normalizeCustomRows(raw: unknown): CustomRow[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const rows = raw
@@ -315,9 +313,6 @@ export function normalizeCustomRows(raw: unknown): CustomRow[] | undefined {
       label: typeof r.label === 'string' ? r.label : '',
       ...(typeof r.parent === 'string' ? { parent: r.parent } : {}),
       ...(typeof r.entity === 'string' ? { entity: r.entity } : {}),
-      ...(typeof r.source === 'string' ? { source: r.source } : {}),
-      ...(typeof r.sourceRowId === 'string' ? { sourceRowId: r.sourceRowId } : {}),
-      ...(r.late === true ? { late: true as const } : {}),
     }));
   return rows.length > 0 ? rows : undefined;
 }

@@ -6140,22 +6140,6 @@ thead th,
   font-weight: 500;
   color: var(--text);
 }
-/* Where a mirrored row came from — the whole point of the row. */
-.row-source-tag {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 100px;
-  background: var(--blue-soft);
-  color: var(--blue);
-  font-family: var(--sans);
-  font-size: 10.5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.row-source-tag.late {
-  background: var(--amber-soft);
-  color: var(--amber);
-}
 .row-remove {
   flex: none;
   width: 18px;
@@ -6177,30 +6161,6 @@ thead th,
 .row-remove:hover {
   color: var(--red);
   border-color: var(--red);
-}
-
-/* A mirrored row is another entity's statement: read here, entered there.
-   One wash down the whole line says that; a 2px blue edge on each cell drew
-   twenty of them across a row, which read as a row broken into pieces and
-   sitting outside the section it belongs to rather than as one line of it. */
-.forecast-grid td.cell.cell-mirrored {
-  background-color: rgba(135, 161, 194, 0.08);
-  color: var(--text-dim);
-  cursor: default;
-}
-/* The edge is drawn ONCE, where the line is named: on the row label with the
-   dates across the top, on the column header with them down the side. */
-.forecast-grid tr.row-mirrored > td.row-label {
-  box-shadow: inset 3px 0 0 var(--blue-light);
-}
-.forecast-grid thead th.day-h.day-h-mirrored {
-  box-shadow: inset 0 3px 0 var(--blue-light);
-  background-color: rgba(135, 161, 194, 0.08);
-}
-/* A mirrored line keeps its section's banding underneath the wash, so it sits
-   in the section it belongs to rather than beside it. */
-.forecast-grid tr.row-mirrored > td.row-label.row-label-custom {
-  background-color: rgba(135, 161, 194, 0.08);
 }
 
 /* Dates-down-rows: a submitter's row is a COLUMN, and its header holds the
@@ -6944,93 +6904,38 @@ thead th,
 .mirror-table td.hist {
   color: var(--text-muted);
 }
-/* The current figure IS the control, and says which of the two things it
-   will do. Fixed width so ten of them make a column rather than a ragged
-   edge, and the figure sits where the history figures sit. */
-.mirror-take {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  justify-content: flex-end;
-  padding: 5px 10px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--border-strong);
-  background: var(--bg-elev);
+/* The counterparty's figure, and the button that copies it in. Both sit in
+   the current-week column: the number where the history numbers are, the
+   button under it, so ten rows make a column rather than a ragged edge. */
+.ic-figure {
   font-family: var(--mono);
-  font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+}
+.ic-copy-wrap {
+  display: block;
+  margin-top: 3px;
+  text-align: right;
+}
+.ic-copy {
+  padding: 1px 9px;
+  border-radius: 100px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   transition:
     background 0.12s ease,
     border-color 0.12s ease,
     color 0.12s ease;
 }
-.mirror-take:hover {
+.ic-copy:hover {
   border-color: var(--accent);
-  color: var(--accent);
-}
-.mirror-take.on {
-  background: var(--green-soft);
-  border-color: var(--green);
-  color: var(--green);
-}
-.mirror-take-word {
-  margin-right: auto;
-  font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.mirror-take-mark {
-  font-size: 11px;
-  opacity: 0.9;
-}
-/* A carried figure and its source have parted company. Not an error — a copy
-   is meant to stand still — so it is stated under the figure it belongs to,
-   with the new one one click away. */
-.mirror-moved {
-  display: block;
-  margin-top: 3px;
-  text-align: right;
-}
-.mirror-moved-word {
-  font-family: var(--sans);
-  font-size: 11px;
-  color: var(--amber);
-}
-.mirror-retake {
-  padding: 1px 8px;
-  border-radius: 100px;
-  border: 1px solid var(--amber);
-  background: var(--amber-soft);
-  color: var(--amber);
-  font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.mirror-retake:hover {
-  background: var(--amber);
+  background: var(--accent);
   color: var(--jde-white);
-}
-.mirror-moved-note {
-  color: var(--amber);
-  font-weight: 600;
-}
-.mirror-static {
-  font-family: var(--mono);
-  color: var(--text-muted);
-}
-.mirror-static.on {
-  color: var(--green);
-  font-weight: 600;
-}
-/* A carried statement is part of this forecast's figures, so the row says so
-   down its whole length rather than with a mark in one cell. */
-.mirror-table tr.is-carried > th {
-  box-shadow: inset 3px 0 0 var(--green);
 }
 
 .forecast-entry .forecast-outlook .outlook-controls {

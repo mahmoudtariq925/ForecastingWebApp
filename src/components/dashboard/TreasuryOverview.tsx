@@ -32,9 +32,9 @@ import {
   templateForEntity,
 } from '../../data/submissionService';
 import {
-  mirrorMethodsOf,
-  mirrorsIntercompany,
-  type MirrorMethod,
+  intercompanyMethodsOf,
+  settlesIntercompany,
+  type IntercompanyMethod,
 } from '../../data/intercompanyService';
 import { ForecastPreviewModal } from '../submissions/ForecastPreviewModal';
 import { currentUser, permissionsFor } from '../../data/session';
@@ -108,14 +108,18 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
  * An option that can only ever equal "payables OR receivables" is a question
  * the other two already answer.
  */
-type MirrorFilter = 'all' | 'payables' | 'receivables' | 'off';
+type IntercompanyFilter = 'all' | 'payables' | 'receivables' | 'off';
 
-const MIRROR_OPTIONS: { value: Exclude<MirrorFilter, 'all'>; label: string; title: string }[] = [
+const INTERCOMPANY_OPTIONS: {
+  value: Exclude<IntercompanyFilter, 'all'>;
+  label: string;
+  title: string;
+}[] = [
   {
     value: 'off',
-    label: 'Mirror off',
+    label: 'Exclude IC',
     title:
-      'Every country, counting only the figures each entered itself — nothing mirrored in from a counterparty',
+      'Every country, counting only what it settles outside the group — every intercompany line left out',
   },
   {
     value: 'payables',
@@ -222,11 +226,11 @@ export function TreasuryOverview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopedNames, week, cycleId, dataVersion]);
 
-  const [mirrorFilter, setMirrorFilter] = useState<MirrorFilter>('all');
+  const [mirrorFilter, setMirrorFilter] = useState<IntercompanyFilter>('all');
   /**
-   * Count only what each country entered itself — every figure mirrored in
-   * from a counterparty left out. Not a filter on countries: the page still
-   * covers all of them, it just stops counting other people's statements.
+   * Count only what each country settles OUTSIDE the group — every figure on
+   * an intercompany line left out. Not a filter on countries: the page still
+   * covers all of them, it just stops counting cash that never leaves it.
    */
   const ownFiguresMode = mirrorFilter === 'off';
 
@@ -238,7 +242,7 @@ export function TreasuryOverview({
   const mirrorByCountry = useMemo(() => {
     void dataVersion;
     const templates = loadTemplates();
-    const map = new Map<string, { mirrors: boolean; methods: Set<MirrorMethod> }>();
+    const map = new Map<string, { mirrors: boolean; methods: Set<IntercompanyMethod> }>();
     for (const name of scopedNames) {
       const entityTemplate = templateForEntity(templates, name);
       if (!entityTemplate) {
@@ -247,8 +251,8 @@ export function TreasuryOverview({
       }
       const sub = peekSubmission(name, week, entityTemplate);
       map.set(name, {
-        mirrors: mirrorsIntercompany(sub, entityTemplate),
-        methods: mirrorMethodsOf(sub, entityTemplate),
+        mirrors: settlesIntercompany(sub, entityTemplate),
+        methods: intercompanyMethodsOf(sub, entityTemplate),
       });
     }
     return map;
@@ -603,7 +607,7 @@ export function TreasuryOverview({
           <div className="filter-field">
             <span className="filter-field-label">Intercompany</span>
             <div className="seg-toggle" role="group" aria-label="Filter by intercompany settlement">
-              {MIRROR_OPTIONS.map((o) => (
+              {INTERCOMPANY_OPTIONS.map((o) => (
                 <button
                   key={o.value}
                   className={mirrorFilter === o.value ? 'active' : ''}

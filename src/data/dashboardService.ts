@@ -38,7 +38,8 @@ import {
 import { loadApprovals, loadTemplates, type ApprovalMap } from '../storage/localStorage';
 import { activeCycleId } from './submissionService';
 import { dayInflows, dayNet, dayOutflows } from '../components/submissions/gridMath';
-import { customRowsOf, isOwnRow, gridCatCount } from './customRows';
+import { customRowsOf, gridCatCount } from './customRows';
+import { intercompanyLines } from './intercompanyService';
 
 /**
  * One country's line in the cycle-progress and approval views.
@@ -81,10 +82,12 @@ function sumsByLabel(
   template: ForecastTemplate,
   sub: Submission,
   selection: number[],
-  /** Leave out rows mirrored in from other entities — see `ownFiguresOnly`. */
-  ownRowsOnly = false,
+  /** Leave the group's own settlements out — see `withoutIntercompany`. */
+  excludeIntercompany = false,
 ): Map<string, number> {
   const byLabel = new Map<string, number>();
+  /** The lines that settle inside the group, template lines and rows alike. */
+  const ic = excludeIntercompany ? intercompanyLines(sub, template) : null;
   const add = (label: string, value: number) => {
     const key = label.trim().toLowerCase();
     byLabel.set(key, (byLabel.get(key) ?? 0) + value);
@@ -95,13 +98,14 @@ function sumsByLabel(
     if (cat.group && !sectionLine.has(cat.group.trim().toLowerCase())) {
       sectionLine.set(cat.group.trim().toLowerCase(), cat.label);
     }
+    if (ic?.has(catIdx)) return;
     add(cat.label, categorySum(sub.values, catIdx, selection));
   });
   customRowsOf(sub).forEach((row, i) => {
-    // Somebody else's statement about this entity, which "own rows only"
-    // is asking to leave out. The template's own lines never carry a
-    // mirrored figure — it lands on the row, not on the line above it.
-    if (ownRowsOnly && !isOwnRow(row)) return;
+    // A settlement with a group company, which "exclude intercompany" is
+    // asking to leave out. It lands on the ROW, not on the line above it —
+    // the template's IC line holds the sum of its rows and nothing else.
+    if (ic?.has(template.categories.length + i)) return;
     // The line the row breaks down, or the first line of its section.
     const parent = row.parent?.trim().toLowerCase();
     const target =
@@ -540,8 +544,8 @@ export function categoryCountryMatrix(
   display: ForecastTemplate,
   onlyEntities?: string[],
   days?: number[] | null,
-  /** Count only what each country entered itself — see `ownFiguresOnly`. */
-  ownRowsOnly = false,
+  /** Count only what each country settles outside the group. */
+  excludeIntercompany = false,
 ): CategoryCountryMatrix {
   const templates = loadTemplates();
   const periods = periodsOf(display).count;
@@ -558,7 +562,7 @@ export function categoryCountryMatrix(
   for (const e of entities) {
     const template = templateForEntity(templates, e.name) ?? display;
     const sub = peekSubmission(e.name, week, template);
-    perCountry.set(e.name, sumsByLabel(template, sub, selection, ownRowsOnly));
+    perCountry.set(e.name, sumsByLabel(template, sub, selection, excludeIntercompany));
   }
 
   const countryTotals: Record<string, number> = {};

@@ -6,7 +6,7 @@ import { useDialog } from '../common/dialogContext';
 import { ViewOnlyBadge } from '../common/ViewOnlyBadge';
 import { ActionMenu } from '../common/ActionMenu';
 import { QuestionStrip } from './QuestionStrip';
-import { MirrorTable } from './MirrorTable';
+import { IntercompanyTable } from './IntercompanyTable';
 import { Chart, CHART_COLORS, OVERLAY_COLORS, type ChartSeries } from '../common/Chart';
 import { ForecastGrid } from './ForecastGrid';
 import { AskQuestionDock } from './AskQuestionDock';
@@ -70,19 +70,17 @@ import {
   templatesForEntity,
 } from '../../data/submissionService';
 import {
+  copyStatement,
+  counterpartyStatements,
+  intercompanyLines,
   intercompanySections,
-  mirrorPrefsOf,
-  mirrorPrefsToggling,
-  mirrorStatements,
-  rebuildMirrors,
-  type MirrorPrefs,
+  type CounterpartyStatement,
 } from '../../data/intercompanyService';
 import {
   customRowsOf,
   entityOptions,
   gridCatCount,
   gridCategories,
-  isOwnRow,
   makeCustomRow,
   priorRowIndex,
   readingOrder,
@@ -518,18 +516,16 @@ function SubmissionEditor({
   const [questionedBy, setQuestionedBy] = useState<ForecastQuestion | undefined>(
     initial.questionedBy,
   );
-  /** What this forecast takes from its counterparties — see `MirrorPrefs`. */
-  const [mirrorPrefs, setMirrorPrefs] = useState<MirrorPrefs>(() => mirrorPrefsOf(initial));
   /**
    * A READER's view of the same forecast with the group's settlements taken
    * out of it: "what does this country look like before intercompany?".
    *
-   * It changes nothing — no row is removed, nothing is saved. Which
-   * counterparties a forecast CARRIES is its submitter's decision, made on
-   * the table above the grid; this is treasury and an approver looking at
-   * what is already there two ways.
+   * It changes nothing — no row is removed, nothing is saved. Every figure on
+   * the forecast is this entity's own, whether typed or copied off the table
+   * above the grid; this is treasury and an approver reading what is there
+   * two ways.
    */
-  const [withMirrored, setWithMirrored] = useState(true);
+  const [withIntercompany, setWithIntercompany] = useState(true);
   /**
    * Set when this forecast's figures were changed after it had been handed
    * over: it was withdrawn from approval by that edit and has to go round the
@@ -858,7 +854,6 @@ function SubmissionEditor({
     questionedBy?: ForecastQuestion;
     revisedFrom?: SubmissionStatus;
     customRows?: CustomRow[];
-    mirrorPrefs?: MirrorPrefs;
     dayComments?: Record<string, string>;
     startingBalance?: number | null;
     status?: SubmissionStatus;
@@ -881,7 +876,6 @@ function SubmissionEditor({
       // Autosave must not forget the submitter's own rows either: without
       // them their figures are a block of numbers with no lines to sit on.
       customRows: snap.customRows ?? rows,
-      mirrorPrefs: snap.mirrorPrefs ?? mirrorPrefs,
       dayComments: snap.dayComments ?? dayComments,
       startingBalance:
         'startingBalance' in snap ? (snap.startingBalance ?? null) : startingBalance,
@@ -1026,13 +1020,6 @@ function SubmissionEditor({
           clipped++;
           return;
         }
-        // A mirrored row is another entity's statement — it is read here, so
-        // a paste that runs over one leaves it alone rather than quietly
-        // rewriting what they said.
-        if (gridCats[catIdx]?.source !== undefined) {
-          clipped++;
-          return;
-        }
         const n = parseCellNumber(raw);
         if (n === null) {
           unparsed++; // a header or label caught inside the copied range
@@ -1124,27 +1111,27 @@ function SubmissionEditor({
     pushUndo();
     // A row the submitter added last week is copied WITH its figures — the
     // customers a country invoices are the same customers this week, and
-    // copying the numbers without the rows would land them on nothing.
-    //
-    // Only their OWN rows travel. Last week's mirrors are what other entities
-    // said about a different period; this week's mirrors are facts about this
-    // one, so those stay exactly as they arrived.
-    const mirrors = rows.filter((r) => !isOwnRow(r));
-    const copied = priorRows
-      .filter(isOwnRow)
+    // copying the numbers without the rows would land them on nothing. That
+    // includes their intercompany rows: a settlement with a group company is
+    // as much a standing arrangement as a customer is, and the table beside
+    // the grid is there to correct the figure where this week differs.
+    const nextRows = priorRows
       // A copied row is a new row on this forecast, so it needs an id of its
       // own — sharing last week's would make one edit rewrite both.
       .map((r) => ({ ...r, id: `${r.id}:copy` }));
-    const nextRows = [...mirrors, ...copied];
     // Prior figures for the template's own lines; the rows bring theirs.
     let nextValues: GridValues = {};
     for (const [key, v] of Object.entries(prior)) {
       if (Number(key.split('-')[0]) < numCats) nextValues[key] = v;
     }
     nextRows.forEach((row, i) => {
-      const figures = isOwnRow(row)
-        ? rowValues(template, priorRows, row.id.replace(/:copy$/, ''), prior, numPeriods)
-        : rowValues(template, rows, row.id, values, numPeriods);
+      const figures = rowValues(
+        template,
+        priorRows,
+        row.id.replace(/:copy$/, ''),
+        prior,
+        numPeriods,
+      );
       nextValues = withRowValues(nextValues, numCats + i, numPeriods, figures);
     });
     setValues(nextValues);
@@ -1194,30 +1181,23 @@ function SubmissionEditor({
       await copyPrior(false);
       return;
     }
-    // Start blank: every editable cell cleared, the submitter's own rows and
-    // their figures with them. Mirrored rows stay — they are what other
-    // entities have said about this week, not this forecast's own work.
+    // Start blank: every editable cell cleared and every row with it. Every
+    // row on this forecast is this entity's own — an intercompany figure
+    // copied off a counterparty's approved forecast is this entity's
+    // statement about its own cash from the moment it lands — so there is
+    // nothing here that a blank start should preserve.
     pushUndo();
     lastEditedCell.current = null;
-    const mirrors = rows.filter((r) => !isOwnRow(r));
-    let nextValues: GridValues = {};
-    mirrors.forEach((row, i) => {
-      nextValues = withRowValues(
-        nextValues,
-        numCats + i,
-        numPeriods,
-        rowValues(template, rows, row.id, values, numPeriods),
-      );
-    });
+    const nextValues: GridValues = {};
     setValues(nextValues);
     setFlags(new Set());
-    setRows(mirrors);
+    setRows([]);
     setStartingBalance(null);
     setRestoreVersion((n) => n + 1);
     persist({
       values: nextValues,
       flags: new Set(),
-      customRows: mirrors,
+      customRows: [],
       startingBalance: null,
     });
   };
@@ -1388,93 +1368,55 @@ function SubmissionEditor({
   /** The legal entities an intercompany row may name. */
   const entityChoices = useMemo(() => entityOptions(entity), [entity]);
 
-  // ---- What this forecast takes from its counterparties -------------------
-  /** Does this template even have an intercompany section to mirror into? */
+  // ---- What the rest of the group has said about this entity --------------
+  /** Does this template even have an intercompany section to copy into? */
   const hasIntercompany = useMemo(
     () => intercompanySections(template).length > 0,
     [template],
   );
-  /** Every counterparty that could mirror into this forecast, by name. */
-  const mirrorSources = useMemo(
-    () => entityChoices.map((o) => o.name).sort((a, b) => a.localeCompare(b)),
-    [entityChoices],
-  );
   /**
-   * What the rest of the group STATES about this week, carried or not, with
-   * the same statement one and two cycles back.
+   * What other entities' APPROVED forecasts state about this week, with the
+   * same statement one and two cycles back.
    *
-   * Read off the counterparties' own forecasts rather than off this one, so a
-   * statement this forecast has declined is still listed — which is the whole
-   * point of a table you can add from. Recomputed when the rows change so
-   * taking one in or out is reflected immediately.
+   * Read off the counterparties' own forecasts rather than off this one: the
+   * point of the table is to show a submitter figures they would otherwise
+   * have to ask for. Nothing here depends on what this forecast holds, so it
+   * is recomputed only when the week or the entity changes.
    */
   const statements = useMemo(
-    () => (hasIntercompany ? mirrorStatements(entity, week, template) : []),
-    // `rows` is what changes when a statement is taken in or dropped.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasIntercompany, entity, week, template, rows],
+    () => (hasIntercompany ? counterpartyStatements(entity, week, template) : []),
+    [hasIntercompany, entity, week, template],
   );
+
   /**
-   * Take the mirroring settings and make the grid agree with them: rows from
-   * a counterparty that is no longer accepted come out, rows from one that
-   * has just been accepted are pulled in from what they have stored.
+   * Copy a counterparty's statement into the grid.
+   *
+   * What lands is an ordinary row of this forecast — the submitter's own
+   * figure on the days the settlement falls, to change or delete like any
+   * other. There is no link afterwards: the counterparty can reopen their
+   * forecast and rewrite it, and this one does not move.
    */
-  const applyMirrorPrefs = async (next: MirrorPrefs, refresh: string[] = []) => {
+  const copyIn = async (statement: CounterpartyStatement) => {
+    if (!canEditCells) return;
     pushUndo();
     lastEditedCell.current = null;
-    const rebuilt = rebuildMirrors({
-      period: week,
-      entity,
-      template,
-      prefs: next,
-      rows,
-      values,
-      flags: [...flags],
-      comments,
-      commentRequests,
-      refresh,
-    });
-    const nextFlags = new Set(rebuilt.flags);
-    setMirrorPrefs(next);
-    setRows(rebuilt.rows);
-    setValues(rebuilt.values);
-    setFlags(nextFlags);
-    setComments(rebuilt.comments);
-    setCommentRequests(rebuilt.commentRequests);
+    const next = copyStatement({ template, rows, values, statement });
+    setRows(next.rows);
+    setValues(next.values);
     // The cells hold their own in-progress text; remount so the grid shows
     // the rows it now has rather than the ones it had.
-    setRestoreVersion((n) => n + 1);
-    // Rows in or out is a change to the FIGURES, so it costs what any other
-    // change to them costs on a forecast already handed over: it comes back
-    // off the approver's desk and goes round again.
-    const changed =
-      rebuilt.added.length > 0 || rebuilt.dropped.length > 0 || rebuilt.refreshed.length > 0;
-    const withdrawn = changed ? withdrawFromApproval() : {};
+    if (next.added) setRestoreVersion((n) => n + 1);
+    // A figure copied in is a change to the FIGURES, so it costs what any
+    // other change to them costs on a forecast already handed over: it comes
+    // back off the approver's desk and goes round again.
     persist({
-      mirrorPrefs: next,
-      customRows: rebuilt.rows,
-      values: rebuilt.values,
-      flags: nextFlags,
-      comments: rebuilt.comments,
-      commentRequests: rebuilt.commentRequests,
-      ...withdrawn,
+      customRows: next.rows,
+      values: next.values,
+      ...withdrawFromApproval(),
     });
-    // A retake is one statement being replaced by the same counterparty's
-    // current one, which reads as neither an addition nor a removal.
-    const said = [
-      rebuilt.refreshed.length > 0
-        ? `Took ${rebuilt.refreshed.join(', ')}'s figures again.`
-        : '',
-      rebuilt.added.length > 0 ? `Carried ${rebuilt.added.join(', ')}.` : '',
-      rebuilt.dropped.length > 0 ? `Left out ${rebuilt.dropped.join(', ')}.` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
     await notify({
       tone: 'success',
-      message: next.enabled
-        ? `Intercompany updated.${said ? ` ${said}` : ''} Carried figures are copies: they stay as they are until you take them again.`
-        : `This forecast now carries only its own rows.${said ? ` ${said}` : ''}`,
+      message: `Copied ${statement.counterparty}'s figure in. It is your row now — change it if this entity sees it differently.`,
     });
   };
 
@@ -1575,14 +1517,15 @@ function SubmissionEditor({
   };
 
   /**
-   * Nothing is pushed at a counterparty when this forecast changes.
+   * Nothing reaches a counterparty when this forecast changes, and nothing
+   * here changes when theirs does.
    *
-   * It used to be: every edit here was mirrored straight into the forecasts
-   * of the entities named on the intercompany rows, so a figure somebody had
-   * carried — and submitted, and had approved — could move afterwards because
-   * the other side changed their mind. What this forecast says is read from
-   * their side, by the table above the grid, and taken when they choose to
-   * take it. See `intercompanyService`.
+   * It used to be: every edit was mirrored straight into the forecasts of the
+   * entities named on the intercompany rows, so a figure somebody had
+   * submitted, and had approved, could move afterwards because the other side
+   * changed their mind. Now the table above the grid READS what their
+   * approved forecasts say, and copying one in makes an ordinary row of this
+   * forecast. See `intercompanyService`.
    */
 
   /** "Mon 4 Aug" for a cell key, falling back to the column number. */
@@ -1972,7 +1915,7 @@ function SubmissionEditor({
   /**
    * The forecast as it is being LOOKED AT, which is the same thing as the
    * forecast unless a reader has asked to see it without the group's
-   * settlements (see `withMirrored`).
+   * settlements (see `withIntercompany`).
    *
    * Everything the grid is handed has to move together — the lines, the
    * figures, the flags and the cells with questions on them all address a row
@@ -1981,7 +1924,7 @@ function SubmissionEditor({
    * A submitter never takes this path: their intercompany rows are part of
    * their forecast, not something to hide from themselves.
    */
-  const hideMirrored = !isSubmitterView && !withMirrored;
+  const hideIntercompany = !isSubmitterView && !withIntercompany;
   const view = useMemo(() => {
     const asIs = {
       cats: gridCats,
@@ -1991,11 +1934,14 @@ function SubmissionEditor({
       answered: answeredCells,
       toStored: (catIdx: number) => catIdx,
     };
-    if (!hideMirrored) return asIs;
-    const kept = rows.filter(isOwnRow);
+    if (!hideIntercompany) return asIs;
+    // Only the rows: a section is a template line with rows under it, and the
+    // line itself holds nothing to hide.
+    const ic = intercompanyLines({ customRows: rows }, template);
+    const base = template.categories.length;
+    const kept = rows.filter((_r, i) => !ic.has(base + i));
     if (kept.length === rows.length) return asIs;
     const remap = remapRowKey(template, rows, kept);
-    const base = template.categories.length;
     /** Where each kept row sits in the forecast's own row list. */
     const storedAt = kept.map((r) => rows.indexOf(r));
     return {
@@ -2007,7 +1953,7 @@ function SubmissionEditor({
       toStored: (catIdx: number) =>
         catIdx < base ? catIdx : base + (storedAt[catIdx - base] ?? 0),
     };
-  }, [hideMirrored, gridCats, values, flags, requestedCells, answeredCells, rows, template]);
+  }, [hideIntercompany, gridCats, values, flags, requestedCells, answeredCells, rows, template]);
 
   // Every line on the grid counts towards the day's shape, the submitter's
   // own rows included — they are part of the forecast, not a note beside it.
@@ -2747,29 +2693,29 @@ function SubmissionEditor({
                 </div>
               )}
               {/* Readers only: a submitter's intercompany rows are part of
-                  their forecast, added and removed on the table above the
-                  grid, not hidden from themselves. */}
+                  their forecast, typed or copied in from the table above the
+                  grid, not something to hide from themselves. */}
               {!isSubmitterView && hasIntercompany && (
                 <div className="toggle-field">
                   <span className="toggle-field-label">Intercompany</span>
                   <div
                     className="seg-toggle"
                     role="group"
-                    aria-label="Show or hide mirrored intercompany rows"
+                    aria-label="Show or hide intercompany settlements"
                   >
                     <button
-                      className={withMirrored ? 'active' : ''}
-                      aria-pressed={withMirrored}
-                      onClick={() => setWithMirrored(true)}
-                      title="The forecast as it stands, with the rows other entities mirrored in"
+                      className={withIntercompany ? 'active' : ''}
+                      aria-pressed={withIntercompany}
+                      onClick={() => setWithIntercompany(true)}
+                      title="The forecast as it stands, settlements with group companies included"
                     >
                       With
                     </button>
                     <button
-                      className={!withMirrored ? 'active' : ''}
-                      aria-pressed={!withMirrored}
-                      onClick={() => setWithMirrored(false)}
-                      title="The same forecast without the group's settlements — this entity's own figures only"
+                      className={!withIntercompany ? 'active' : ''}
+                      aria-pressed={!withIntercompany}
+                      onClick={() => setWithIntercompany(false)}
+                      title="The same forecast without the group's settlements — what this entity moves outside it"
                     >
                       Without
                     </button>
@@ -3018,12 +2964,12 @@ function SubmissionEditor({
               </span>
               {/* Named for what it holds rather than for the mechanism
                   behind it: a submitter opening "Intercompany Mirroring" has
-                  to already know what mirroring is to guess what is inside. */}
+                  to already know what that was to guess what is inside. */}
               <strong>Intercompany Forecast by Other Countries</strong>
             </button>
             {mirrorsOpen && (
               <div className="mirror-body">
-                <MirrorTable
+                <IntercompanyTable
                   statements={statements}
                   dateLabel={(d) =>
                     dayLabels[d] ? `${dayLabels[d].dow} ${dayLabels[d].dm}` : `Day ${d + 1}`
@@ -3034,15 +2980,7 @@ function SubmissionEditor({
                     prior2: weekLabelShort(prevWeekKey(prevWeekKey(week))),
                   }}
                   editable={canEditCells}
-                  onToggle={(counterparty) =>
-                    void applyMirrorPrefs(
-                      mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
-                    )
-                  }
-                  // Take it again at what it says now: the figure on the row
-                  // this forecast holds is rewritten, and the row stays where
-                  // it is in the grid.
-                  onRetake={(counterparty) => void applyMirrorPrefs(mirrorPrefs, [counterparty])}
+                  onCopy={(statement) => void copyIn(statement)}
                 />
               </div>
             )}

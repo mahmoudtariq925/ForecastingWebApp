@@ -343,10 +343,10 @@ export interface ForecastQuestion {
  *
  * Under an INTERCOMPANY section a row is not freely named — it is a legal
  * entity, chosen from the master data and shown by its ISO code, because the
- * amount has to reach that entity's own forecast (see `source`).
+ * whole point of the line is WHICH group company is on the other side of it.
  */
 export interface CustomRow {
-  /** Stable for the life of the row; mirrored rows derive theirs. */
+  /** Stable for the life of the row. */
   id: string;
   /** Section it belongs to: the template `group` label it was added under. */
   section: string;
@@ -368,23 +368,13 @@ export interface CustomRow {
   /**
    * Intercompany rows only: the legal entity this row is about, by name.
    * Free text is deliberately impossible here — a counterparty that does not
-   * resolve to a forecast is an amount that can never be mirrored anywhere.
+   * resolve to a forecast is an amount nothing else in the group can match.
+   *
+   * A row is this entity's own whether it was typed or copied from what the
+   * counterparty filed: copying fills a figure in, it does not create a link,
+   * so there is nothing here to say where a number came from.
    */
   entity?: string;
-  /**
-   * The entity whose submitter entered the original figures. Set only on
-   * MIRRORED rows — the system-generated other half of somebody else's entry,
-   * which this entity reads rather than edits.
-   */
-  source?: string;
-  /** The originating row's id, so an edit finds its mirror again. */
-  sourceRowId?: string;
-  /**
-   * The mirror landed after this entity had already handed its forecast over,
-   * so the figures somebody signed off no longer match what is here. Recorded
-   * rather than silently reopening a decision that was made in good faith.
-   */
-  late?: boolean;
 }
 
 export interface Submission {
@@ -428,19 +418,6 @@ export interface Submission {
    * the template and which from the person filling it in.
    */
   customRows?: CustomRow[];
-  /**
-   * What this forecast takes from the other side of the group: whether it
-   * carries intercompany rows mirrored into it at all, and from which
-   * counterparties (empty = every one of them).
-   *
-   * It lives on the forecast rather than in a browser preference because it
-   * decides what the figures ARE: a week whose submitter left two
-   * counterparties out is a different set of numbers, and whoever reads it
-   * afterwards — treasury, an approver, the consolidation — has to be able to
-   * see that. Absent means everything, which is what every forecast written
-   * before this existed meant.
-   */
-  mirrorPrefs?: { enabled: boolean; sources: string[] };
   /** Free-text comment per day (the Comments column in grouped layout). */
   dayComments: Record<string, string>;
   /**
