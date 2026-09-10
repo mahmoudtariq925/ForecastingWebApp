@@ -319,8 +319,7 @@ function RowName({ catIdx, props }: { catIdx: number; props: ForecastGridProps }
   const rowId = cat?.customRowId;
   if (rowId === undefined) return <>{cat?.label}</>;
 
-  const mirrored = cat.source !== undefined;
-  const canEdit = editable && !mirrored;
+  const canEdit = editable;
   const options = cat.entityName && !entityOptions.some((o) => o.name === cat.entityName)
     ? [...entityOptions, { name: cat.entityName, code: cat.label, country: '' }]
     : entityOptions;
@@ -358,19 +357,6 @@ function RowName({ catIdx, props }: { catIdx: number; props: ForecastGridProps }
       ) : (
         <span className="row-name-static" title={cat.entityName ?? cat.label}>
           {cat.label}
-        </span>
-      )}
-      {mirrored && (
-        <span
-          className={`row-source-tag${cat.late ? ' late' : ''}`}
-          title={
-            cat.late
-              ? `Mirrored from ${cat.source} — it arrived after this forecast was submitted`
-              : `Mirrored from ${cat.source}'s forecast — they enter it, you read it`
-          }
-        >
-          from {cat.source}
-          {cat.late ? ' · late' : ''}
         </span>
       )}
       {canEdit && onRemoveRow && (
@@ -495,13 +481,6 @@ function EditableCell({
 
   const val = catValue(values, catIdx, dayIdx);
   const cat = categories[catIdx];
-  /**
-   * A row mirrored in from another entity's forecast is that entity's
-   * statement, not this one's: it is read here and edited there. Both sides
-   * then hold the same figure by construction, which is the whole reason the
-   * group position nets to zero.
-   */
-  const mirrored = cat?.source !== undefined;
   // A cell with a question on it always opens, whatever the flag set says.
   // Flags are recomputed from the numbers on every edit, and a question can
   // sit on a cell those rules would not flag — an empty one, say — which is
@@ -515,12 +494,12 @@ function EditableCell({
   const toAnswer = asked && clickable;
   // `cell-input` marks the cells a value can be typed into — the only ones
   // that lift under the pointer (see the raise-on-hover rule in the CSS).
-  const typeable = editable && !toAnswer && !mirrored;
+  const typeable = editable && !toAnswer;
   const cls = `cell ${flagged ? 'variance-flag' : ''} ${asked ? 'comment-requested' : ''} ${
     replied ? 'comment-answered' : ''
   } ${cat?.customRowId !== undefined ? 'cell-custom' : ''} ${
-    mirrored ? 'cell-mirrored' : ''
-  } ${clickable ? 'cell-askable' : ''} ${typeable ? 'cell-input' : ''} ${extraClass}${focus}`
+    clickable ? 'cell-askable' : ''
+  } ${typeable ? 'cell-input' : ''} ${extraClass}${focus}`
     .replace(/\s+/g, ' ')
     .trim();
   // A variance flag keeps its amber background — it outranks the heatmap.
@@ -547,9 +526,7 @@ function EditableCell({
             ? editable
               ? 'Open the question on this cell and answer it'
               : 'Open the question on this cell'
-            : mirrored
-              ? `Mirrored from ${cat?.source}'s forecast — they enter this figure, you read it`
-              : undefined
+            : undefined
         }
         onKeyDown={
           toAnswer
@@ -1114,12 +1091,7 @@ function GroupRows({
               className={
                 (loose ? ' group-loose' : band) +
                 (isSubtotal ? ' subtotal-row' : '') +
-                (custom ? ' custom-row' : '') +
-                // Mirrored is a property of the LINE, so it is marked on the
-                // row: drawing it per cell put a blue tick on the left edge of
-                // all twenty of them, which reads as a row cut into pieces
-                // rather than as one row somebody else wrote.
-                (categories[catIdx]?.source !== undefined ? ' row-mirrored' : '')
+                (custom ? ' custom-row' : '')
               }
             >
               <td
@@ -1416,7 +1388,7 @@ function GroupedGrid(props: ForecastGridProps & { scales: GridScales }) {
                 key={col.catIdx}
                 className={`day-h${col.end ? ' group-end' : ''}${col.band}${
                   categories[col.catIdx].customRowId !== undefined ? ' day-h-custom' : ''
-                }${categories[col.catIdx].source !== undefined ? ' day-h-mirrored' : ''}`}
+                }`}
               >
                 <RowName catIdx={col.catIdx} props={props} />
                 {categories[col.catIdx].customRowId === undefined &&

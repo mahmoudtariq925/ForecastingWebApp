@@ -43,13 +43,15 @@ export function QuestionsModal({
   onOpen,
   onOpenQueue,
 }: QuestionsModalProps) {
-  const awaiting = rows.filter((r) => r.state === 'awaiting');
-  const answered = rows.length - awaiting.length;
-  // Waiting first, longest wait at the top: the ones somebody is held up by.
-  const ordered = [...rows].sort((a, b) => {
-    if (a.state !== b.state) return a.state === 'awaiting' ? -1 : 1;
-    return new Date(a.lastAt).getTime() - new Date(b.lastAt).getTime();
-  });
+  /**
+   * Open questions only. An answered one is a thread somebody has already
+   * dealt with: it belongs to the Questions page, where the conversation is,
+   * and listing it here padded a box about what is still owed with rows that
+   * owe nothing — five of the eight in the report.
+   */
+  const ordered = rows
+    .filter((r) => r.state === 'awaiting')
+    .sort((a, b) => new Date(a.lastAt).getTime() - new Date(b.lastAt).getTime());
 
   return (
     <Modal
@@ -77,22 +79,25 @@ export function QuestionsModal({
       <div className="preview-meta">
         <span className="text-dim">{subtitle}</span>
         <span className="progress-summary">
-          {awaiting.length} waiting on a reply
-          {answered > 0 ? ` · ${answered} answered` : ''}
+          {ordered.length} waiting on a reply
         </span>
       </div>
-      {rows.length === 0 ? (
+      {ordered.length === 0 ? (
         <div className="empty-state">
           <div className="ic">✓</div>
-          <p>Nobody has asked a question on this cycle yet.</p>
+          <p>
+            {rows.length === 0
+              ? 'Nobody has asked a question on this cycle yet.'
+              : 'Every question on this cycle has been answered.'}
+          </p>
         </div>
       ) : (
         <div className="panel-body no-pad">
-          {/* Six columns with no widths let every row set its own: a country
-              name wrapped onto two lines here, a date onto two lines there,
-              and "24h ago" broke under its own pill. The columns are sized
-              now, and what a cell holds is stacked in it rather than strung
-              across the table — one shape per row, whatever the content. */}
+          {/* Columns with no widths let every row set its own: a country name
+              wrapped onto two lines here, a date onto two lines there, and
+              "24h ago" broke under its own pill. The columns are sized now,
+              and what a cell holds is stacked in it rather than strung across
+              the table — one shape per row, whatever the content. */}
           <table className="questions-table">
             <colgroup>
               <col className="q-col-cell" />
@@ -112,7 +117,7 @@ export function QuestionsModal({
             </thead>
             <tbody>
               {ordered.map((r) => (
-                <tr key={r.id} className={r.state === 'awaiting' ? 'is-awaiting' : ''}>
+                <tr key={r.id} className="is-awaiting">
                   <td>
                     <span className="q-primary">{r.entity}</span>
                     <span className="q-secondary" title={`${r.category} · ${r.dateLabel}`}>
@@ -133,18 +138,15 @@ export function QuestionsModal({
                       {r.message}
                     </span>
                   </td>
+                  {/* How long, and nothing else. Every row here is waiting —
+                      the header says so, and the amber edge down the left says
+                      so again — so a pill reading "waiting" on each of them
+                      was the same word three times and the one figure that
+                      differs between rows in the small print underneath. */}
                   <td>
-                    <span
-                      className={`badge-num${r.state === 'awaiting' ? ' warn' : ' ok'}`}
-                      title={
-                        r.state === 'awaiting'
-                          ? 'Still waiting on a reply'
-                          : 'The submitter has replied'
-                      }
-                    >
-                      {r.state === 'awaiting' ? 'waiting' : 'answered'}
+                    <span className="badge-num warn" title="Still waiting on a reply">
+                      {agoLabel(r.lastAt)}
                     </span>
-                    <span className="q-secondary">{agoLabel(r.lastAt)}</span>
                   </td>
                   <td className="q-action">
                     <button className="btn btn-ghost btn-small" onClick={() => onOpen(r)}>

@@ -1,5 +1,5 @@
 // ============================================================================
-// Intercompany mirroring.
+// Intercompany settlements.
 //
 // An intercompany section is a section whose rows are LEGAL ENTITIES: the
 // Netherlands does not forecast "€500k of intercompany payments", it forecasts
@@ -8,29 +8,37 @@
 // custom rows (see `customRows.ts`); what makes them intercompany is that they
 // name an entity from the master data instead of being freely typed.
 //
-// The other half of the job is MIRRORING. When the Netherlands says it pays
-// France, that row belongs in France's forecast too — with the sign flipped,
-// marked as system-generated, and saying it came from the Netherlands. France
-// reads it rather than edits it: both sides then hold the same figure by
-// construction, which is what the group position depends on.
+// The other half of the job is telling a submitter what the rest of the group
+// has already said about them. When the Netherlands' approved forecast says it
+// pays France on Thursday, France is going to write that same amount down as a
+// receipt — and the surest way to get it right is to read what the Netherlands
+// filed rather than to ask France to remember it.
+//
+// So the table beside the grid is a REFERENCE, not a feed. It lists what other
+// entities' approved forecasts state about this one, and a button copies one
+// into the grid on the days it falls. What lands there is an ordinary row of
+// this forecast: the submitter can change the figure, add to it, or delete the
+// row, exactly as if they had typed it. Nothing links the two afterwards — if
+// the Netherlands reopens their forecast and changes their mind, this forecast
+// does not move, because a figure that has been copied is this entity's own
+// statement about its own cash.
+//
+// APPROVED FORECASTS ONLY, which is why copying is safe to do this way: a
+// settlement is a claim on another country's cash, and a number somebody is
+// still typing is not one to copy.
 // ============================================================================
-import type { CommentRequest, CustomRow, ForecastTemplate, Submission } from '../types';
+import type { CustomRow, ForecastTemplate, Submission } from '../types';
 import {
   customCatIndex,
   customRowsOf,
-  entityCode,
   gridCategories,
-  isOwnRow,
-  remapKeySet,
-  remapRecord,
-  remapRowKey,
+  makeCustomRow,
   sectionKey,
-  withRowValues,
 } from './customRows';
 import { listLegalEntities } from './legalEntityService';
 import { periodsOf, prevWeekKey, rollShift } from './periods';
-import { loadSubmission, loadTemplates, saveSubmission } from '../storage/localStorage';
-import { getOrCreateSubmission, isHandedOver, templateForEntity } from './submissionService';
+import { loadSubmission, loadTemplates } from '../storage/localStorage';
+import { templateForEntity, toneOf } from './submissionService';
 
 /** Is this line settled between group companies rather than outside them? */
 export function isIntercompanyCategory(
@@ -66,12 +74,12 @@ export function intercompanySections(template: Pick<ForecastTemplate, 'categorie
 }
 
 /**
- * Where a mirrored row lands on the counterparty's template.
+ * Where a copied row lands on this entity's template.
  *
  * Matched by SECTION label, not by index: entities can be on different
  * templates, and "IC Settlements" must land on "IC Settlements" wherever it
  * happens to sit. A template with one intercompany section and a different
- * name for it still receives the row — anything else would silently drop a
+ * name for it still takes the row — anything else would silently drop a
  * figure the group position needs.
  */
 function targetSection(template: ForecastTemplate, section: string): string | null {
@@ -81,47 +89,24 @@ function targetSection(template: ForecastTemplate, section: string): string | nu
 }
 
 /**
- * What a forecast ACCEPTS from the other side of the group.
+ * Which of a forecast's lines are intercompany — the template's own, and the
+ * rows added under them — as indexes in the shared cell-key space.
  *
- * Mirroring is a statement somebody else makes about your figures, and the
- * entity holding them has a say in whether it carries them yet: a country
- * closing its books does not want a counterparty's late row landing in the
- * middle of it, and a shared-service centre settling with nine others may
- * want two of them in and the rest left out while it reconciles.
- *
- * `sources` empty means EVERY counterparty, the same way a filter with
- * nothing selected is unfiltered rather than empty — see `MultiSelect`.
+ * The GRID's lines, not the template's. An intercompany amount rarely lives on
+ * the template's IC line; it lives on the rows added underneath it, one per
+ * counterparty, appended after the template's categories in the same key
+ * space. Reading the template alone finds every intercompany line empty.
  */
-export interface MirrorPrefs {
-  /** Whether mirrored rows are carried into this forecast at all. */
-  enabled: boolean;
-  /** The counterparties whose rows are taken; empty means all of them. */
-  sources: string[];
-}
-
-export const DEFAULT_MIRROR_PREFS: MirrorPrefs = { enabled: true, sources: [] };
-
-/** What a stored forecast accepts, defaulting to everything. */
-export function mirrorPrefsOf(
-  sub: Pick<Submission, 'mirrorPrefs'> | null | undefined,
-): MirrorPrefs {
-  const stored = sub?.mirrorPrefs;
-  if (!stored) return DEFAULT_MIRROR_PREFS;
-  return {
-    enabled: stored.enabled !== false,
-    sources: Array.isArray(stored.sources) ? stored.sources : [],
-  };
-}
-
-/** Does this forecast carry rows mirrored from `source`? */
-export function acceptsMirrorFrom(prefs: MirrorPrefs, source: string | undefined): boolean {
-  if (!prefs.enabled || !source) return false;
-  return prefs.sources.length === 0 || prefs.sources.includes(source);
-}
-
-/** Whether the prefs are anything other than "take everything". */
-export function mirrorPrefsFiltered(prefs: MirrorPrefs): boolean {
-  return !prefs.enabled || prefs.sources.length > 0;
+export function intercompanyLines(
+  sub: Pick<Submission, 'customRows'> | null | undefined,
+  template: ForecastTemplate,
+): Set<number> {
+  const lines = gridCategories(template, customRowsOf(sub));
+  const out = new Set<number>();
+  lines.forEach((_cat, catIdx) => {
+    if (isIntercompanyCategory({ categories: lines }, catIdx)) out.add(catIdx);
+  });
+  return out;
 }
 
 /**
@@ -131,7 +116,7 @@ export function mirrorPrefsFiltered(prefs: MirrorPrefs): boolean {
  * by one. An entity can be both in the same cycle, which is the normal case
  * for a shared-service centre, so this is a SET rather than a mode.
  */
-export type MirrorMethod = 'payables' | 'receivables';
+export type IntercompanyMethod = 'payables' | 'receivables';
 
 /**
  * How an entity settles intercompany this cycle, read off its own IC lines
@@ -144,104 +129,50 @@ export type MirrorMethod = 'payables' | 'receivables';
  * "IC Receipts" and "IC Payments", or holds both on one line, classifies
  * correctly without being taught the names.
  */
-export function mirrorMethodsOf(
+export function intercompanyMethodsOf(
   sub: Pick<Submission, 'values' | 'customRows'> | null | undefined,
   template: ForecastTemplate,
-): Set<MirrorMethod> {
-  const out = new Set<MirrorMethod>();
+): Set<IntercompanyMethod> {
+  const out = new Set<IntercompanyMethod>();
   if (!sub) return out;
   const periods = periodsOf(template).count;
-  /**
-   * The GRID's lines, not the template's.
-   *
-   * An intercompany amount does not live on the template's own IC line — that
-   * cell holds the sum of its rows and nothing else. It lives on the rows
-   * added underneath it, one per counterparty, which are appended after the
-   * template's categories in the same cell-key space. Reading the template
-   * alone finds every intercompany line empty and classifies the whole group
-   * as settling nothing.
-   */
-  const lines = gridCategories(template, customRowsOf(sub));
-  lines.forEach((_cat, catIdx) => {
-    if (!isIntercompanyCategory({ categories: lines }, catIdx)) return;
+  for (const catIdx of intercompanyLines(sub, template)) {
     for (let d = 0; d < periods; d++) {
       const v = sub.values?.[`${catIdx}-${d}`];
       if (typeof v !== 'number' || v === 0) continue;
       out.add(v < 0 ? 'payables' : 'receivables');
     }
-  });
+  }
   return out;
 }
 
-/**
- * Does this forecast take part in mirroring at all — is it on, and is there
- * anything on its intercompany lines for it to carry?
- *
- * Mirroring switched off and mirroring switched on over an empty section come
- * to the same thing on a dashboard: nothing is moving between this entity and
- * the rest of the group.
- */
-export function mirrorsIntercompany(
-  sub: Pick<Submission, 'values' | 'customRows' | 'mirrorPrefs'> | null | undefined,
+/** Is anything moving between this entity and the rest of the group? */
+export function settlesIntercompany(
+  sub: Pick<Submission, 'values' | 'customRows'> | null | undefined,
   template: ForecastTemplate,
 ): boolean {
-  if (!sub || !mirrorPrefsOf(sub).enabled) return false;
-  return mirrorMethodsOf(sub, template).size > 0;
+  return intercompanyMethodsOf(sub, template).size > 0;
 }
 
-/** What happened to one counterparty when this entity's rows were saved. */
-export interface MirrorOutcome {
-  counterparty: string;
-  status:
-    | 'mirrored'
-    | 'unknown-entity'
-    | 'no-template'
-    | 'no-section'
-    | 'consolidated'
-    | 'declined';
-  /**
-   * The mirror landed on a forecast that had already been handed over, so the
-   * figures somebody signed off no longer match what is in there.
-   */
-  late?: boolean;
-}
-
-/** Human wording for an outcome that is not a clean mirror. */
-export function mirrorProblem(outcome: MirrorOutcome): string | null {
-  switch (outcome.status) {
-    case 'mirrored':
-      return outcome.late
-        ? `${outcome.counterparty} has already submitted — the row is in their forecast and marked as arriving late.`
-        : null;
-    case 'unknown-entity':
-      return `${outcome.counterparty} is not a configured legal entity, so nothing was mirrored.`;
-    case 'no-template':
-      return `${outcome.counterparty} has no forecast template assigned, so nothing was mirrored.`;
-    case 'no-section':
-      return `${outcome.counterparty}'s template has no intercompany section, so nothing was mirrored.`;
-    case 'consolidated':
-      return `${outcome.counterparty}'s forecast is already consolidated, so it stays as reported.`;
-    // Said plainly, because the alternative is a submitter watching a figure
-    // they entered simply not appear on the other side.
-    case 'declined':
-      return `${outcome.counterparty} is not taking mirrored rows from you at the moment, so the row stayed in your forecast only.`;
+/**
+ * A forecast's figures with its intercompany settlements left out, so a total
+ * is what an entity expects to move with the world OUTSIDE the group.
+ *
+ * Both sides of a settlement are in the group's books — one country pays what
+ * another receives — so a consolidated position that includes them is the
+ * right answer to a different question. This is the other one.
+ */
+export function withoutIntercompany(
+  sub: Pick<Submission, 'values' | 'customRows'>,
+  template: ForecastTemplate,
+): Record<string, number> {
+  const drop = intercompanyLines(sub, template);
+  if (drop.size === 0) return sub.values ?? {};
+  const out: Record<string, number> = {};
+  for (const [key, v] of Object.entries(sub.values ?? {})) {
+    if (!drop.has(Number(key.split('-')[0]))) out[key] = v;
   }
-}
-
-/** Deterministic id for the mirror of one row, so edits find it again. */
-const mirrorId = (source: string, rowId: string): string => `mirror:${source}:${rowId}`;
-
-/** The row one entity's statement becomes in the counterparty's forecast. */
-function mirrorRowFor(source: string, row: CustomRow, section: string, late: boolean): CustomRow {
-  return {
-    id: mirrorId(source, row.id),
-    section,
-    label: entityCode(source),
-    entity: source,
-    source,
-    sourceRowId: row.id,
-    ...(late ? { late: true as const } : {}),
-  };
+  return out;
 }
 
 /** One row's figures across the horizon, negated for the other side. */
@@ -266,188 +197,16 @@ function flippedFigures(
 }
 
 /**
- * A fingerprint of everything this entity currently SAYS about its
- * counterparties — the rows and the figures on them.
+ * What another entity STATES about this one, once somebody has signed it off:
+ * its own intercompany rows that name us, with the figures already flipped to
+ * our side.
  *
- * Mirroring is driven off this rather than off each edit: a figure typed into
- * a row, a row added, a counterparty repointed, an undo, a reset and a copied
- * prior week are all the same statement about what this entity will pay, and
- * the counterparties' forecasts have to follow all of them.
+ * APPROVED FORECASTS ONLY. A settlement is a claim on another country's cash,
+ * and one nobody has approved is a figure their submitter is still moving
+ * around — copying it would put this week's guess into a forecast that will be
+ * read as a commitment.
  */
-export function mirrorFingerprint(
-  template: Pick<ForecastTemplate, 'categories'>,
-  rows: CustomRow[],
-  values: Record<string, number>,
-  periods: number,
-): string {
-  const parts: string[] = [];
-  rows.forEach((row, i) => {
-    if (!isOwnRow(row) || !row.entity) return;
-    const catIdx = customCatIndex(template, i);
-    const figures: string[] = [];
-    for (let d = 0; d < periods; d++) {
-      const v = values[`${catIdx}-${d}`];
-      if (v) figures.push(`${d}:${v}`);
-    }
-    // An empty row is not part of the statement — see `syncMirrors`.
-    if (figures.length === 0) return;
-    parts.push(`${row.id}|${row.entity}|${sectionKey(row.section)}|${figures.join(',')}`);
-  });
-  return parts.sort().join(';');
-}
-
-export interface SyncMirrorsArgs {
-  /** Forecast week the rows were entered for. */
-  period: string;
-  /** Entity whose submitter entered them. */
-  entity: string;
-  /** That entity's template — the rows are indexed against it. */
-  template: ForecastTemplate;
-  /** Every custom row on this forecast, this entity's own and mirrored alike. */
-  rows: CustomRow[];
-  /** The forecast's figures after the edit. */
-  values: Record<string, number>;
-}
-
-/**
- * Push this entity's intercompany rows into the counterparties' forecasts,
- * and withdraw anything this forecast used to say and no longer does.
- *
- * Rebuilt rather than patched: every mirror this entity previously wrote is
- * stripped from every counterparty first, then the current rows are written.
- * That one rule covers editing a figure, repointing a row at a different
- * counterparty, deleting a row and clearing a forecast — all of which would
- * otherwise need a code path each, and any of which would leave a stale figure
- * standing in somebody else's forecast.
- *
- * Mirrored rows never mirror back: only rows this entity entered itself
- * travel, or two entities pointing at each other would bounce forever.
- */
-export function syncMirrors(args: SyncMirrorsArgs): MirrorOutcome[] {
-  const { period, entity, template, rows, values } = args;
-  const templates = loadTemplates();
-  const periods = periodsOf(template).count;
-  const outcomes: MirrorOutcome[] = [];
-
-  /** What each counterparty should now hold from this forecast. */
-  const wanted = new Map<string, { row: CustomRow; figures: Record<string, number> }[]>();
-  for (const row of rows) {
-    if (!isOwnRow(row) || !row.entity) continue;
-    const figures = flippedFigures(template, rows, row.id, values, periods);
-    // A row with no figures on it says nothing yet. Naming a counterparty is
-    // not a statement about money, and pushing an empty row into their
-    // forecast — telling a country that has already submitted that its
-    // figures have changed — is a notification about nothing.
-    if (Object.keys(figures).length === 0) continue;
-    const list = wanted.get(row.entity) ?? [];
-    list.push({ row, figures });
-    wanted.set(row.entity, list);
-  }
-
-  // Everyone who should hold a mirror, plus everyone who currently holds one
-  // and may no longer be a counterparty at all.
-  const candidates = new Set<string>(wanted.keys());
-  for (const legal of listLegalEntities()) {
-    if (legal.name === entity || legal.status !== 'active') continue;
-    if (candidates.has(legal.name)) continue;
-    const other = templateForEntity(templates, legal.name);
-    if (!other) continue;
-    const stored = loadSubmission(period, legal.name, other.id);
-    if (customRowsOf(stored).some((r) => r.source === entity)) candidates.add(legal.name);
-  }
-
-  for (const counterparty of candidates) {
-    const known = listLegalEntities().some((e) => e.name === counterparty && e.status === 'active');
-    if (!known) {
-      outcomes.push({ counterparty, status: 'unknown-entity' });
-      continue;
-    }
-    const targetTemplate = templateForEntity(templates, counterparty);
-    if (!targetTemplate) {
-      outcomes.push({ counterparty, status: 'no-template' });
-      continue;
-    }
-    const target = getOrCreateSubmission(counterparty, period, targetTemplate);
-    // A consolidated forecast is history — the group position has been struck
-    // on those figures and nothing may rewrite them behind it.
-    if (target.status === 'consolidated') {
-      outcomes.push({ counterparty, status: 'consolidated' });
-      continue;
-    }
-
-    const before = customRowsOf(target);
-    const kept = before.filter((r) => r.source !== entity);
-    // The counterparty decides what it carries. Declining does not merely
-    // stop new rows: anything this entity wrote there before comes out, so
-    // "not taking rows from the Netherlands" means exactly that.
-    const accepted = acceptsMirrorFrom(mirrorPrefsOf(target), entity);
-    const incoming = accepted ? (wanted.get(counterparty) ?? []) : [];
-    if (!accepted && (wanted.get(counterparty)?.length ?? 0) > 0) {
-      outcomes.push({ counterparty, status: 'declined' });
-    }
-    // Each row lands in the counterparty's matching section, so an entity
-    // forecasting into two intercompany sections mirrors into both.
-    const sections = incoming.map(({ row }) => targetSection(targetTemplate, row.section));
-    if (sections.some((s) => s === null)) {
-      outcomes.push({ counterparty, status: 'no-section' });
-      continue;
-    }
-    // The mirror rewrites figures somebody may already have signed off.
-    const late = isHandedOver(target.status);
-    const mirrored: CustomRow[] = incoming.map(({ row }, i) =>
-      mirrorRowFor(entity, row, sections[i] as string, late),
-    );
-    const after = [...kept, ...mirrored];
-    if (before.length === 0 && after.length === 0) continue;
-
-    // Rows moved up a place when the old mirrors came out, so the figures,
-    // flags and commentary of everything below them move with them.
-    const remap = remapRowKey(targetTemplate, before, kept);
-    let nextValues = remapRecord(target.values, remap);
-    const nextFlags = [...remapKeySet(target.flags, remap)];
-    const nextComments = remapRecord(target.comments ?? {}, remap);
-    const nextRequests = remapRecord(target.commentRequests ?? {}, remap);
-    const targetPeriods = periodsOf(targetTemplate).count;
-    mirrored.forEach((_mirror, i) => {
-      const catIdx = customCatIndex(targetTemplate, kept.length + i);
-      nextValues = withRowValues(
-        nextValues,
-        catIdx,
-        targetPeriods,
-        incoming[i].figures,
-      );
-    });
-
-    const next: Submission = {
-      ...target,
-      values: nextValues,
-      flags: nextFlags,
-      comments: nextComments,
-      commentRequests: nextRequests,
-      ...(after.length > 0 ? { customRows: after } : { customRows: undefined }),
-      updatedAt: new Date().toISOString(),
-    };
-    saveSubmission(next);
-    if (accepted) {
-      outcomes.push({
-        counterparty,
-        status: 'mirrored',
-        ...(late && mirrored.length > 0 ? { late } : {}),
-      });
-    }
-  }
-
-  return outcomes;
-}
-
-/**
- * What another entity currently STATES about this one: its own intercompany
- * rows that name us, with the figures already flipped to our side.
- *
- * Read from what they have stored rather than from what they are typing —
- * this runs on our screen, not theirs.
- */
-function statedMirrors(
+function statementsFrom(
   source: string,
   period: string,
   target: string,
@@ -457,11 +216,13 @@ function statedMirrors(
   if (!sourceTemplate) return [];
   const stored = loadSubmission(period, source, sourceTemplate.id);
   if (!stored) return [];
+  // `consolidated` is approved and then some — see `toneOf`.
+  if (toneOf(stored.status) !== 'approved') return [];
   const rows = customRowsOf(stored);
   const periods = periodsOf(sourceTemplate).count;
   const out: { row: CustomRow; figures: Record<string, number> }[] = [];
   for (const row of rows) {
-    if (!isOwnRow(row) || row.entity !== target) continue;
+    if (row.entity !== target) continue;
     const figures = flippedFigures(sourceTemplate, rows, row.id, stored.values, periods);
     if (Object.keys(figures).length === 0) continue;
     out.push({ row, figures });
@@ -469,138 +230,44 @@ function statedMirrors(
   return out;
 }
 
-/** This forecast's state after its mirrored rows are brought into line. */
-export interface MirrorRebuild {
-  rows: CustomRow[];
-  values: Record<string, number>;
-  flags: string[];
-  comments: Record<string, string>;
-  commentRequests: Record<string, CommentRequest>;
-  /** Counterparties whose rows were pulled in by the change. */
-  added: string[];
-  /** Counterparties whose rows were dropped by it. */
-  dropped: string[];
-}
-
-/**
- * Bring a forecast's mirrored rows in line with what it now accepts.
- *
- * Mirroring is otherwise pushed: a counterparty types, and their row appears
- * here. That is no use to somebody changing what they accept — turning a
- * counterparty back on would show nothing until that counterparty happened to
- * type again — so this reads the other side directly and settles both
- * directions at once: rows from a declined counterparty come out, rows from
- * an accepted one that are not here yet go in.
- *
- * Returns the new state rather than writing it: the screen holds these in
- * React state and persists them itself, and a service that wrote behind it
- * would leave the grid showing the figures from before.
- */
-export function rebuildMirrors(args: {
-  period: string;
-  entity: string;
-  template: ForecastTemplate;
-  prefs: MirrorPrefs;
-  rows: CustomRow[];
-  values: Record<string, number>;
-  flags: string[];
-  comments: Record<string, string>;
-  commentRequests: Record<string, CommentRequest>;
-}): MirrorRebuild {
-  const { period, entity, template, prefs, rows: before } = args;
-  const templates = loadTemplates();
-  const periods = periodsOf(template).count;
-
-  const kept = before.filter((r) => isOwnRow(r) || acceptsMirrorFrom(prefs, r.source));
-  const dropped = [
-    ...new Set(
-      before.filter((r) => !isOwnRow(r) && !acceptsMirrorFrom(prefs, r.source)).map((r) => r.source as string),
-    ),
-  ];
-
-  // Everything accepted that is not already here.
-  const held = new Set(kept.filter((r) => !isOwnRow(r)).map((r) => r.id));
-  const incoming: { row: CustomRow; figures: Record<string, number> }[] = [];
-  const added: string[] = [];
-  if (prefs.enabled) {
-    for (const legal of listLegalEntities()) {
-      if (legal.name === entity || legal.status !== 'active') continue;
-      if (!acceptsMirrorFrom(prefs, legal.name)) continue;
-      for (const stated of statedMirrors(legal.name, period, entity, templates)) {
-        if (held.has(mirrorId(legal.name, stated.row.id))) continue;
-        const section = targetSection(template, stated.row.section);
-        if (!section) continue;
-        incoming.push({
-          row: mirrorRowFor(legal.name, stated.row, section, false),
-          figures: stated.figures,
-        });
-        if (!added.includes(legal.name)) added.push(legal.name);
-      }
-    }
-  }
-
-  // Rows moved up a place when the declined ones came out, so the figures,
-  // flags and commentary of everything below them move with them.
-  const remap = remapRowKey(template, before, kept);
-  let values = remapRecord(args.values, remap);
-  const flags = [...remapKeySet(args.flags, remap)];
-  const comments = remapRecord(args.comments, remap);
-  const commentRequests = remapRecord(args.commentRequests, remap);
-  incoming.forEach((inc, i) => {
-    values = withRowValues(values, customCatIndex(template, kept.length + i), periods, inc.figures);
-  });
-
-  return {
-    rows: [...kept, ...incoming.map((inc) => inc.row)],
-    values,
-    flags,
-    comments,
-    commentRequests,
-    added,
-    dropped,
-  };
-}
-
 // ---------------------------------------------------------------------------
-// WHAT THE REST OF THE GROUP SAYS ABOUT YOU
+// WHAT THE REST OF THE GROUP HAS SAID ABOUT YOU
 //
-// Mirroring is pushed: a counterparty types, and their figure lands here. That
-// is fine for carrying a settlement but useless for reading one — a submitter
-// could see what had arrived and nothing about what was on offer, so a
-// counterparty's statement that this forecast had declined was invisible, and
-// the same statement a week ago was invisible whatever the setting.
-//
-// These read the other side directly, for this week and the two behind it, and
-// return every statement whether or not it is currently carried. The table
-// beside the outlook is a view of exactly this.
+// A submitter filling in their intercompany section is writing down the same
+// settlements their counterparties have already written down, from the other
+// side. These read those, for this week and the two behind it, so the table
+// beside the grid can show them — and so a button can copy one in rather than
+// leaving somebody to retype a figure that is already in the system.
 // ---------------------------------------------------------------------------
 
-/** One counterparty's statement about this entity, across three weeks. */
-export interface MirrorStatement {
+/** One counterparty's approved statement about this entity, across three weeks. */
+export interface CounterpartyStatement {
   /** The counterparty making it. */
   counterparty: string;
-  /** Their row's id — stable, and what the figures are keyed to. */
+  /** Their row's id — this statement's identity in the list. */
   rowId: string;
+  /** The section they booked it in, so a copy lands in the matching one. */
+  section: string;
   /** Day indexes on THIS entity's horizon that the statement touches. */
   days: number[];
-  /** What they state for this week, on our side of the settlement. */
+  /** Day index (as a string) to amount, already on our side of the settlement. */
+  figures: Record<string, number>;
+  /** What they state for this week, on our side. */
   current: number;
   /** The same statement one and two cycles back; null where they made none. */
   prior1: number | null;
   prior2: number | null;
-  /** Is this forecast carrying it right now? */
-  carried: boolean;
 }
 
-/** The total a counterparty states about `target` in one week, by day. */
-function statedFigures(
+/** The amounts a counterparty states about `target` in one week, by row and day. */
+function figuresFrom(
   source: string,
   period: string,
   target: string,
   templates: ForecastTemplate[],
 ): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const { row, figures } of statedMirrors(source, period, target, templates)) {
+  for (const { row, figures } of statementsFrom(source, period, target, templates)) {
     for (const [day, v] of Object.entries(figures)) {
       out[`${row.id}:${day}`] = v;
     }
@@ -617,116 +284,128 @@ function statedFigures(
  * chart's overlays use. Past the end of that horizon there is no statement to
  * compare against, which is a gap rather than a zero.
  */
-export function mirrorStatements(
+export function counterpartyStatements(
   entity: string,
   period: string,
   template: ForecastTemplate,
-): MirrorStatement[] {
+): CounterpartyStatement[] {
   const templates = loadTemplates();
-  const stored = loadSubmission(period, entity, template.id);
-  const carried = new Set(
-    customRowsOf(stored)
-      .filter((r) => !isOwnRow(r) && r.sourceRowId)
-      .map((r) => `${r.source}:${r.sourceRowId}`),
-  );
   const step = rollShift(template);
   const priorPeriods = [prevWeekKey(period), prevWeekKey(prevWeekKey(period))];
 
-  const out: MirrorStatement[] = [];
+  /**
+   * The same row N cycles back, read at the days that line up with these.
+   * Horizons roll a cycle at a time, so our day d was their day d + N·roll.
+   */
+  const priorTotal = (
+    source: string,
+    rowId: string,
+    days: number[],
+    back: number,
+  ): number | null => {
+    const past = figuresFrom(source, priorPeriods[back - 1], entity, templates);
+    let sum = 0;
+    let any = false;
+    for (const d of days) {
+      const v = past[`${rowId}:${d + back * step}`];
+      if (typeof v === 'number') {
+        sum += v;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  };
+
+  const out: CounterpartyStatement[] = [];
   for (const legal of listLegalEntities()) {
     if (legal.name === entity || legal.status !== 'active') continue;
-    for (const { row, figures } of statedMirrors(legal.name, period, entity, templates)) {
+    for (const { row, figures } of statementsFrom(legal.name, period, entity, templates)) {
       const days = Object.keys(figures)
         .map(Number)
         .filter((d) => Number.isFinite(d))
         .sort((a, b) => a - b);
       if (days.length === 0) continue;
-      const current = days.reduce((s, d) => s + (figures[String(d)] ?? 0), 0);
-
-      // The same row, N cycles back, read at the day that lines up with ours.
-      const priorTotal = (back: number): number | null => {
-        const past = statedFigures(legal.name, priorPeriods[back - 1], entity, templates);
-        let sum = 0;
-        let seen = false;
-        for (const d of days) {
-          const v = past[`${row.id}:${d + back * step}`];
-          if (typeof v === 'number') {
-            sum += v;
-            seen = true;
-          }
-        }
-        return seen ? sum : null;
-      };
-
       out.push({
         counterparty: legal.name,
         rowId: row.id,
+        section: row.section,
         days,
-        current,
-        prior1: priorTotal(1),
-        prior2: priorTotal(2),
-        carried: carried.has(`${legal.name}:${row.id}`),
+        figures,
+        current: days.reduce((s, d) => s + (figures[String(d)] ?? 0), 0),
+        prior1: priorTotal(legal.name, row.id, days, 1),
+        prior2: priorTotal(legal.name, row.id, days, 2),
       });
     }
   }
-  // The biggest settlement first — it is the one worth a decision.
+  // The biggest settlement first — it is the one worth checking.
   out.sort(
     (a, b) =>
-      Math.abs(b.current) - Math.abs(a.current) ||
-      a.counterparty.localeCompare(b.counterparty),
+      Math.abs(b.current) - Math.abs(a.current) || a.counterparty.localeCompare(b.counterparty),
   );
   return out;
 }
 
-/**
- * The prefs that carry (or stop carrying) one counterparty, given everything
- * currently on offer.
- *
- * `sources: []` means EVERY counterparty, so declining one has to materialise
- * the list first; accepting the last missing one collapses it back to empty,
- * or the forecast would silently stop accepting a counterparty added later.
- */
-export function mirrorPrefsToggling(
-  prefs: MirrorPrefs,
-  counterparty: string,
-  allSources: string[],
-): MirrorPrefs {
-  const accepted = new Set(
-    prefs.enabled ? (prefs.sources.length === 0 ? allSources : prefs.sources) : [],
-  );
-  if (accepted.has(counterparty)) accepted.delete(counterparty);
-  else accepted.add(counterparty);
-  const kept = allSources.filter((s) => accepted.has(s));
-  if (kept.length === 0) return { enabled: false, sources: [] };
-  return { enabled: true, sources: kept.length === allSources.length ? [] : kept };
+/** A forecast's rows and figures after a statement has been copied into it. */
+export interface CopyResult {
+  rows: CustomRow[];
+  values: Record<string, number>;
+  /** Whether the copy needed a new row, as opposed to filling one in. */
+  added: boolean;
 }
 
 /**
- * A forecast's figures with everything mirrored in from other entities taken
- * out — only what this entity's own submitter entered.
+ * This forecast after a counterparty's statement is copied into it.
  *
- * A mirrored row is somebody else's statement about you: real money, and part
- * of the group position, but not part of what YOU forecast. Reading the group
- * both ways is the point — with the mirrors in, it is what the group expects
- * to move; with them out, it is what the countries themselves have said,
- * which is the number to check a submitter's work against.
+ * The figures land on this entity's OWN row for that counterparty — the one it
+ * already has, or a new one under the intercompany section — and only on the
+ * days the statement touches, so a settlement of this entity's own sitting on
+ * another day of the same row is left alone.
  *
- * Only the figures are stripped, not the rows: callers aggregate by cell key,
- * and a row with no cells left contributes nothing anyway.
+ * What lands is an ordinary row. Nothing marks it as copied, because after
+ * this it is not: it is this entity's figure, to change or delete like any
+ * other, and it does not move again when the counterparty's forecast does.
+ *
+ * Returns the new state rather than writing it: the screen holds these in
+ * React state and persists them itself, and a service that wrote behind it
+ * would leave the grid showing the figures from before.
  */
-export function ownFiguresOnly(
-  sub: Pick<Submission, 'values' | 'customRows'>,
-  template: ForecastTemplate,
-): Record<string, number> {
-  const rows = customRowsOf(sub);
-  const mirrored = new Set<number>();
-  rows.forEach((row, i) => {
-    if (!isOwnRow(row)) mirrored.add(customCatIndex(template, i));
-  });
-  if (mirrored.size === 0) return sub.values ?? {};
-  const out: Record<string, number> = {};
-  for (const [key, v] of Object.entries(sub.values ?? {})) {
-    if (!mirrored.has(Number(key.split('-')[0]))) out[key] = v;
+export function copyStatement(args: {
+  template: ForecastTemplate;
+  rows: CustomRow[];
+  values: Record<string, number>;
+  statement: CounterpartyStatement;
+}): CopyResult {
+  const { template, rows, values, statement } = args;
+  const section = targetSection(template, statement.section);
+  if (!section) return { rows, values, added: false };
+
+  let next = rows;
+  let index = rows.findIndex(
+    (r) => r.entity === statement.counterparty && sectionKey(r.section) === sectionKey(section),
+  );
+  const added = index < 0;
+  if (added) {
+    // Under the LINE the sign belongs to — money out beneath the outflow
+    // line, money in beneath the inflow one — so a copied row sits where the
+    // submitter would have typed it rather than loose at the foot of the
+    // section. A section with one line for both keeps them together.
+    const parent = template.categories.find(
+      (c) =>
+        c.group === section &&
+        c.intercompany === true &&
+        !c.subtotal &&
+        /out/i.test(c.label) === statement.current < 0,
+    )?.label;
+    next = [...rows, makeCustomRow(section, parent, '', statement.counterparty)];
+    index = next.length - 1;
   }
-  return out;
+
+  const catIdx = customCatIndex(template, index);
+  const out = { ...values };
+  for (const [day, v] of Object.entries(statement.figures)) {
+    const key = `${catIdx}-${Number(day)}`;
+    if (v) out[key] = v;
+    else delete out[key];
+  }
+  return { rows: next, values: out, added };
 }

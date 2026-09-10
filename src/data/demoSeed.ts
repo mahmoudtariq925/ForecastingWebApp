@@ -28,8 +28,12 @@ import { demoCountries } from './mockData';
 import { listEntities, seedUsers } from './appData';
 import { activeCycle, listCycles } from './cycleService';
 import { getOrCreateSubmission, templateForEntity } from './submissionService';
-import { customCatIndex, customRowsOf, isOwnRow } from './customRows';
-import { intercompanySections, syncMirrors } from './intercompanyService';
+import { customCatIndex, customRowsOf } from './customRows';
+import {
+  copyStatement,
+  counterpartyStatements,
+  intercompanySections,
+} from './intercompanyService';
 import { periodsOf, prevWeekKey, rollShift } from './periods';
 import {
   loadApprovals,
@@ -348,15 +352,18 @@ function seedDemoQuestions(week: string): void {
 // The week's intercompany position.
 //
 // A demo with an empty IC Settlements section says nothing about what the
-// section is FOR, and every screen built on it — the mirroring table beside
-// the outlook, the dashboard's settlement filters — opens with nothing in it
-// and reads as broken rather than as empty. So the week opens with real
-// settlements between real group companies.
+// section is FOR, and every screen built on it — the table beside the outlook,
+// the dashboard's settlement filters — opens with nothing in it and reads as
+// broken rather than as empty. So the week opens with real settlements between
+// real group companies.
 //
-// Only the ORIGINATING side is written here. The other half of each is
-// produced by `syncMirrors`, the same code that runs when a submitter types
-// one in, so the seeded state is exactly what a week of genuine use produces
-// rather than an imitation of it that can drift from it.
+// Only the ORIGINATING side is written. The other half of a settlement reaches
+// a counterparty's forecast when their submitter copies it in off the table,
+// and the CLOSED weeks are seeded that way — through that same code, so the
+// history is what genuine use leaves behind rather than an imitation of it.
+// The active week is left uncopied on purpose: the table is the thing being
+// demonstrated, and a table whose every row is already in the grid gives
+// nobody anything to press.
 // ---------------------------------------------------------------------------
 
 /** Who settles with whom, and roughly how much, on which working day. */
@@ -386,8 +393,8 @@ const DEMO_INTERCOMPANY: { entity: string; counterparty: string; day: number; am
 const intercompanySeededKey = (week: string) => `demoIntercompanySeeded:${week}`;
 
 /**
- * Write one week's intercompany rows onto the entities that entered them, then
- * let the app mirror each into its counterparty.
+ * Write one week's intercompany rows onto the entities that entered them, and
+ * — for a week already behind us — copy each into its counterparty.
  *
  * `back` is how many cycles behind the active week this is. Horizons roll
  * forward a cycle at a time, so the same calendar settlement sits `back·roll`
@@ -418,17 +425,14 @@ function seedIntercompanyWeek(week: string, back: number): void {
     const stored = loadSubmission(week, entity, template.id);
     if (!stored) continue;
     const existing = customRowsOf(stored);
-    // Settlements this entity has ENTERED are somebody's work — leave them be.
-    // Rows it has RECEIVED are not: an entity named by a counterparty earlier
-    // in this same loop already holds their mirror, and treating that as
-    // "already seeded" skipped every entity that happened to be settled with
-    // before its own turn came round.
-    if (existing.some(isOwnRow)) continue;
-    const mirrors = existing.filter((r) => !isOwnRow(r));
+    // Keyed on the demo's own row, not on the section having anything in it:
+    // an entity that has COPIED a counterparty's figure in has rows already,
+    // and skipping it on that basis left it never stating its own.
+    if (existing.some((r) => r.id === demoRowId(entity, 0))) continue;
 
-    // The received rows keep the indexes they already hold; this entity's own
-    // go after them, which is where `customCatIndex` will look for them.
-    const rows: CustomRow[] = [...mirrors];
+    // Anything already here keeps the indexes it holds; this entity's own
+    // settlements go after them, which is where `customCatIndex` will look.
+    const rows: CustomRow[] = [...existing];
     const values = { ...stored.values };
     entries.forEach((entry, i) => {
       // The line the row breaks down: money out sits under the outflow line,
@@ -442,7 +446,7 @@ function seedIntercompanyWeek(week: string, back: number): void {
           /out/i.test(c.label) === entry.amount < 0,
       )?.label;
       const row: CustomRow = {
-        id: `demo-ic-${entity}-${i}`.toLowerCase().replace(/\s+/g, '-'),
+        id: demoRowId(entity, i),
         section,
         ...(parent ? { parent } : {}),
         label: entry.counterparty,
@@ -455,14 +459,38 @@ function seedIntercompanyWeek(week: string, back: number): void {
       // A little drift per cycle, so the history is a series rather than the
       // same figure stamped three times.
       const amount = Math.round(entry.amount * (1 - back * 0.12));
-      values[`${customCatIndex(template, mirrors.length + i)}-${day}`] = amount;
+      values[`${customCatIndex(template, existing.length + i)}-${day}`] = amount;
     });
 
     saveSubmission({ ...stored, customRows: rows, values });
-    // The other half of every one of them, written by the app's own mirroring.
-    syncMirrors({ period: week, entity, template, rows, values });
+  }
+  // Now the other half, for a week that is already closed: each counterparty
+  // copies in what was stated about it, exactly as pressing the button does.
+  // Run after the whole loop, so an entity settled with before its own turn
+  // came round still gets everything.
+  if (back === 0) return;
+  for (const counterparty of new Set(DEMO_INTERCOMPANY.map((e) => e.counterparty))) {
+    const template = templateForEntity(templates, counterparty);
+    if (!template) continue;
+    const stored = loadSubmission(week, counterparty, template.id);
+    if (!stored) continue;
+    let rows = customRowsOf(stored);
+    let values = stored.values;
+    let copied = false;
+    for (const statement of counterpartyStatements(counterparty, week, template)) {
+      const next = copyStatement({ template, rows, values, statement });
+      rows = next.rows;
+      values = next.values;
+      copied = true;
+    }
+    if (!copied) continue;
+    saveSubmission({ ...stored, customRows: rows, values });
   }
 }
+
+/** The demo's own rows, so re-running finds them and leaves the week alone. */
+const demoRowId = (entity: string, i: number): string =>
+  `demo-ic-${entity}-${i}`.toLowerCase().replace(/\s+/g, '-');
 
 /**
  * The active week's settlements, and the two cycles behind it.

@@ -3151,13 +3151,10 @@ tbody tr.row-inactive td {
 .questions-table .q-action {
   text-align: right;
 }
-/* Waiting is the state somebody is held up by, so those rows carry an edge
-   and the answered ones sit back. */
+/* Every row here is a question somebody is held up by, and the edge says so
+   down the left of the table. */
 .questions-table tbody tr.is-awaiting td:first-child {
   box-shadow: inset 3px 0 0 var(--amber);
-}
-.questions-table tbody tr:not(.is-awaiting) .q-primary {
-  color: var(--text-dim);
 }
 
 /* === REQUIRES ATTENTION (treasury dashboard) === */
@@ -6143,22 +6140,6 @@ thead th,
   font-weight: 500;
   color: var(--text);
 }
-/* Where a mirrored row came from — the whole point of the row. */
-.row-source-tag {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 100px;
-  background: var(--blue-soft);
-  color: var(--blue);
-  font-family: var(--sans);
-  font-size: 10.5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.row-source-tag.late {
-  background: var(--amber-soft);
-  color: var(--amber);
-}
 .row-remove {
   flex: none;
   width: 18px;
@@ -6180,30 +6161,6 @@ thead th,
 .row-remove:hover {
   color: var(--red);
   border-color: var(--red);
-}
-
-/* A mirrored row is another entity's statement: read here, entered there.
-   One wash down the whole line says that; a 2px blue edge on each cell drew
-   twenty of them across a row, which read as a row broken into pieces and
-   sitting outside the section it belongs to rather than as one line of it. */
-.forecast-grid td.cell.cell-mirrored {
-  background-color: rgba(135, 161, 194, 0.08);
-  color: var(--text-dim);
-  cursor: default;
-}
-/* The edge is drawn ONCE, where the line is named: on the row label with the
-   dates across the top, on the column header with them down the side. */
-.forecast-grid tr.row-mirrored > td.row-label {
-  box-shadow: inset 3px 0 0 var(--blue-light);
-}
-.forecast-grid thead th.day-h.day-h-mirrored {
-  box-shadow: inset 0 3px 0 var(--blue-light);
-  background-color: rgba(135, 161, 194, 0.08);
-}
-/* A mirrored line keeps its section's banding underneath the wash, so it sits
-   in the section it belongs to rather than beside it. */
-.forecast-grid tr.row-mirrored > td.row-label.row-label-custom {
-  background-color: rgba(135, 161, 194, 0.08);
 }
 
 /* Dates-down-rows: a submitter's row is a COLUMN, and its header holds the
@@ -6814,13 +6771,25 @@ thead th,
   align-items: flex-start;
   gap: var(--panel-gap);
 }
+/* Two columns, open or folded. The shape of the week and what the group says
+   about it are both things you check a figure AGAINST, so they are read
+   together and neither is worth a scroll to reach.
+ *
+ * Not an even split. A week's shape needs width — twenty days in half a
+ * screen is a portrait box — while the table is five short columns and a
+ * handful of rows, and at half the screen it was mostly white. So the chart
+ * keeps the width it had when it owned the row, and the table takes the
+ * column beside it. Where both cannot have that, the row wraps and they
+ * stack. */
 .forecast-entry .forecast-strips > .panel {
-  flex: 1 1 340px;
   min-width: 0;
   margin-bottom: 0;
 }
-.forecast-entry .forecast-strips > .panel.is-open {
-  flex-basis: 100%;
+.forecast-entry .forecast-strips > .forecast-outlook {
+  flex: 1 1 900px;
+}
+.forecast-entry .forecast-strips > .forecast-mirrors {
+  flex: 0 1 380px;
 }
 /* The row itself carries the gap the panels used to. */
 .forecast-entry .forecast-strips {
@@ -6847,9 +6816,12 @@ thead th,
 }
 .forecast-entry .forecast-outlook .outlook-body {
   display: grid;
-  /* Wide enough for the rail's own widest control ("Compare · Running
-     Balance") to sit inside it rather than push out of it. */
-  grid-template-columns: 250px minmax(0, 1fr);
+  /* The rail takes a THIRD of the card, capped at the width its own widest
+     control ("Compare · Running Balance") wants and floored where its
+     checkboxes stop fitting. Fixed at that cap, the rail was wider than the
+     plot once the card shared its row with the intercompany table — a column
+     of checkboxes crowding out the thing they control. */
+  grid-template-columns: clamp(160px, 30%, 225px) minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -6865,7 +6837,7 @@ thead th,
   max-width: 1120px;
 }
 .forecast-entry .forecast-mirrors .mirror-body {
-  padding: 4px 18px 16px;
+  padding: 4px 14px 14px;
 }
 .mirror-lead {
   font-size: 12px;
@@ -6888,7 +6860,7 @@ thead th,
 }
 .mirror-table th,
 .mirror-table td {
-  padding: 9px 14px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-weight: 400;
@@ -6918,11 +6890,14 @@ thead th,
 .mirror-table td:first-child {
   width: 1%;
 }
+/* The figure columns are as wide as a figure and its button, not as wide as
+   the space happened to allow: at 210px and 140px the five of them wanted
+   more than twice the column the table now sits in. */
 .mirror-table .col-current {
-  width: 210px;
+  width: 92px;
 }
 .mirror-table .col-hist {
-  width: 140px;
+  width: 56px;
 }
 .mirror-table tbody th {
   font-family: var(--sans);
@@ -6938,15 +6913,15 @@ thead th,
 .mirror-table tbody tr:hover > td {
   background: var(--bg-sunken);
 }
-.mirror-code {
-  display: inline-block;
-  min-width: 24px;
-  margin-right: 8px;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-muted);
+/* The counterparty and the day it settles, one under the other. */
+.mirror-who {
+  display: block;
+  font-weight: 600;
 }
 .mirror-when {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
   color: var(--text-dim);
 }
 /* History: submitted at the time, and not something a closed week can be
@@ -6955,61 +6930,38 @@ thead th,
 .mirror-table td.hist {
   color: var(--text-muted);
 }
-/* The current figure IS the control, and says which of the two things it
-   will do. Fixed width so ten of them make a column rather than a ragged
-   edge, and the figure sits where the history figures sit. */
-.mirror-take {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  justify-content: flex-end;
-  padding: 5px 10px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--border-strong);
-  background: var(--bg-elev);
+/* The counterparty's figure, and the button that copies it in. Both sit in
+   the current-week column: the number where the history numbers are, the
+   button under it, so ten rows make a column rather than a ragged edge. */
+.ic-figure {
   font-family: var(--mono);
-  font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+}
+.ic-copy-wrap {
+  display: block;
+  margin-top: 3px;
+  text-align: right;
+}
+.ic-copy {
+  padding: 1px 9px;
+  border-radius: 100px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
   transition:
     background 0.12s ease,
     border-color 0.12s ease,
     color 0.12s ease;
 }
-.mirror-take:hover {
+.ic-copy:hover {
   border-color: var(--accent);
-  color: var(--accent);
-}
-.mirror-take.on {
-  background: var(--green-soft);
-  border-color: var(--green);
-  color: var(--green);
-}
-.mirror-take-word {
-  margin-right: auto;
-  font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.mirror-take-mark {
-  font-size: 11px;
-  opacity: 0.9;
-}
-.mirror-static {
-  font-family: var(--mono);
-  color: var(--text-muted);
-}
-.mirror-static.on {
-  color: var(--green);
-  font-weight: 600;
-}
-/* A carried statement is part of this forecast's figures, so the row says so
-   down its whole length rather than with a mark in one cell. */
-.mirror-table tr.is-carried > th {
-  box-shadow: inset 3px 0 0 var(--green);
+  background: var(--accent);
+  color: var(--jde-white);
 }
 
 .forecast-entry .forecast-outlook .outlook-controls {
@@ -7052,11 +7004,24 @@ thead th,
    earlier one-column card did, and every mark and label in the plot was
    squashed to four fifths of its height to fit inside it. */
 .forecast-entry .forecast-outlook .chart-container {
-  padding: 14px 18px 6px;
+  /* Side gutters trimmed: every pixel here is one the plot does not get, and
+     sharing the row with the table left none to spare. */
+  padding: 14px 10px 6px;
 }
-/* Narrow viewports have no width to give a rail, so it goes back to strips
-   above the plot — the same blocks, stacked the other way. */
-@media (max-width: 1080px) {
+/* A NARROW CARD has no width to give a rail, so it goes back to strips above
+   the plot — the same blocks, stacked the other way, and the plot then has
+   the whole card.
+ *
+ * Asked of the CARD rather than of the window, because since the card shares
+ * its row with the intercompany table the two have stopped agreeing: a
+ * 1,700px window holds a 715px card, and it was the card's width the plot
+ * had to live in. A rail beside a plot at that width left twenty days in
+ * 300px — a week squeezed into a portrait box, which is the same figure
+ * unreadable in the opposite direction to the one that started this. */
+.forecast-entry .forecast-outlook {
+  container-type: inline-size;
+}
+@container (max-width: 640px) {
   .forecast-entry .forecast-outlook .outlook-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -7074,6 +7039,11 @@ thead th,
     width: auto;
     margin-top: 0;
     margin-left: auto;
+  }
+  /* Shorter with it, so the plot stays landscape at a card width the full
+     height would have made square. */
+  .forecast-entry .forecast-outlook .chart-container {
+    --chart-h: 265px;
   }
 }
 /* The plot's own rules come through `var(--border)` on the SVG's `stroke`
