@@ -71,13 +71,10 @@ import {
 } from '../../data/submissionService';
 import {
   intercompanySections,
-  mirrorFingerprint,
   mirrorPrefsOf,
   mirrorPrefsToggling,
-  mirrorProblem,
   mirrorStatements,
   rebuildMirrors,
-  syncMirrors,
   type MirrorPrefs,
 } from '../../data/intercompanyService';
 import {
@@ -95,7 +92,6 @@ import {
   rowValues,
   withRowValues,
 } from '../../data/customRows';
-import { useDebounced } from './heatmap';
 import {
   FORMATTING_OPTIONS,
   loadConditionalFormatting,
@@ -638,6 +634,8 @@ function SubmissionEditor({
     resumed.current && resumableCell(resumed.current.key) ? resumed.current : null;
 
   const [varianceCell, setVarianceCell] = useState<VarianceCell | null>(null);
+  /** Which side of the grid the ask dock sits on — see `placeDock`. */
+  const [askSide, setAskSide] = useState<'left' | 'right'>('right');
   /**
    * The cell's number as typed in the dock beside the grid. "That figure was
    * wrong" is one of the answers, so the number travels with the box asking
@@ -1262,6 +1260,9 @@ function SubmissionEditor({
       prior: priorAt(catIdx, dayIdx),
       current: values[key] || 0,
     });
+    // The same movement the submitter's dock makes: bring the cell into view
+    // and open the box on the side that keeps it there.
+    placeDock(key, setAskSide);
   };
 
   // Deep link from Comments Review: open that cell's commentary dialog as
@@ -1418,7 +1419,7 @@ function SubmissionEditor({
    * a counterparty that is no longer accepted come out, rows from one that
    * has just been accepted are pulled in from what they have stored.
    */
-  const applyMirrorPrefs = async (next: MirrorPrefs) => {
+  const applyMirrorPrefs = async (next: MirrorPrefs, refresh: string[] = []) => {
     pushUndo();
     lastEditedCell.current = null;
     const rebuilt = rebuildMirrors({
@@ -1431,6 +1432,7 @@ function SubmissionEditor({
       flags: [...flags],
       comments,
       commentRequests,
+      refresh,
     });
     const nextFlags = new Set(rebuilt.flags);
     setMirrorPrefs(next);
@@ -1445,7 +1447,8 @@ function SubmissionEditor({
     // Rows in or out is a change to the FIGURES, so it costs what any other
     // change to them costs on a forecast already handed over: it comes back
     // off the approver's desk and goes round again.
-    const changed = rebuilt.added.length > 0 || rebuilt.dropped.length > 0;
+    const changed =
+      rebuilt.added.length > 0 || rebuilt.dropped.length > 0 || rebuilt.refreshed.length > 0;
     const withdrawn = changed ? withdrawFromApproval() : {};
     persist({
       mirrorPrefs: next,
@@ -1456,8 +1459,13 @@ function SubmissionEditor({
       commentRequests: rebuilt.commentRequests,
       ...withdrawn,
     });
+    // A retake is one statement being replaced by the same counterparty's
+    // current one, which reads as neither an addition nor a removal.
     const said = [
-      rebuilt.added.length > 0 ? `Pulled in ${rebuilt.added.join(', ')}.` : '',
+      rebuilt.refreshed.length > 0
+        ? `Took ${rebuilt.refreshed.join(', ')}'s figures again.`
+        : '',
+      rebuilt.added.length > 0 ? `Carried ${rebuilt.added.join(', ')}.` : '',
       rebuilt.dropped.length > 0 ? `Left out ${rebuilt.dropped.join(', ')}.` : '',
     ]
       .filter(Boolean)
@@ -1465,10 +1473,8 @@ function SubmissionEditor({
     await notify({
       tone: 'success',
       message: next.enabled
-        ? `Intercompany mirroring updated.${said ? ` ${said}` : ''}`
-        : `Intercompany mirroring is off — this forecast carries only its own rows.${
-            said ? ` ${said}` : ''
-          }`,
+        ? `Intercompany updated.${said ? ` ${said}` : ''} Carried figures are copies: they stay as they are until you take them again.`
+        : `This forecast now carries only its own rows.${said ? ` ${said}` : ''}`,
     });
   };
 
@@ -1569,45 +1575,15 @@ function SubmissionEditor({
   };
 
   /**
-   * Mirroring, driven off what this forecast SAYS rather than off each edit.
+   * Nothing is pushed at a counterparty when this forecast changes.
    *
-   * A figure typed into a counterparty row, a row added, an entity repointed,
-   * an undo, a Reset and a copied prior week are all the same statement about
-   * what this entity will settle with whom — and every one of them has to
-   * reach the counterparty's forecast. Watching the statement itself covers
-   * all of them with one rule, and the debounce keeps a burst of keystrokes
-   * from writing into ten other forecasts on every digit.
+   * It used to be: every edit here was mirrored straight into the forecasts
+   * of the entities named on the intercompany rows, so a figure somebody had
+   * carried — and submitted, and had approved — could move afterwards because
+   * the other side changed their mind. What this forecast says is read from
+   * their side, by the table above the grid, and taken when they choose to
+   * take it. See `intercompanyService`.
    */
-  const statement = useMemo(
-    () => mirrorFingerprint(template, rows, values, numPeriods),
-    [template, rows, values, numPeriods],
-  );
-  const settledStatement = useDebounced(statement, 700);
-  const lastMirrored = useRef(statement);
-  /** Notes already given, so a note is made once and not on every keystroke. */
-  const toldAbout = useRef(new Set<string>());
-  useEffect(() => {
-    if (!canEditRows) return;
-    if (settledStatement === lastMirrored.current) return;
-    lastMirrored.current = settledStatement;
-    const outcomes = syncMirrors({ period: week, entity, template, rows, values });
-    const problems = outcomes
-      .map(mirrorProblem)
-      .filter((p): p is string => p !== null)
-      // "Germany has already submitted" is worth saying once. Saying it again
-      // on the next figure typed into the same row is nagging.
-      .filter((p) => !toldAbout.current.has(p));
-    if (problems.length > 0) {
-      for (const p of problems) toldAbout.current.add(p);
-      void notify({
-        title: 'Saved — with notes on the mirrored rows',
-        message: problems.join(' '),
-      });
-    }
-    // The fingerprint is what changed; `rows` and `values` are read at the
-    // moment it settles, which is exactly the state that has to be mirrored.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settledStatement, canEditRows]);
 
   /** "Mon 4 Aug" for a cell key, falling back to the column number. */
   const periodLabelFor = (key: string): string => {
@@ -1739,11 +1715,16 @@ function SubmissionEditor({
   };
 
   /**
-   * Bring a cell into view and put the dock on whichever side keeps it there:
+   * Bring a cell into view and put a dock on whichever side keeps it there:
    * on the left when the cell sits in the right half of the grid, so the cell
    * and the box are never on top of each other.
+   *
+   * Both docks use it. A reader asking about a cell was getting the panel
+   * without the movement — the box opened over a grid still showing whatever
+   * it had been scrolled to, and the figure being asked about was as likely
+   * to be off-screen as not.
    */
-  const placeFlowDock = (key: string) => {
+  const placeDock = (key: string, onSide: (side: 'left' | 'right') => void) => {
     expandSectionOf(key);
     // Two frames: one for the section to expand, one for the dock to mount
     // (it narrows the grid before anything is measured).
@@ -1761,14 +1742,19 @@ function SubmissionEditor({
         cell.scrollIntoView({ block: 'center', inline: 'center' });
         const cellRect = cell.getBoundingClientRect();
         const wrapRect = wrap.getBoundingClientRect();
-        const side =
+        onSide(
           cellRect.left + cellRect.width / 2 > wrapRect.left + wrapRect.width / 2
             ? 'left'
-            : 'right';
-        setCommentFlow((prev) => (prev && prev.key === key ? { ...prev, side } : prev));
+            : 'right',
+        );
       }),
     );
   };
+
+  const placeFlowDock = (key: string) =>
+    placeDock(key, (side) =>
+      setCommentFlow((prev) => (prev && prev.key === key ? { ...prev, side } : prev)),
+    );
 
   /** Move the flow to a cell, with whatever has already been written on it. */
   const focusFlowCell = (key: string, mode?: 'submitting' | 'single') => {
@@ -3030,7 +3016,10 @@ function SubmissionEditor({
               <span className="section-caret" aria-hidden="true">
                 {mirrorsOpen ? '▾' : '▸'}
               </span>
-              <strong>Intercompany Mirroring</strong>
+              {/* Named for what it holds rather than for the mechanism
+                  behind it: a submitter opening "Intercompany Mirroring" has
+                  to already know what mirroring is to guess what is inside. */}
+              <strong>Intercompany Forecast by Other Countries</strong>
             </button>
             {mirrorsOpen && (
               <div className="mirror-body">
@@ -3050,6 +3039,10 @@ function SubmissionEditor({
                       mirrorPrefsToggling(mirrorPrefs, counterparty, mirrorSources),
                     )
                   }
+                  // Take it again at what it says now: the figure on the row
+                  // this forecast holds is rewritten, and the row stays where
+                  // it is in the grid.
+                  onRetake={(counterparty) => void applyMirrorPrefs(mirrorPrefs, [counterparty])}
                 />
               </div>
             )}
@@ -3107,6 +3100,7 @@ function SubmissionEditor({
               the explanation is written. */}
           <div className="grid-flow-row">
             {commentFlow?.side === 'left' && commentDock}
+            {askSide === 'left' && askDock}
             <div className="forecast-grid-wrap" data-tour="forecast-grid">
               <ForecastGrid
                 key={restoreVersion}
@@ -3148,7 +3142,7 @@ function SubmissionEditor({
               />
             </div>
             {commentFlow?.side === 'right' && commentDock}
-            {askDock}
+            {askSide === 'right' && askDock}
           </div>
         </div>
 

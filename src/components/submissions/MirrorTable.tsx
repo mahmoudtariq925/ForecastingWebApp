@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { countryCode } from '../../data/countryCodes';
 import type { MirrorStatement } from '../../data/intercompanyService';
 
 interface MirrorTableProps {
@@ -12,10 +11,23 @@ interface MirrorTableProps {
   editable: boolean;
   /** Carry this counterparty's statement, or stop carrying it. */
   onToggle: (counterparty: string) => void;
+  /** Take a statement again at what it says now, replacing the copy held. */
+  onRetake: (counterparty: string) => void;
 }
 
 const fmt = (v: number | null): string =>
   v === null ? '—' : Math.round(v).toLocaleString();
+
+/**
+ * Has the counterparty restated a settlement this forecast is carrying?
+ *
+ * A carried figure is a copy taken when it was carried, so the two drift
+ * apart the moment either side edits. That is not an error — it is the thing
+ * the table exists to show, because nothing else on the screen can: the grid
+ * holds the copy and says nothing about where it came from.
+ */
+const restated = (s: MirrorStatement): boolean =>
+  s.carried && Math.round(s.carriedTotal ?? 0) !== Math.round(s.current ?? 0);
 
 /**
  * What the rest of the group says about this entity's week, and what of it
@@ -37,9 +49,15 @@ export function MirrorTable({
   periodLabels,
   editable,
   onToggle,
+  onRetake,
 }: MirrorTableProps) {
   const carried = useMemo(
     () => statements.filter((s) => s.carried).length,
+    [statements],
+  );
+  /** Carried, and no longer what the counterparty says — see `restated`. */
+  const moved = useMemo(
+    () => statements.filter((s) => restated(s)).length,
     [statements],
   );
 
@@ -58,6 +76,20 @@ export function MirrorTable({
         {editable
           ? ` · click a ${periodLabels.current} figure to add that settlement to your grid, or again to take it out`
           : ''}
+        {/* Carrying copies a figure; it does not follow it. Where the two have
+            parted company the row says so and offers the new one. */}
+        {moved > 0 ? (
+          <>
+            {' · '}
+            <strong className="mirror-moved-note">
+              {moved === 1
+                ? '1 carried settlement has been restated since you took it'
+                : `${moved} carried settlements have been restated since you took them`}
+            </strong>
+          </>
+        ) : (
+          ''
+        )}
       </div>
       <div className="mirror-table-wrap">
         <table className="mirror-table">
@@ -81,17 +113,24 @@ export function MirrorTable({
           <tbody>
             {statements.map((s) => {
               const dates =
-                s.days.length === 1
-                  ? dateLabel(s.days[0])
-                  : `${dateLabel(s.days[0])} +${s.days.length - 1} more`;
+                s.days.length === 0
+                  ? '—'
+                  : s.days.length === 1
+                    ? dateLabel(s.days[0])
+                    : `${dateLabel(s.days[0])} +${s.days.length - 1} more`;
+              /**
+               * The figure on the control is what this forecast HOLDS once it
+               * is carrying one, and what the counterparty offers before that.
+               * Showing their current figure on a carried row would be a
+               * number that is not in the grid underneath it.
+               */
+              const shown = s.carried ? s.carriedTotal : s.current;
+              const withdrawn = s.current === null;
               return (
                 <tr key={`${s.counterparty}:${s.rowId}`} className={s.carried ? 'is-carried' : ''}>
-                  <th scope="row">
-                    <span className="mirror-code" aria-hidden="true">
-                      {countryCode(s.counterparty)}
-                    </span>
-                    {s.counterparty}
-                  </th>
+                  {/* The country's name, and only that: the two-letter code
+                      beside it was the same fact twice in one cell. */}
+                  <th scope="row">{s.counterparty}</th>
                   <td className="mirror-when" title={s.days.map(dateLabel).join(', ')}>
                     {dates}
                   </td>
@@ -103,7 +142,7 @@ export function MirrorTable({
                         title={
                           s.carried
                             ? `Remove ${s.counterparty}'s settlement from this forecast`
-                            : `Add ${s.counterparty}'s settlement to this forecast`
+                            : `Add ${s.counterparty}'s settlement to this forecast — the figure is copied in as it stands now`
                         }
                         onClick={() => onToggle(s.counterparty)}
                       >
@@ -116,11 +155,31 @@ export function MirrorTable({
                         <span className="mirror-take-word">
                           {s.carried ? 'Carried' : 'Add'}
                         </span>
-                        {fmt(s.current)}
+                        {fmt(shown)}
                       </button>
                     ) : (
                       <span className={s.carried ? 'mirror-static on' : 'mirror-static'}>
-                        {fmt(s.current)}
+                        {fmt(shown)}
+                      </span>
+                    )}
+                    {/* What the counterparty says NOW, where that is no longer
+                        what was taken. The copy stands until somebody says
+                        otherwise — this is where they say it. */}
+                    {restated(s) && (
+                      <span className="mirror-moved">
+                        {withdrawn ? (
+                          <span className="mirror-moved-word">no longer stated</span>
+                        ) : editable ? (
+                          <button
+                            className="mirror-retake"
+                            title={`${s.counterparty} now states ${fmt(s.current)} — replace the figure this forecast carries`}
+                            onClick={() => onRetake(s.counterparty)}
+                          >
+                            now {fmt(s.current)} · take
+                          </button>
+                        ) : (
+                          <span className="mirror-moved-word">now {fmt(s.current)}</span>
+                        )}
                       </span>
                     )}
                   </td>

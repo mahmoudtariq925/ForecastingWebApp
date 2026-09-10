@@ -29,7 +29,7 @@ import { listEntities, seedUsers } from './appData';
 import { activeCycle, listCycles } from './cycleService';
 import { getOrCreateSubmission, templateForEntity } from './submissionService';
 import { customCatIndex, customRowsOf, isOwnRow } from './customRows';
-import { intercompanySections, syncMirrors } from './intercompanyService';
+import { carryStatedMirrors, intercompanySections } from './intercompanyService';
 import { periodsOf, prevWeekKey, rollShift } from './periods';
 import {
   loadApprovals,
@@ -353,10 +353,10 @@ function seedDemoQuestions(week: string): void {
 // and reads as broken rather than as empty. So the week opens with real
 // settlements between real group companies.
 //
-// Only the ORIGINATING side is written here. The other half of each is
-// produced by `syncMirrors`, the same code that runs when a submitter types
-// one in, so the seeded state is exactly what a week of genuine use produces
-// rather than an imitation of it that can drift from it.
+// Only the ORIGINATING side is written here. The other half of each is TAKEN
+// by the counterparty afterwards, through the same code the table beside the
+// grid runs when somebody presses Add — so the seeded state is exactly what a
+// week of genuine use produces rather than an imitation of it.
 // ---------------------------------------------------------------------------
 
 /** Who settles with whom, and roughly how much, on which working day. */
@@ -459,8 +459,14 @@ function seedIntercompanyWeek(week: string, back: number): void {
     });
 
     saveSubmission({ ...stored, customRows: rows, values });
-    // The other half of every one of them, written by the app's own mirroring.
-    syncMirrors({ period: week, entity, template, rows, values });
+  }
+  // Now the other half: every entity named as a counterparty takes what has
+  // been stated about it, which is what a submitter pressing Add on the table
+  // does. Taken after the whole loop, so an entity settled with before its
+  // own turn came round still gets everything.
+  for (const counterparty of new Set(DEMO_INTERCOMPANY.map((e) => e.counterparty))) {
+    const template = templateForEntity(templates, counterparty);
+    if (template) carryStatedMirrors(week, counterparty, template);
   }
 }
 

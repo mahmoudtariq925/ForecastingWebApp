@@ -3151,13 +3151,10 @@ tbody tr.row-inactive td {
 .questions-table .q-action {
   text-align: right;
 }
-/* Waiting is the state somebody is held up by, so those rows carry an edge
-   and the answered ones sit back. */
+/* Every row here is a question somebody is held up by, and the edge says so
+   down the left of the table. */
 .questions-table tbody tr.is-awaiting td:first-child {
   box-shadow: inset 3px 0 0 var(--amber);
-}
-.questions-table tbody tr:not(.is-awaiting) .q-primary {
-  color: var(--text-dim);
 }
 
 /* === REQUIRES ATTENTION (treasury dashboard) === */
@@ -6938,14 +6935,6 @@ thead th,
 .mirror-table tbody tr:hover > td {
   background: var(--bg-sunken);
 }
-.mirror-code {
-  display: inline-block;
-  min-width: 24px;
-  margin-right: 8px;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-muted);
-}
 .mirror-when {
   color: var(--text-dim);
 }
@@ -6997,6 +6986,38 @@ thead th,
 .mirror-take-mark {
   font-size: 11px;
   opacity: 0.9;
+}
+/* A carried figure and its source have parted company. Not an error — a copy
+   is meant to stand still — so it is stated under the figure it belongs to,
+   with the new one one click away. */
+.mirror-moved {
+  display: block;
+  margin-top: 3px;
+  text-align: right;
+}
+.mirror-moved-word {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--amber);
+}
+.mirror-retake {
+  padding: 1px 8px;
+  border-radius: 100px;
+  border: 1px solid var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mirror-retake:hover {
+  background: var(--amber);
+  color: var(--jde-white);
+}
+.mirror-moved-note {
+  color: var(--amber);
+  font-weight: 600;
 }
 .mirror-static {
   font-family: var(--mono);
