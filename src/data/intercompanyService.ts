@@ -38,7 +38,7 @@ import {
 import { listLegalEntities } from './legalEntityService';
 import { periodsOf, prevWeekKey, rollShift } from './periods';
 import { loadSubmission, loadTemplates, saveSubmission } from '../storage/localStorage';
-import { templateForEntity } from './submissionService';
+import { templateForEntity, toneOf } from './submissionService';
 
 /** Is this line settled between group companies rather than outside them? */
 export function isIntercompanyCategory(
@@ -235,22 +235,33 @@ function flippedFigures(
 }
 
 /**
- * What another entity currently STATES about this one: its own intercompany
- * rows that name us, with the figures already flipped to our side.
+ * What another entity STATES about this one, once somebody has signed it off:
+ * its own intercompany rows that name us, with the figures already flipped to
+ * our side.
  *
- * Read from what they have stored rather than from what they are typing —
- * this runs on our screen, not theirs.
+ * APPROVED FORECASTS ONLY. A settlement is a claim on another country's cash,
+ * and one nobody has approved is a figure their submitter is still moving
+ * around — carrying it copies whatever happened to be in the cell at the
+ * moment it was taken, and the copy then stands through this forecast's own
+ * submission and approval with nothing to say it came from a draft.
+ *
+ * `anyStatus` reads past that gate. It is not a way to carry an unapproved
+ * figure — nothing does that — but a way to tell a statement that has gone
+ * back into the counterparty's hands apart from one they have withdrawn.
  */
 function statedMirrors(
   source: string,
   period: string,
   target: string,
   templates: ForecastTemplate[],
+  { anyStatus = false }: { anyStatus?: boolean } = {},
 ): { row: CustomRow; figures: Record<string, number> }[] {
   const sourceTemplate = templateForEntity(templates, source);
   if (!sourceTemplate) return [];
   const stored = loadSubmission(period, source, sourceTemplate.id);
   if (!stored) return [];
+  // `consolidated` is approved and then some — see `toneOf`.
+  if (!anyStatus && toneOf(stored.status) !== 'approved') return [];
   const rows = customRowsOf(stored);
   const periods = periodsOf(sourceTemplate).count;
   const out: { row: CustomRow; figures: Record<string, number> }[] = [];
@@ -455,10 +466,18 @@ export interface MirrorStatement {
   /** Day indexes on THIS entity's horizon that the statement touches. */
   days: number[];
   /**
-   * What they state for this week, on our side of the settlement — null once
-   * they have withdrawn a statement this forecast is still carrying.
+   * What their APPROVED forecast states for this week, on our side of the
+   * settlement — null once there is no approved statement left and this
+   * forecast is carrying the copy of one. `gone` says which happened.
    */
   current: number | null;
+  /**
+   * Why the current figure is missing, on a row this forecast still carries:
+   * `withdrawn` — the counterparty has taken the settlement out; `unapproved`
+   * — they still state it, but their forecast has gone back into their hands
+   * and is no longer signed off. Null while an approved statement stands.
+   */
+  gone: 'withdrawn' | 'unapproved' | null;
   /** The same statement one and two cycles back; null where they made none. */
   prior1: number | null;
   prior2: number | null;
@@ -570,6 +589,7 @@ export function mirrorStatements(
         rowId: row.id,
         days,
         current,
+        gone: null,
         prior1: priorTotal(legal.name, row.id, days, 1),
         prior2: priorTotal(legal.name, row.id, days, 2),
         carried: carried.has(key),
@@ -580,28 +600,36 @@ export function mirrorStatements(
   }
 
   /**
-   * A statement this forecast carries that the counterparty no longer makes.
-   * The copy is still in the grid — that is what a copy is — and without a
-   * row here the only trace of it would be a mirrored line in the forecast
-   * with nothing on the other side of it.
+   * A statement this forecast carries that the counterparty no longer makes —
+   * or no longer makes in a forecast anybody has approved. The copy is still
+   * in the grid, which is what a copy is, and without a row here the only
+   * trace of it would be a mirrored line in the forecast with nothing on the
+   * other side of it.
    */
   heldRows.forEach((row) => {
     if (isOwnRow(row) || !row.sourceRowId) return;
-    const key = `${row.source}:${row.sourceRowId}`;
+    const source = row.source as string;
+    const key = `${source}:${row.sourceRowId}`;
     if (seen.has(key)) return;
     const mine = held.get(key);
+    // The two are worth telling apart: a settlement taken out is one to stop
+    // carrying, and a forecast reopened for changes is one to wait on.
+    const stillStated = statedMirrors(source, period, entity, templates, {
+      anyStatus: true,
+    }).some((says) => says.row.id === row.sourceRowId);
     // The days and the history are read off the COPY, which is all there is
     // left of the statement: what the counterparty submitted in the weeks
     // behind this one happened, and does not stop having happened because
     // they have taken this week's figure out.
     const days = mine?.days ?? [];
     out.push({
-      counterparty: row.source as string,
+      counterparty: source,
       rowId: row.sourceRowId,
       days,
       current: null,
-      prior1: priorTotal(row.source as string, row.sourceRowId, days, 1),
-      prior2: priorTotal(row.source as string, row.sourceRowId, days, 2),
+      gone: stillStated ? 'unapproved' : 'withdrawn',
+      prior1: priorTotal(source, row.sourceRowId, days, 1),
+      prior2: priorTotal(source, row.sourceRowId, days, 2),
       carried: true,
       carriedTotal: mine?.total ?? 0,
     });

@@ -25,9 +25,19 @@ const fmt = (v: number | null): string =>
  * apart the moment either side edits. That is not an error — it is the thing
  * the table exists to show, because nothing else on the screen can: the grid
  * holds the copy and says nothing about where it came from.
+ *
+ * A statement with no approved figure left is NOT this: nobody has restated
+ * anything, the settlement has gone back into the counterparty's hands or out
+ * of their forecast altogether. `stale` is that case, and the two are counted
+ * apart because they are answered differently — one is a figure to take, the
+ * other is a forecast to wait on.
  */
 const restated = (s: MirrorStatement): boolean =>
-  s.carried && Math.round(s.carriedTotal ?? 0) !== Math.round(s.current ?? 0);
+  s.carried &&
+  s.gone === null &&
+  Math.round(s.carriedTotal ?? 0) !== Math.round(s.current ?? 0);
+
+const stale = (s: MirrorStatement): boolean => s.carried && s.gone !== null;
 
 /**
  * What the rest of the group says about this entity's week, and what of it
@@ -38,9 +48,14 @@ const restated = (s: MirrorStatement): boolean =>
  * arrived. A statement this forecast had declined was invisible, and so was
  * the same statement a week ago, whatever the setting.
  *
+ * Everything here comes from an APPROVED forecast, so the table is often
+ * shorter than the list of countries this entity settles with — and empty
+ * early in a cycle, when nobody has been signed off yet. The lead says so, so
+ * that a short table is not read as a complete one.
+ *
  * One row per statement: who is settling, when, what they say now, and what
  * they said in the two cycles behind it. Only the current figure is a
- * control — the two history columns are what was submitted at the time, and
+ * control — the two history columns are what was approved at the time, and
  * nothing can be added or removed from a week that is closed.
  */
 export function MirrorTable({
@@ -60,11 +75,14 @@ export function MirrorTable({
     () => statements.filter((s) => restated(s)).length,
     [statements],
   );
+  /** Carried, with no approved figure behind it any more. */
+  const dropped = useMemo(() => statements.filter((s) => stale(s)).length, [statements]);
 
   if (statements.length === 0) {
     return (
       <div className="mirror-empty text-muted">
-        No group company has stated a settlement with this entity for this week.
+        No intercompany items are forecast to be paid to or received from other
+        countries yet.
       </div>
     );
   }
@@ -73,6 +91,13 @@ export function MirrorTable({
     <>
       <div className="mirror-lead text-muted">
         {carried} of {statements.length} carried into this forecast
+        {/* Said on every table, not only the empty one: a country that
+            settles with nine others and sees three rows needs to know the
+            other six are unapproved rather than absent. */}
+        {' · '}
+        <span title="A counterparty appears here once their own forecast for the week has been approved">
+          approved forecasts only
+        </span>
         {editable
           ? ` · click a ${periodLabels.current} figure to add that settlement to your grid, or again to take it out`
           : ''}
@@ -85,6 +110,18 @@ export function MirrorTable({
               {moved === 1
                 ? '1 carried settlement has been restated since you took it'
                 : `${moved} carried settlements have been restated since you took them`}
+            </strong>
+          </>
+        ) : (
+          ''
+        )}
+        {dropped > 0 ? (
+          <>
+            {' · '}
+            <strong className="mirror-moved-note">
+              {dropped === 1
+                ? '1 no longer has an approved figure behind it'
+                : `${dropped} no longer have an approved figure behind them`}
             </strong>
           </>
         ) : (
@@ -125,7 +162,6 @@ export function MirrorTable({
                * number that is not in the grid underneath it.
                */
               const shown = s.carried ? s.carriedTotal : s.current;
-              const withdrawn = s.current === null;
               return (
                 <tr key={`${s.counterparty}:${s.rowId}`} className={s.carried ? 'is-carried' : ''}>
                   {/* The country's name, and only that: the two-letter code
@@ -165,10 +201,21 @@ export function MirrorTable({
                     {/* What the counterparty says NOW, where that is no longer
                         what was taken. The copy stands until somebody says
                         otherwise — this is where they say it. */}
-                    {restated(s) && (
+                    {(restated(s) || stale(s)) && (
                       <span className="mirror-moved">
-                        {withdrawn ? (
+                        {/* A settlement taken out is one to stop carrying; a
+                            forecast reopened for changes is one to wait on.
+                            Both leave the copy standing, so the row has to say
+                            which of the two it is. */}
+                        {s.gone === 'withdrawn' ? (
                           <span className="mirror-moved-word">no longer stated</span>
+                        ) : s.gone === 'unapproved' ? (
+                          <span
+                            className="mirror-moved-word"
+                            title={`${s.counterparty}'s forecast is back with them and no longer approved — the figure carried here is the one that was signed off`}
+                          >
+                            no longer approved
+                          </span>
                         ) : editable ? (
                           <button
                             className="mirror-retake"
