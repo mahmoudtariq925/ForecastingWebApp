@@ -2786,11 +2786,10 @@ function SubmissionEditor({
         </div>
 
         {/* The two things worth looking at BEFORE the numbers: the shape of
-            the week, and what the rest of the group says about it. Folded they
-            are two strips, so they sit side by side rather than stacking two
-            near-empty bars over the grid; opened, either one takes the row —
-            a chart and a five-column table have nothing to gain from half a
-            screen each. */}
+            the week, and what the rest of the group says about it. Side by
+            side, open or folded — they are both things a figure is checked
+            AGAINST, and stacked they pushed the grid a screenful down for the
+            sake of two cards with a column of white space beside each. */}
         <div className="forecast-strips">
         {/* The outlook: the shape of the week is what you check a figure
             against, and it folds away when it is not. */}
@@ -2943,12 +2942,12 @@ function SubmissionEditor({
           )}
         </div>
 
-        {/* What the rest of the group says about this week: its own card under
-            the outlook, folding the same way. It used to be a third column
-            inside the outlook — a spine down the edge of the chart that took
-            the chart's width when it opened, and gave a five-column table
-            340px to live in. The two say different things about the same
-            week and neither is a margin note on the other. */}
+        {/* What the rest of the group says about this week: its own card
+            beside the outlook, folding the same way. It used to be a third
+            column INSIDE the outlook — a spine down the edge of the chart
+            that took the chart's width when it opened, and gave a
+            five-column table 340px to live in. The two say different things
+            about the same week and neither is a margin note on the other. */}
         {hasIntercompany && (
           <div
             className={`panel chart-panel forecast-mirrors${mirrorsOpen ? ' is-open' : ''}`}

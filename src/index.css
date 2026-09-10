@@ -6771,13 +6771,15 @@ thead th,
   align-items: flex-start;
   gap: var(--panel-gap);
 }
+/* Two columns, open or folded. The shape of the week and what the group says
+   about it are both things you check a figure AGAINST, so they are read
+   together and neither is worth a scroll to reach. The basis is the width
+   below which a chart and a five-column table stop being readable side by
+   side; under that the row wraps and they stack. */
 .forecast-entry .forecast-strips > .panel {
-  flex: 1 1 340px;
+  flex: 1 1 460px;
   min-width: 0;
   margin-bottom: 0;
-}
-.forecast-entry .forecast-strips > .panel.is-open {
-  flex-basis: 100%;
 }
 /* The row itself carries the gap the panels used to. */
 .forecast-entry .forecast-strips {
@@ -6804,9 +6806,12 @@ thead th,
 }
 .forecast-entry .forecast-outlook .outlook-body {
   display: grid;
-  /* Wide enough for the rail's own widest control ("Compare · Running
-     Balance") to sit inside it rather than push out of it. */
-  grid-template-columns: 250px minmax(0, 1fr);
+  /* The rail takes a THIRD of the card, capped at the width its own widest
+     control ("Compare · Running Balance") wants and floored where its
+     checkboxes stop fitting. Fixed at that cap, the rail was wider than the
+     plot once the card shared its row with the intercompany table — a column
+     of checkboxes crowding out the thing they control. */
+  grid-template-columns: clamp(160px, 33%, 250px) minmax(0, 1fr);
   align-items: stretch;
 }
 

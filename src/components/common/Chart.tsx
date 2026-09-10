@@ -232,6 +232,15 @@ export function Chart({
   const y = (v: number) => PAD_T + ((max - v) / (max - min)) * plotH;
   const slotW = plotW / Math.max(n, 1);
   const x = (i: number) => PAD_L + (i + 0.5) * slotW;
+  /**
+   * The row of marked figures is captioned once, on the left — unless the
+   * leftmost figure sits where the caption would be. Side by side with the
+   * intercompany table the plot is half the width it was, and there the two
+   * printed on top of each other: two strings in one place say less than one,
+   * and the figures are the half worth keeping.
+   */
+  const firstSlot = slotValues?.findIndex((v) => v !== null && v !== undefined) ?? -1;
+  const captionFits = firstSlot < 0 || x(firstSlot) - PAD_L > 96;
 
   // Stacked: one column per slot. Grouped: one bar per series, side by side.
   const barW = stacked ? slotW * 0.5 : (slotW * 0.55) / Math.max(barSeries.length, 1);
@@ -312,7 +321,7 @@ export function Chart({
         {/* The figure that belongs to a marked slot, printed where it can be
             read rather than estimated off the axis — and said once, on the
             left, what the row of them is. */}
-        {slotValueLabel && slotValues?.some((v) => v !== null && v !== undefined) && (
+        {slotValueLabel && captionFits && slotValues?.some((v) => v !== null && v !== undefined) && (
           <text className="chart-slot-caption" x={PAD_L} y={PAD_T - 3} textAnchor="start">
             {slotValueLabel}
           </text>
